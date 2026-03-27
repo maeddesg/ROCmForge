@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/feanor/Projects/rocmforge/hip_kernels/quant/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

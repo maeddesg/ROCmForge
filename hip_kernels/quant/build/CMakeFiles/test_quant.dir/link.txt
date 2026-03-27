@@ -1,0 +1,2 @@
+/usr/bin/ar qc lib/libtest_quant.a CMakeFiles/test_quant.dir/test_kernel.hip.o
+/usr/bin/ranlib lib/libtest_quant.a

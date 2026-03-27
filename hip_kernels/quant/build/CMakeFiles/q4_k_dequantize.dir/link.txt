@@ -1,0 +1,2 @@
+/usr/bin/ar qc lib/libq4_k_dequantize.a CMakeFiles/q4_k_dequantize.dir/q4_k_dequantize.hip.o
+/usr/bin/ranlib lib/libq4_k_dequantize.a

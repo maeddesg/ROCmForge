@@ -1,0 +1,24 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/feanor/Projects/rocmforge/hip_kernels/quant/common.hip
+hip/hip_runtime.h
+-
+hip/hip_fp16.h
+-
+stdint.h
+-
+stddef.h
+-
+
+/home/feanor/Projects/rocmforge/hip_kernels/quant/q4_k_dequantize.hip
+common.hip
+/home/feanor/Projects/rocmforge/hip_kernels/quant/common.hip
+hip/hip_fp16.h
+-
+
