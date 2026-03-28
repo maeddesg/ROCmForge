@@ -1,2 +1,0 @@
-/usr/bin/ar qc lib/libq4_k_quantize.a CMakeFiles/q4_k_quantize.dir/q4_k_quantize.hip.o
-/usr/bin/ranlib lib/libq4_k_quantize.a

@@ -1,2 +1,0 @@
-/usr/bin/ar qc lib/libq4_k_verify.a CMakeFiles/q4_k_verify.dir/q4_k_verify.hip.o
-/usr/bin/ranlib lib/libq4_k_verify.a

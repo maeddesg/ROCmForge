@@ -1,7 +1,0 @@
-/home/feanor/Projects/rocmforge/hip_kernels/quant/build/CMakeFiles/quant_common.dir
-/home/feanor/Projects/rocmforge/hip_kernels/quant/build/CMakeFiles/q4_k_quantize.dir
-/home/feanor/Projects/rocmforge/hip_kernels/quant/build/CMakeFiles/q4_k_dequantize.dir
-/home/feanor/Projects/rocmforge/hip_kernels/quant/build/CMakeFiles/q4_k_verify.dir
-/home/feanor/Projects/rocmforge/hip_kernels/quant/build/CMakeFiles/test_quant.dir
-/home/feanor/Projects/rocmforge/hip_kernels/quant/build/CMakeFiles/edit_cache.dir
-/home/feanor/Projects/rocmforge/hip_kernels/quant/build/CMakeFiles/rebuild_cache.dir
