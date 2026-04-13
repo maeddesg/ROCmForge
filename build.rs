@@ -4,6 +4,37 @@ use std::path::PathBuf;
 mod gpu_build {
     use super::*;
 
+    /// Detect the GPU architecture by querying `rocminfo` for the first gfx target,
+    /// or use the `ROCMFORGE_GPU_ARCH` env variable as an override.
+    fn detect_gpu_arch() -> Option<String> {
+        if let Ok(arch) = env::var("ROCMFORGE_GPU_ARCH") {
+            println!("cargo:warning=Using GPU arch from ROCMFORGE_GPU_ARCH: {}", arch);
+            return Some(arch);
+        }
+
+        let output = std::process::Command::new("rocminfo")
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("Name:") {
+                let name = trimmed.strip_prefix("Name:")?.trim();
+                if name.starts_with("gfx") {
+                    println!("cargo:warning=Detected GPU arch: {}", name);
+                    return Some(name.to_string());
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn compile_kernels() {
         compile_hip_kernels();
     }
@@ -60,7 +91,10 @@ mod gpu_build {
                 .arg("-c")
                 .arg("-fPIC")
                 .arg("-O3")
-                .arg("--offload-arch=gfx1100")
+                .arg(format!("--offload-arch={}", detect_gpu_arch().unwrap_or_else(|| {
+                    println!("cargo:warning=Could not detect GPU arch, falling back to gfx1100");
+                    "gfx1100".to_string()
+                })))
                 .arg(format!("-I{}", hip_include.display()))
                 .status();
 
@@ -308,6 +342,7 @@ fn main() {
         println!("cargo:rustc-link-lib=amdhip64");
         println!("cargo:rerun-if-env-changed=HIP_PATH");
         println!("cargo:rerun-if-env-changed=ROCM_PATH");
+        println!("cargo:rerun-if-env-changed=ROCMFORGE_GPU_ARCH");
         println!("cargo:rerun-if-changed=hip_kernels");
     }
 }
