@@ -2067,6 +2067,28 @@ unsafe extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 
+    // Fused QKV + RoPE + KV-Write kernel
+    fn gemv_qkv_rope_kvwrite_q4_0_f32_launch(
+        w_q: *const u8,
+        w_k: *const u8,
+        w_v: *const u8,
+        bias_q: *const f32,
+        bias_k: *const f32,
+        bias_v: *const f32,
+        input: *const f32,
+        out_q: *mut f32,
+        k_cache: *mut f32,
+        v_cache: *mut f32,
+        n_rows: c_int,
+        n_q: c_int,
+        n_kv: c_int,
+        pos_ptr: *const c_int,
+        head_dim: c_int,
+        theta_base: f32,
+        neox: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
     fn gemv_gate_up_q4_0_f32_launch(
         w_gate: *const u8,
         w_up: *const u8,
@@ -2238,6 +2260,62 @@ pub fn gemv_qkv_q4_0_f32_on_stream_variant(
         return Err(GpuError::HipApiError {
             code: result as i32,
             description: format!("gemv_qkv_q4_0_f32_variant kernel failed: {:?}", result),
+        });
+    }
+    Ok(())
+}
+
+/// Fused QKV + RoPE + KV-Write for Q4_0 quantized weights.
+///
+/// Replaces 3 kernel launches (QKV, RoPE-Q, RoPE-K+KV-Write) with 1.
+/// Only supports the v3 fast path (n_q % 4 == 0, n_kv % 4 == 0, hidden fits in LDS).
+/// Returns hipErrorInvalidValue if dimensions are unsupported; caller should fall back.
+pub fn gemv_qkv_rope_kvwrite_q4_0_f32_on_stream(
+    w_q: *const u8,
+    w_k: *const u8,
+    w_v: *const u8,
+    bias_q: *const f32,
+    bias_k: *const f32,
+    bias_v: *const f32,
+    input: *const f32,
+    out_q: *mut f32,
+    k_cache: *mut f32,
+    v_cache: *mut f32,
+    n_rows: usize,
+    n_q: usize,
+    n_kv: usize,
+    pos_ptr: *const i32,
+    head_dim: usize,
+    theta_base: f32,
+    neox: bool,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    let result = unsafe {
+        gemv_qkv_rope_kvwrite_q4_0_f32_launch(
+            w_q,
+            w_k,
+            w_v,
+            bias_q,
+            bias_k,
+            bias_v,
+            input,
+            out_q,
+            k_cache,
+            v_cache,
+            n_rows as c_int,
+            n_q as c_int,
+            n_kv as c_int,
+            pos_ptr,
+            head_dim as c_int,
+            theta_base,
+            neox as c_int,
+            stream,
+        )
+    };
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!("gemv_qkv_rope_kvwrite_q4_0_f32 kernel failed: {:?}", result),
         });
     }
     Ok(())

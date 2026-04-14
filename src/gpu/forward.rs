@@ -23,9 +23,9 @@ use super::kernels::rope::{
     rope_heads_batched, rope_heads_from_state_on_stream, rope_heads_on_stream,
 };
 use super::ops::{
-    gpu_dispatch_fused_gate_up_on_stream, gpu_dispatch_fused_qkv_on_stream, gpu_dispatch_gemm,
-    gpu_dispatch_gemv, gpu_dispatch_gemv_on_stream, gpu_dispatch_gemv_residual_on_stream,
-    gpu_dispatch_rms_norm,
+    gpu_dispatch_fused_gate_up_on_stream, gpu_dispatch_fused_qkv_on_stream,
+    gpu_dispatch_fused_qkv_rope_kvwrite_on_stream, gpu_dispatch_gemm, gpu_dispatch_gemv,
+    gpu_dispatch_gemv_on_stream, gpu_dispatch_gemv_residual_on_stream, gpu_dispatch_rms_norm,
 };
 use super::weights::{GpuBuffer, GpuLayerWeights, GpuModelWeights, WeightMeta};
 use crate::config::ModelConfig;
@@ -1053,7 +1053,8 @@ fn gpu_layer_forward_from_state_on_stream(
         device.stream(),
     )?;
 
-    gpu_dispatch_fused_qkv_on_stream(
+    // Try fused QKV + RoPE + KV-Write (1 kernel instead of 3)
+    let fused_qkv_rope = gpu_dispatch_fused_qkv_rope_kvwrite_on_stream(
         device,
         &gpu_layer.attn_q,
         &gpu_layer.attn_q_meta,
@@ -1066,35 +1067,63 @@ fn gpu_layer_forward_from_state_on_stream(
         gpu_layer.attn_v_bias.as_ref(),
         scratch.normed.as_ptr() as *const f32,
         scratch.q.as_ptr() as *mut f32,
-        scratch.k.as_ptr() as *mut f32,
-        scratch.v.as_ptr() as *mut f32,
+        kv.k_ptr(layer_idx)?,
+        kv.v_ptr(layer_idx)?,
         q_size,
         kv_size,
         h,
+        scratch.decode_pos_ptr(),
+        config.head_dim,
+        config.rope_theta,
+        config.rope_neox,
         device.stream(),
     )?;
 
-    rope_heads_from_state_on_stream(
-        scratch.q.as_ptr() as *mut f32,
-        scratch.decode_pos_ptr(),
-        config.num_heads,
-        config.head_dim,
-        config.rope_theta,
-        config.rope_neox,
-        device.stream(),
-    )?;
-    kv_write_rope_from_state_on_stream(
-        kv.k_ptr(layer_idx)?,
-        kv.v_ptr(layer_idx)?,
-        scratch.k.as_ptr() as *const f32,
-        scratch.v.as_ptr() as *const f32,
-        scratch.decode_pos_ptr(),
-        config.num_kv_heads,
-        config.head_dim,
-        config.rope_theta,
-        config.rope_neox,
-        device.stream(),
-    )?;
+    if !fused_qkv_rope {
+        // Fallback: separate QKV + RoPE + KV-Write (3 kernels)
+        gpu_dispatch_fused_qkv_on_stream(
+            device,
+            &gpu_layer.attn_q,
+            &gpu_layer.attn_q_meta,
+            gpu_layer.attn_q_bias.as_ref(),
+            &gpu_layer.attn_k,
+            &gpu_layer.attn_k_meta,
+            gpu_layer.attn_k_bias.as_ref(),
+            &gpu_layer.attn_v,
+            &gpu_layer.attn_v_meta,
+            gpu_layer.attn_v_bias.as_ref(),
+            scratch.normed.as_ptr() as *const f32,
+            scratch.q.as_ptr() as *mut f32,
+            scratch.k.as_ptr() as *mut f32,
+            scratch.v.as_ptr() as *mut f32,
+            q_size,
+            kv_size,
+            h,
+            device.stream(),
+        )?;
+
+        rope_heads_from_state_on_stream(
+            scratch.q.as_ptr() as *mut f32,
+            scratch.decode_pos_ptr(),
+            config.num_heads,
+            config.head_dim,
+            config.rope_theta,
+            config.rope_neox,
+            device.stream(),
+        )?;
+        kv_write_rope_from_state_on_stream(
+            kv.k_ptr(layer_idx)?,
+            kv.v_ptr(layer_idx)?,
+            scratch.k.as_ptr() as *const f32,
+            scratch.v.as_ptr() as *const f32,
+            scratch.decode_pos_ptr(),
+            config.num_kv_heads,
+            config.head_dim,
+            config.rope_theta,
+            config.rope_neox,
+            device.stream(),
+        )?;
+    }
 
     gpu_attention_decode_from_state(device, scratch, kv, layer_idx, config)?;
 
