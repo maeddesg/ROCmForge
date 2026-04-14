@@ -1297,7 +1297,6 @@ pub fn gpu_layer_forward_hybrid(
     let kv_size = config.num_kv_heads * config.head_dim;
     let ff_size = config.intermediate_size;
     let eps = config.rms_norm_eps;
-
     if decode_stage_profiling_enabled() {
         let mut guard = decode_stage_profile_store()
             .lock()
@@ -1317,7 +1316,7 @@ pub fn gpu_layer_forward_hybrid(
         )
     })?;
 
-    profile_decode_stage(device, DecodeStage::Qkv, || {
+profile_decode_stage(device, DecodeStage::Qkv, || {
         gpu_dispatch_fused_qkv_on_stream(
             device,
             &gpu_layer.attn_q,
@@ -1340,7 +1339,7 @@ pub fn gpu_layer_forward_hybrid(
         )
     })?;
 
-    profile_decode_stage(device, DecodeStage::QRope, || {
+profile_decode_stage(device, DecodeStage::QRope, || {
         rope_heads_on_stream(
             scratch.q.as_ptr() as *mut f32,
             pos,
@@ -1438,8 +1437,8 @@ pub fn gpu_layer_forward_hybrid(
             scratch.swiglu.as_ptr() as *const f32,
             scratch.hidden.as_ptr() as *const f32,
             scratch.hidden.as_ptr() as *mut f32,
-            h,
             ff_size,
+            h,
             device.stream(),
         )
     })?;

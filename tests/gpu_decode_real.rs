@@ -17,10 +17,15 @@ use rocmforge::loader::GgufFile;
 use rocmforge::tokenizer::BpeTokenizer;
 use serial_test::serial;
 
-const MODEL_PATH: &str = "/home/feanor/Projects/Memoria/models/qwen2.5-0.5b-instruct-q4_0.gguf";
+const DEFAULT_MODEL_PATH: &str =
+    "/home/feanor/Projects/Memoria/models/qwen2.5-0.5b-instruct-q4_0.gguf";
+
+fn model_path() -> String {
+    std::env::var("ROCMFORGE_MODEL_PATH").unwrap_or_else(|_| DEFAULT_MODEL_PATH.to_string())
+}
 
 fn skip_if_model_missing() -> bool {
-    !std::path::Path::new(MODEL_PATH).exists()
+    !std::path::Path::new(&model_path()).exists()
 }
 
 fn run_cpu_prompt_reference(
@@ -92,7 +97,7 @@ fn stddev(values: &[f64], avg: f64) -> f64 {
 #[serial]
 fn test_gpu_embed_real_model_matches_cpu_hidden() {
     if skip_if_model_missing() {
-        eprintln!("Skipping test: model file not found at {}", MODEL_PATH);
+        eprintln!("Skipping test: model file not found at {}", model_path());
         return;
     }
 
@@ -103,7 +108,7 @@ fn test_gpu_embed_real_model_matches_cpu_hidden() {
     let caps = gpu::detect().expect("GPU should be detected");
     let device = GpuDevice::init(caps.device_id).expect("GPU device should initialize");
 
-    let file = GgufFile::open(MODEL_PATH).expect("Failed to open GGUF file");
+    let file = GgufFile::open(&model_path()).expect("Failed to open GGUF file");
     let config = ModelConfig::from_gguf(&file).expect("Failed to parse model config");
     let cpu_weights = CpuModelWeights::load(&file, &config).expect("CPU weights should load");
     let gpu_weights = gpu::GpuModelWeights::load(&file, &config).expect("GPU weights should load");
@@ -150,7 +155,7 @@ fn test_gpu_embed_real_model_matches_cpu_hidden() {
 #[serial]
 fn test_gpu_decode_real_model_matches_cpu_greedy_token() {
     if skip_if_model_missing() {
-        eprintln!("Skipping test: model file not found at {}", MODEL_PATH);
+        eprintln!("Skipping test: model file not found at {}", model_path());
         return;
     }
 
@@ -161,7 +166,7 @@ fn test_gpu_decode_real_model_matches_cpu_greedy_token() {
     let caps = gpu::detect().expect("GPU should be detected");
     let device = GpuDevice::init(caps.device_id).expect("GPU device should initialize");
 
-    let file = GgufFile::open(MODEL_PATH).expect("Failed to open GGUF file");
+    let file = GgufFile::open(&model_path()).expect("Failed to open GGUF file");
     let config = ModelConfig::from_gguf(&file).expect("Failed to parse model config");
     let cpu_weights = CpuModelWeights::load(&file, &config).expect("CPU weights should load");
     let gpu_weights = gpu::GpuModelWeights::load(&file, &config).expect("GPU weights should load");
@@ -412,7 +417,7 @@ fn test_gpu_decode_real_model_matches_cpu_greedy_token() {
 #[serial]
 fn test_gpu_greedy_decode_populates_cached_graph() {
     if skip_if_model_missing() {
-        eprintln!("Skipping test: model file not found at {}", MODEL_PATH);
+        eprintln!("Skipping test: model file not found at {}", model_path());
         return;
     }
 
@@ -424,7 +429,7 @@ fn test_gpu_greedy_decode_populates_cached_graph() {
     let caps = gpu::detect().expect("GPU should be detected");
     let device = GpuDevice::init(caps.device_id).expect("GPU device should initialize");
 
-    let file = GgufFile::open(MODEL_PATH).expect("Failed to open GGUF file");
+    let file = GgufFile::open(&model_path()).expect("Failed to open GGUF file");
     let config = ModelConfig::from_gguf(&file).expect("Failed to parse model config");
     let cpu_weights = CpuModelWeights::load(&file, &config).expect("CPU weights should load");
     let gpu_weights = gpu::GpuModelWeights::load(&file, &config).expect("GPU weights should load");
@@ -481,7 +486,7 @@ fn test_gpu_greedy_decode_populates_cached_graph() {
 #[serial]
 fn test_gpu_greedy_decode_profile_real_model() {
     if skip_if_model_missing() {
-        eprintln!("Skipping test: model file not found at {}", MODEL_PATH);
+        eprintln!("Skipping test: model file not found at {}", model_path());
         return;
     }
 
@@ -498,7 +503,7 @@ fn test_gpu_greedy_decode_profile_real_model() {
     let caps = gpu::detect().expect("GPU should be detected");
     let device = GpuDevice::init(caps.device_id).expect("GPU device should initialize");
 
-    let file = GgufFile::open(MODEL_PATH).expect("Failed to open GGUF file");
+    let file = GgufFile::open(&model_path()).expect("Failed to open GGUF file");
     let config = ModelConfig::from_gguf(&file).expect("Failed to parse model config");
     let cpu_weights = CpuModelWeights::load(&file, &config).expect("CPU weights should load");
     let gpu_weights = gpu::GpuModelWeights::load(&file, &config).expect("GPU weights should load");
@@ -516,6 +521,7 @@ fn test_gpu_greedy_decode_profile_real_model() {
     let prefill_start = std::time::Instant::now();
     let mut next_token = None;
     for (pos, &token_id) in prompt_tokens.iter().enumerate() {
+        eprintln!("[DIAG] prefill embed pos={} token={}", pos, token_id);
         gpu::gpu_embed_token_hybrid(
             &device,
             token_id,
@@ -526,6 +532,7 @@ fn test_gpu_greedy_decode_profile_real_model() {
             &config,
         )
         .expect("GPU embed should succeed");
+        eprintln!("[DIAG] prefill forward pos={}", pos);
         next_token = gpu::gpu_full_forward_hybrid(
             &device,
             &gpu_weights,
@@ -538,12 +545,16 @@ fn test_gpu_greedy_decode_profile_real_model() {
             gpu::GpuLogitsMode::GreedyArgmax,
         )
         .expect("GPU prompt decode should succeed");
+        eprintln!("[DIAG] prefill pos={} done", pos);
     }
     let prefill_elapsed = prefill_start.elapsed();
 
     let mut token = next_token.expect("prompt decode should produce a greedy token");
+    eprintln!("[DIAG] prefill complete, first decode token={}", token);
     let decode_start = std::time::Instant::now();
     for step in 0..decode_tokens {
+        let pos = prompt_tokens.len() + step;
+        eprintln!("[DIAG] decode step={} pos={} token={}", step, pos, token);
         gpu::gpu_embed_token_hybrid(
             &device,
             token,
@@ -554,6 +565,7 @@ fn test_gpu_greedy_decode_profile_real_model() {
             &config,
         )
         .expect("GPU embed should succeed");
+        eprintln!("[DIAG] decode forward pos={}", pos);
         token = gpu::gpu_full_forward_hybrid(
             &device,
             &gpu_weights,
@@ -561,12 +573,13 @@ fn test_gpu_greedy_decode_profile_real_model() {
             &mut kv,
             &mut gpu_scratch,
             &mut host_scratch,
-            prompt_tokens.len() + step,
+            pos,
             &config,
             gpu::GpuLogitsMode::GreedyArgmax,
         )
         .expect("GPU decode should succeed")
         .expect("decode step should produce a greedy token");
+        eprintln!("[DIAG] decode pos={} done, next_token={}", pos, token);
     }
     let decode_elapsed = decode_start.elapsed();
 
@@ -637,7 +650,7 @@ fn test_gpu_greedy_decode_profile_real_model() {
 #[ignore]
 fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
     if skip_if_model_missing() {
-        eprintln!("Skipping test: model file not found at {}", MODEL_PATH);
+        eprintln!("Skipping test: model file not found at {}", model_path());
         return;
     }
 
@@ -663,7 +676,7 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
     let caps = gpu::detect().expect("GPU should be detected");
     let device = GpuDevice::init(caps.device_id).expect("GPU device should initialize");
 
-    let file = GgufFile::open(MODEL_PATH).expect("Failed to open GGUF file");
+    let file = GgufFile::open(&model_path()).expect("Failed to open GGUF file");
     let config = ModelConfig::from_gguf(&file).expect("Failed to parse model config");
     let cpu_weights = CpuModelWeights::load(&file, &config).expect("CPU weights should load");
     let gpu_weights = gpu::GpuModelWeights::load(&file, &config).expect("GPU weights should load");
@@ -681,9 +694,11 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
         let mut gpu_scratch = GpuForwardScratch::new(&config).expect("GPU scratch should allocate");
         let mut host_scratch = CpuForwardScratch::new(&config);
 
+        let diag = std::env::var_os("ROCMFORGE_DIAG").is_some();
         let prefill_start = std::time::Instant::now();
         let mut next_token = None;
         for (pos, &token_id) in prompt_tokens.iter().enumerate() {
+            if diag { eprintln!("[DIAG] prefill embed pos={} token={}", pos, token_id); }
             gpu::gpu_embed_token_hybrid(
                 &device,
                 token_id,
@@ -694,6 +709,7 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
                 &config,
             )
             .expect("GPU embed should succeed");
+            if diag { eprintln!("[DIAG] prefill forward pos={}", pos); }
             next_token = gpu::gpu_full_forward_hybrid(
                 &device,
                 &gpu_weights,
@@ -706,12 +722,16 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
                 gpu::GpuLogitsMode::GreedyArgmax,
             )
             .expect("GPU prompt decode should succeed");
+            if diag { eprintln!("[DIAG] prefill pos={} done", pos); }
         }
         let prefill_elapsed = prefill_start.elapsed();
 
         let mut token = next_token.expect("prompt decode should produce a greedy token");
+        if diag { eprintln!("[DIAG] prefill done, first token={}", token); }
         let decode_start = std::time::Instant::now();
         for step in 0..decode_tokens {
+            let abs_pos = prompt_tokens.len() + step;
+            if diag { eprintln!("[DIAG] decode step={} pos={} token={}", step, abs_pos, token); }
             gpu::gpu_embed_token_hybrid(
                 &device,
                 token,
@@ -722,6 +742,7 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
                 &config,
             )
             .expect("GPU embed should succeed");
+            if diag { eprintln!("[DIAG] decode forward pos={}", abs_pos); }
             token = gpu::gpu_full_forward_hybrid(
                 &device,
                 &gpu_weights,
@@ -729,12 +750,13 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
                 &mut kv,
                 &mut gpu_scratch,
                 &mut host_scratch,
-                prompt_tokens.len() + step,
+                abs_pos,
                 &config,
                 gpu::GpuLogitsMode::GreedyArgmax,
             )
             .expect("GPU decode should succeed")
             .expect("decode step should produce a greedy token");
+            if diag { eprintln!("[DIAG] decode pos={} done, next_token={}", abs_pos, token); }
         }
         let decode_elapsed = decode_start.elapsed();
 
@@ -792,7 +814,7 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
 #[serial]
 fn test_gpu_prefill_real_model_matches_cpu_greedy_token() {
     if skip_if_model_missing() {
-        eprintln!("Skipping test: model file not found at {}", MODEL_PATH);
+        eprintln!("Skipping test: model file not found at {}", model_path());
         return;
     }
 
@@ -803,7 +825,7 @@ fn test_gpu_prefill_real_model_matches_cpu_greedy_token() {
     let caps = gpu::detect().expect("GPU should be detected");
     let device = GpuDevice::init(caps.device_id).expect("GPU device should initialize");
 
-    let file = GgufFile::open(MODEL_PATH).expect("Failed to open GGUF file");
+    let file = GgufFile::open(&model_path()).expect("Failed to open GGUF file");
     let config = ModelConfig::from_gguf(&file).expect("Failed to parse model config");
     let cpu_weights = CpuModelWeights::load(&file, &config).expect("CPU weights should load");
     let gpu_weights = gpu::GpuModelWeights::load(&file, &config).expect("GPU weights should load");
@@ -1064,7 +1086,7 @@ fn test_gpu_prefill_real_model_matches_cpu_greedy_token() {
 #[serial]
 fn test_gpu_ffn_down_real_model_matches_cpu_layer0_projection() {
     if skip_if_model_missing() {
-        eprintln!("Skipping test: model file not found at {}", MODEL_PATH);
+        eprintln!("Skipping test: model file not found at {}", model_path());
         return;
     }
 
@@ -1075,7 +1097,7 @@ fn test_gpu_ffn_down_real_model_matches_cpu_layer0_projection() {
     let caps = gpu::detect().expect("GPU should be detected");
     let _device = GpuDevice::init(caps.device_id).expect("GPU device should initialize");
 
-    let file = GgufFile::open(MODEL_PATH).expect("Failed to open GGUF file");
+    let file = GgufFile::open(&model_path()).expect("Failed to open GGUF file");
     let config = ModelConfig::from_gguf(&file).expect("Failed to parse model config");
     let cpu_weights = CpuModelWeights::load(&file, &config).expect("CPU weights should load");
     let gpu_weights = gpu::GpuModelWeights::load(&file, &config).expect("GPU weights should load");
