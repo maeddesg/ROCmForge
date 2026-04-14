@@ -45,7 +45,7 @@
 
 constexpr int BLOCK_SIZE = 256;
 constexpr int MAX_BLOCK_SIZE = 1024;
-constexpr int WARP_SIZE = 64;
+constexpr int WARP_SIZE = 32;  // RDNA wavefront size (RDNA2/3/4)
 
 // ── Utility Functions ───────────────────────────────────────────────────────────────
 
