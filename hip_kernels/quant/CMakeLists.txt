@@ -272,6 +272,7 @@ add_library(q4_0_fused STATIC
     q4_0_fused_qkv_rope.hip
     q4_0_fused_norm_qkv_rope.hip
     q4_0_fused_norm_gate_up.hip
+    q4_0_fused_norm_gate_up_udot4.hip
 )
 
 # GFX12 (RDNA4) optimized GEMV using v_dot4_u32_u8 instructions

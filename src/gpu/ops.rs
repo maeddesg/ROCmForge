@@ -1291,6 +1291,30 @@ pub fn gpu_dispatch_fused_norm_gate_up_on_stream(
         return Ok(false);
     }
 
+    // Try udot4-accelerated variant on RDNA2+ (v_dot4_u32_u8)
+    if device.architecture().has_udot4() {
+        // udot4 variant uses Q8_0_block_ngud (36 bytes) instead of Q8_0_block (34 bytes)
+        let gemv_shared_udot4 = n_blocks * 36;
+        let shared_mem_udot4 = norm_shared.max(gemv_shared_udot4);
+        if shared_mem_udot4 <= 32768 {
+            use super::kernels::quant::gemv_norm_gate_up_swiglu_q4_0_f32_udot4_on_stream;
+            let result = gemv_norm_gate_up_swiglu_q4_0_f32_udot4_on_stream(
+                raw_hidden,
+                norm_weight,
+                eps,
+                w_gate.as_ptr() as *const u8,
+                w_up.as_ptr() as *const u8,
+                output,
+                h,
+                ff_size,
+                stream,
+            );
+            if result.is_ok() {
+                return Ok(true);
+            }
+        }
+    }
+
     use super::kernels::quant::gemv_norm_gate_up_swiglu_q4_0_f32_on_stream;
     gemv_norm_gate_up_swiglu_q4_0_f32_on_stream(
         raw_hidden,
