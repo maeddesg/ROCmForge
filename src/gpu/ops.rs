@@ -13,6 +13,8 @@ use super::kernels::{
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_tile4_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_on_stream_variant, gemv_q4_0_f32_on_stream_unchecked,
+    gemv_q4_0_f32_q8_inline_gfx12_on_stream,
+    gemv_q4_0_f32_q8_inline_residual_gfx12_on_stream,
     gemv_q4_0_f32_q8_inline_residual_on_stream, gemv_q4_0_f32_q8_inline_residual_on_stream_variant,
     gemv_q4_0_f32_residual_on_stream_unchecked, gemv_q4_0_q8_0_on_stream,
     gemv_q4_0_q8_0_residual_on_stream, gemv_q4_1_f32_on_stream_unchecked,
@@ -488,6 +490,23 @@ pub fn gpu_dispatch_gemv_residual_on_stream(
     unsafe {
         match meta.wtype {
             GgmlType::Q4_0 => {
+                // GFX12 (RDNA4) fast path: use v_dot4_u32_u8 instructions
+                if device.architecture().has_udot4() {
+                    let result = gemv_q4_0_f32_q8_inline_residual_gfx12_on_stream(
+                        weights.as_ptr() as *const u8,
+                        input,
+                        residual,
+                        output,
+                        in_dim,
+                        out_dim,
+                        stream,
+                    );
+                    if result.is_ok() {
+                        return Ok(true);
+                    }
+                    // Fall through to generic path on failure
+                }
+
                 if experimental_q8_activation_fastpath_enabled() {
                     // Check if stream capture is active - skip autotune benchmarking during capture
                     let capture_active = matches!(
