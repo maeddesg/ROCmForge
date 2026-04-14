@@ -269,6 +269,7 @@ set_target_properties(q4_0_gemm PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BIN
 add_library(q4_0_fused STATIC
     q4_0_fused.hip
     q4_0_fused_q8.hip
+    q4_0_fused_qkv_rope.hip
 )
 target_link_libraries(q4_0_fused quant_common)
 set_target_properties(q4_0_fused PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
