@@ -23,10 +23,10 @@ use super::kernels::rope::{
     rope_heads_batched, rope_heads_from_state_on_stream, rope_heads_on_stream,
 };
 use super::ops::{
-    gpu_dispatch_fused_gate_up_on_stream, gpu_dispatch_fused_norm_qkv_rope_kvwrite_on_stream,
-    gpu_dispatch_fused_qkv_on_stream, gpu_dispatch_fused_qkv_rope_kvwrite_on_stream,
-    gpu_dispatch_gemm, gpu_dispatch_gemv, gpu_dispatch_gemv_on_stream,
-    gpu_dispatch_gemv_residual_on_stream, gpu_dispatch_rms_norm,
+    gpu_dispatch_fused_gate_up_on_stream, gpu_dispatch_fused_norm_gate_up_on_stream,
+    gpu_dispatch_fused_norm_qkv_rope_kvwrite_on_stream, gpu_dispatch_fused_qkv_on_stream,
+    gpu_dispatch_fused_qkv_rope_kvwrite_on_stream, gpu_dispatch_gemm, gpu_dispatch_gemv,
+    gpu_dispatch_gemv_on_stream, gpu_dispatch_gemv_residual_on_stream, gpu_dispatch_rms_norm,
 };
 use super::weights::{GpuBuffer, GpuLayerWeights, GpuModelWeights, WeightMeta};
 use crate::config::ModelConfig;
@@ -1182,29 +1182,48 @@ fn gpu_layer_forward_from_state_on_stream(
         residual_add_inplace(device, &scratch.hidden, &scratch.layer_out, h)?;
     }
 
-    gpu_dispatch_rms_norm(
+    // Try fused Norm + Gate+Up+SiLU (1 kernel instead of 2)
+    let fused_norm_gate_up = gpu_dispatch_fused_norm_gate_up_on_stream(
         device,
         scratch.hidden.as_ptr() as *const f32,
         gpu_layer.ffn_norm.as_ptr() as *const f32,
-        scratch.normed.as_ptr() as *mut f32,
-        h,
         eps,
-        device.stream(),
-    )?;
-    gpu_dispatch_fused_gate_up_on_stream(
-        device,
         &gpu_layer.ffn_gate,
         &gpu_layer.ffn_gate_meta,
         &gpu_layer.ffn_up,
         &gpu_layer.ffn_up_meta,
-        None, // w_gate_up_interleaved
-        None, // w_gate_up_interleaved_tile4
-        scratch.normed.as_ptr() as *const f32,
         scratch.swiglu.as_ptr() as *mut f32,
         ff_size,
         h,
         device.stream(),
     )?;
+
+    if !fused_norm_gate_up {
+        // Fallback: separate Norm + Gate+Up+SiLU (2 kernels)
+        gpu_dispatch_rms_norm(
+            device,
+            scratch.hidden.as_ptr() as *const f32,
+            gpu_layer.ffn_norm.as_ptr() as *const f32,
+            scratch.normed.as_ptr() as *mut f32,
+            h,
+            eps,
+            device.stream(),
+        )?;
+        gpu_dispatch_fused_gate_up_on_stream(
+            device,
+            &gpu_layer.ffn_gate,
+            &gpu_layer.ffn_gate_meta,
+            &gpu_layer.ffn_up,
+            &gpu_layer.ffn_up_meta,
+            None,
+            None,
+            scratch.normed.as_ptr() as *const f32,
+            scratch.swiglu.as_ptr() as *mut f32,
+            ff_size,
+            h,
+            device.stream(),
+        )?;
+    }
 
     let ffn_residual_fused = gpu_dispatch_gemv_residual_on_stream(
         device,

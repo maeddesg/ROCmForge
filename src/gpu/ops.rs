@@ -1239,6 +1239,54 @@ pub(crate) fn gpu_dispatch_fused_gate_up_with_scratch_on_stream(
     Ok(())
 }
 
+/// Dispatch a fused RMSNorm + Gate/Up + SwiGLU on an explicit HIP stream.
+///
+/// Replaces 2 kernel launches (RMSNorm, Gate+Up+SiLU) with 1.
+/// Returns Ok(true) if the fused path was used, Ok(false) to fall back.
+pub fn gpu_dispatch_fused_norm_gate_up_on_stream(
+    device: &GpuDevice,
+    raw_hidden: *const f32,
+    norm_weight: *const f32,
+    eps: f32,
+    w_gate: &GpuBuffer,
+    gate_meta: &WeightMeta,
+    w_up: &GpuBuffer,
+    up_meta: &WeightMeta,
+    output: *mut f32,
+    ff_size: usize,
+    h: usize,
+    stream: hipStream_t,
+) -> GpuResult<bool> {
+    if gate_meta.wtype != GgmlType::Q4_0 || up_meta.wtype != GgmlType::Q4_0 {
+        return Ok(false);
+    }
+    if (h % 32) != 0 || (ff_size % 4) != 0 || h > 4096 {
+        return Ok(false);
+    }
+    // Check shared memory: max of norm phase and gemv phase
+    let n_blocks = h / 32;
+    let norm_shared = (h + 32) * std::mem::size_of::<f32>();
+    let gemv_shared = n_blocks * 34; // Q8_0_BLOCK_SIZE = 34
+    let shared_mem = norm_shared.max(gemv_shared);
+    if shared_mem > 32768 {
+        return Ok(false);
+    }
+
+    use super::kernels::quant::gemv_norm_gate_up_swiglu_q4_0_f32_on_stream;
+    gemv_norm_gate_up_swiglu_q4_0_f32_on_stream(
+        raw_hidden,
+        norm_weight,
+        eps,
+        w_gate.as_ptr() as *const u8,
+        w_up.as_ptr() as *const u8,
+        output,
+        h,
+        ff_size,
+        stream,
+    )?;
+    Ok(true)
+}
+
 /// Dispatch a fused Gate/Up GEMV + SwiGLU for a single row on an explicit stream.
 pub fn gpu_dispatch_fused_gate_up_on_stream(
     device: &GpuDevice,

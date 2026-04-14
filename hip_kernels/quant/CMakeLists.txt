@@ -271,6 +271,7 @@ add_library(q4_0_fused STATIC
     q4_0_fused_q8.hip
     q4_0_fused_qkv_rope.hip
     q4_0_fused_norm_qkv_rope.hip
+    q4_0_fused_norm_gate_up.hip
 )
 target_link_libraries(q4_0_fused quant_common)
 set_target_properties(q4_0_fused PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
