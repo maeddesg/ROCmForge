@@ -1,12 +1,12 @@
 #include "common.hip"
 
-// ── GFX12 (RDNA4) Optimized Q4_0 GEMV ──────────────────────────────────────────
+// ── RDNA2+ Optimized Q4_0 GEMV (v_dot4_u32_u8) ─────────────────────────────────
 //
-// Uses v_dot4_u32_u8 (unsigned 4×8-bit dot product) to replace scalar
-// multiply-accumulate in the Q4_0 × Q8_0 inner loop.
+// Uses v_dot4_u32_u8 (unsigned 4×8-bit dot product, dot7-insts) to replace
+// scalar multiply-accumulate in the Q4_0 × Q8_0 inner loop.
+// Available on RDNA2 (gfx1030), RDNA3 (gfx1100), and RDNA4 (gfx1201).
 //
-// On gfx1201, all dot-product instructions operate as unsigned×unsigned.
-// We handle signs via bias correction:
+// We use exclusively unsigned dot products with bias correction:
 //
 //   Q4_0 nibbles: unsigned 0-15 (signed = nibble - 8)
 //   Q8_0 values:  stored as unsigned (signed + 128)
