@@ -764,6 +764,139 @@ pub fn gpu_dispatch_fused_qkv_on_stream(
     Ok(())
 }
 
+/// Dispatch a fused QKV + RoPE + KV-Write on an explicit HIP stream.
+///
+/// Replaces 3 kernel launches (QKV, RoPE-Q, RoPE-K+KV-Write) with 1.
+/// Returns Ok(true) if the fused path was used, Ok(false) if the caller
+/// should fall back to separate kernels (e.g. non-Q4_0 or hidden > 32KB LDS).
+pub fn gpu_dispatch_fused_qkv_rope_kvwrite_on_stream(
+    device: &GpuDevice,
+    w_q: &GpuBuffer,
+    q_meta: &WeightMeta,
+    q_bias: Option<&GpuBuffer>,
+    w_k: &GpuBuffer,
+    k_meta: &WeightMeta,
+    k_bias: Option<&GpuBuffer>,
+    w_v: &GpuBuffer,
+    v_meta: &WeightMeta,
+    v_bias: Option<&GpuBuffer>,
+    input: *const f32,
+    out_q: *mut f32,
+    k_cache: *mut f32,
+    v_cache: *mut f32,
+    q_size: usize,
+    kv_size: usize,
+    h: usize,
+    pos_ptr: *const i32,
+    head_dim: usize,
+    theta_base: f32,
+    neox: bool,
+    stream: hipStream_t,
+) -> GpuResult<bool> {
+    // Only supports Q4_0 weights with dimensions compatible with v3 fast path
+    if q_meta.wtype != GgmlType::Q4_0
+        || k_meta.wtype != GgmlType::Q4_0
+        || v_meta.wtype != GgmlType::Q4_0
+    {
+        return Ok(false);
+    }
+    // v3 kernel requires n_q % 4 == 0, n_kv % 4 == 0, and hidden fits in LDS
+    if (q_size % 4) != 0 || (kv_size % 4) != 0 || h * std::mem::size_of::<f32>() > 32768 {
+        return Ok(false);
+    }
+
+    use super::kernels::quant::gemv_qkv_rope_kvwrite_q4_0_f32_on_stream;
+    gemv_qkv_rope_kvwrite_q4_0_f32_on_stream(
+        w_q.as_ptr() as *const u8,
+        w_k.as_ptr() as *const u8,
+        w_v.as_ptr() as *const u8,
+        q_bias.map_or(std::ptr::null(), |b| b.as_ptr() as *const f32),
+        k_bias.map_or(std::ptr::null(), |b| b.as_ptr() as *const f32),
+        v_bias.map_or(std::ptr::null(), |b| b.as_ptr() as *const f32),
+        input,
+        out_q,
+        k_cache,
+        v_cache,
+        h,
+        q_size,
+        kv_size,
+        pos_ptr,
+        head_dim,
+        theta_base,
+        neox,
+        stream,
+    )?;
+    Ok(true)
+}
+
+/// Dispatch a fused RMSNorm + QKV + RoPE + KV-Write on an explicit HIP stream.
+///
+/// Replaces 4 kernel launches (RMSNorm, QKV, RoPE-Q, RoPE-K+KV-Write) with 1.
+/// Returns Ok(true) if the fused path was used, Ok(false) if the caller
+/// should fall back to separate kernels.
+pub fn gpu_dispatch_fused_norm_qkv_rope_kvwrite_on_stream(
+    device: &GpuDevice,
+    raw_hidden: *const f32,
+    norm_weight: *const f32,
+    eps: f32,
+    w_q: &GpuBuffer,
+    q_meta: &WeightMeta,
+    q_bias: Option<&GpuBuffer>,
+    w_k: &GpuBuffer,
+    k_meta: &WeightMeta,
+    k_bias: Option<&GpuBuffer>,
+    w_v: &GpuBuffer,
+    v_meta: &WeightMeta,
+    v_bias: Option<&GpuBuffer>,
+    out_q: *mut f32,
+    k_cache: *mut f32,
+    v_cache: *mut f32,
+    q_size: usize,
+    kv_size: usize,
+    h: usize,
+    pos_ptr: *const i32,
+    head_dim: usize,
+    theta_base: f32,
+    neox: bool,
+    stream: hipStream_t,
+) -> GpuResult<bool> {
+    if q_meta.wtype != GgmlType::Q4_0
+        || k_meta.wtype != GgmlType::Q4_0
+        || v_meta.wtype != GgmlType::Q4_0
+    {
+        return Ok(false);
+    }
+    // Shared memory: (h + 32) floats must fit in 32KB
+    if (q_size % 4) != 0 || (kv_size % 4) != 0 || (h + 32) * std::mem::size_of::<f32>() > 32768 {
+        return Ok(false);
+    }
+
+    use super::kernels::quant::gemv_norm_qkv_rope_kvwrite_q4_0_f32_on_stream;
+    gemv_norm_qkv_rope_kvwrite_q4_0_f32_on_stream(
+        raw_hidden,
+        norm_weight,
+        eps,
+        w_q.as_ptr() as *const u8,
+        w_k.as_ptr() as *const u8,
+        w_v.as_ptr() as *const u8,
+        q_bias.map_or(std::ptr::null(), |b| b.as_ptr() as *const f32),
+        k_bias.map_or(std::ptr::null(), |b| b.as_ptr() as *const f32),
+        v_bias.map_or(std::ptr::null(), |b| b.as_ptr() as *const f32),
+        out_q,
+        k_cache,
+        v_cache,
+        h,
+        q_size,
+        kv_size,
+        pos_ptr,
+        head_dim,
+        theta_base,
+        neox,
+        stream,
+    )?;
+    Ok(true)
+}
+
 /// Dispatch a fused QKV GEMV with bias on an explicit HIP stream (decode-strict).
 ///
 /// Strictly enforces that Q/K/V weights are all Q4_0. Returns an error for any other type.
@@ -1104,6 +1237,54 @@ pub(crate) fn gpu_dispatch_fused_gate_up_with_scratch_on_stream(
     silu_on_stream(gate_scratch, gate_scratch, ff_size, stream)?;
     mul_on_stream(gate_scratch, output, output, ff_size, stream)?;
     Ok(())
+}
+
+/// Dispatch a fused RMSNorm + Gate/Up + SwiGLU on an explicit HIP stream.
+///
+/// Replaces 2 kernel launches (RMSNorm, Gate+Up+SiLU) with 1.
+/// Returns Ok(true) if the fused path was used, Ok(false) to fall back.
+pub fn gpu_dispatch_fused_norm_gate_up_on_stream(
+    device: &GpuDevice,
+    raw_hidden: *const f32,
+    norm_weight: *const f32,
+    eps: f32,
+    w_gate: &GpuBuffer,
+    gate_meta: &WeightMeta,
+    w_up: &GpuBuffer,
+    up_meta: &WeightMeta,
+    output: *mut f32,
+    ff_size: usize,
+    h: usize,
+    stream: hipStream_t,
+) -> GpuResult<bool> {
+    if gate_meta.wtype != GgmlType::Q4_0 || up_meta.wtype != GgmlType::Q4_0 {
+        return Ok(false);
+    }
+    if (h % 32) != 0 || (ff_size % 4) != 0 || h > 4096 {
+        return Ok(false);
+    }
+    // Check shared memory: max of norm phase and gemv phase
+    let n_blocks = h / 32;
+    let norm_shared = (h + 32) * std::mem::size_of::<f32>();
+    let gemv_shared = n_blocks * 34; // Q8_0_BLOCK_SIZE = 34
+    let shared_mem = norm_shared.max(gemv_shared);
+    if shared_mem > 32768 {
+        return Ok(false);
+    }
+
+    use super::kernels::quant::gemv_norm_gate_up_swiglu_q4_0_f32_on_stream;
+    gemv_norm_gate_up_swiglu_q4_0_f32_on_stream(
+        raw_hidden,
+        norm_weight,
+        eps,
+        w_gate.as_ptr() as *const u8,
+        w_up.as_ptr() as *const u8,
+        output,
+        h,
+        ff_size,
+        stream,
+    )?;
+    Ok(true)
 }
 
 /// Dispatch a fused Gate/Up GEMV + SwiGLU for a single row on an explicit stream.
