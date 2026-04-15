@@ -13,8 +13,6 @@ use super::kernels::{
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_tile4_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_on_stream_variant, gemv_q4_0_f32_on_stream_unchecked,
-    gemv_q4_0_f32_q8_inline_gfx12_on_stream,
-    gemv_q4_0_f32_q8_inline_residual_gfx12_on_stream,
     gemv_q4_0_f32_q8_inline_residual_on_stream, gemv_q4_0_f32_q8_inline_residual_on_stream_variant,
     gemv_q4_0_f32_residual_on_stream_unchecked, gemv_q4_0_q8_0_on_stream,
     gemv_q4_0_q8_0_residual_on_stream, gemv_q4_1_f32_on_stream_unchecked,
@@ -490,23 +488,6 @@ pub fn gpu_dispatch_gemv_residual_on_stream(
     unsafe {
         match meta.wtype {
             GgmlType::Q4_0 => {
-                // GFX12 (RDNA4) fast path: use v_dot4_u32_u8 instructions
-                if device.architecture().has_udot4() {
-                    let result = gemv_q4_0_f32_q8_inline_residual_gfx12_on_stream(
-                        weights.as_ptr() as *const u8,
-                        input,
-                        residual,
-                        output,
-                        in_dim,
-                        out_dim,
-                        stream,
-                    );
-                    if result.is_ok() {
-                        return Ok(true);
-                    }
-                    // Fall through to generic path on failure
-                }
-
                 if experimental_q8_activation_fastpath_enabled() {
                     // Check if stream capture is active - skip autotune benchmarking during capture
                     let capture_active = matches!(
@@ -1289,30 +1270,6 @@ pub fn gpu_dispatch_fused_norm_gate_up_on_stream(
     let shared_mem = norm_shared.max(gemv_shared);
     if shared_mem > 32768 {
         return Ok(false);
-    }
-
-    // Try udot4-accelerated variant on RDNA2+ (v_dot4_u32_u8)
-    if device.architecture().has_udot4() {
-        // udot4 variant uses Q8_0_block_ngud (36 bytes) instead of Q8_0_block (34 bytes)
-        let gemv_shared_udot4 = n_blocks * 36;
-        let shared_mem_udot4 = norm_shared.max(gemv_shared_udot4);
-        if shared_mem_udot4 <= 32768 {
-            use super::kernels::quant::gemv_norm_gate_up_swiglu_q4_0_f32_udot4_on_stream;
-            let result = gemv_norm_gate_up_swiglu_q4_0_f32_udot4_on_stream(
-                raw_hidden,
-                norm_weight,
-                eps,
-                w_gate.as_ptr() as *const u8,
-                w_up.as_ptr() as *const u8,
-                output,
-                h,
-                ff_size,
-                stream,
-            );
-            if result.is_ok() {
-                return Ok(true);
-            }
-        }
     }
 
     use super::kernels::quant::gemv_norm_gate_up_swiglu_q4_0_f32_on_stream;
