@@ -9,8 +9,8 @@ use std::os::raw::{c_float, c_int};
 
 unsafe extern "C" {
     fn gpu_kv_write(
-        d_k_cache: *mut f32,
-        d_v_cache: *mut f32,
+        d_k_cache: *mut u16,
+        d_v_cache: *mut u16,
         d_k: *const f32,
         d_v: *const f32,
         pos: c_int,
@@ -20,8 +20,8 @@ unsafe extern "C" {
     ) -> hipError_t;
 
     fn gpu_kv_write_state(
-        d_k_cache: *mut f32,
-        d_v_cache: *mut f32,
+        d_k_cache: *mut u16,
+        d_v_cache: *mut u16,
         d_k: *const f32,
         d_v: *const f32,
         d_pos: *const c_int,
@@ -31,8 +31,8 @@ unsafe extern "C" {
     ) -> hipError_t;
 
     fn gpu_kv_write_rope(
-        d_k_cache: *mut f32,
-        d_v_cache: *mut f32,
+        d_k_cache: *mut u16,
+        d_v_cache: *mut u16,
         d_k: *const f32,
         d_v: *const f32,
         pos: c_int,
@@ -44,8 +44,8 @@ unsafe extern "C" {
     ) -> hipError_t;
 
     fn gpu_kv_write_rope_state(
-        d_k_cache: *mut f32,
-        d_v_cache: *mut f32,
+        d_k_cache: *mut u16,
+        d_v_cache: *mut u16,
         d_k: *const f32,
         d_v: *const f32,
         d_pos: *const c_int,
@@ -57,8 +57,8 @@ unsafe extern "C" {
     ) -> hipError_t;
 
     fn gpu_kv_write_batched(
-        d_k_cache: *mut f32,
-        d_v_cache: *mut f32,
+        d_k_cache: *mut u16,
+        d_v_cache: *mut u16,
         d_k: *const f32,
         d_v: *const f32,
         start_pos: c_int,
@@ -86,8 +86,8 @@ unsafe extern "C" {
     fn gpu_flash_attn_decode_strided_multi_head(
         d_out: *mut f32,
         d_q: *const f32,
-        d_k_cache: *const f32,
-        d_v_cache: *const f32,
+        d_k_cache: *const u16,
+        d_v_cache: *const u16,
         seq_len: c_int,
         num_heads: c_int,
         num_kv_heads: c_int,
@@ -99,8 +99,8 @@ unsafe extern "C" {
     fn gpu_flash_attn_decode_strided_multi_head_state(
         d_out: *mut f32,
         d_q: *const f32,
-        d_k_cache: *const f32,
-        d_v_cache: *const f32,
+        d_k_cache: *const u16,
+        d_v_cache: *const u16,
         d_seq_len: *const c_int,
         num_heads: c_int,
         num_kv_heads: c_int,
@@ -110,10 +110,10 @@ unsafe extern "C" {
     ) -> hipError_t;
 }
 
-/// Write K/V to cache.
+/// Write K/V to cache (FP16 storage).
 pub fn kv_write(
-    k_cache: *mut f32,
-    v_cache: *mut f32,
+    k_cache: *mut u16,
+    v_cache: *mut u16,
     k: *const f32,
     v: *const f32,
     pos: usize,
@@ -132,10 +132,10 @@ pub fn kv_write(
     )
 }
 
-/// Write K/V to cache on an explicit HIP stream.
+/// Write K/V to cache on an explicit HIP stream (FP16 storage).
 pub fn kv_write_on_stream(
-    k_cache: *mut f32,
-    v_cache: *mut f32,
+    k_cache: *mut u16,
+    v_cache: *mut u16,
     k: *const f32,
     v: *const f32,
     pos: usize,
@@ -195,8 +195,8 @@ pub fn kv_write_rope_on_stream(
 
     let result = unsafe {
         gpu_kv_write_rope(
-            kv.k_ptr(layer_idx)? as *mut f32,
-            kv.v_ptr(layer_idx)? as *mut f32,
+            kv.k_ptr(layer_idx)?,
+            kv.v_ptr(layer_idx)?,
             d_k,
             d_v,
             pos as c_int,
@@ -218,10 +218,10 @@ pub fn kv_write_rope_on_stream(
     Ok(())
 }
 
-/// Write K/V to cache using a device-resident position scalar.
+/// Write K/V to cache using a device-resident position scalar (FP16 storage).
 pub fn kv_write_from_state_on_stream(
-    k_cache: *mut f32,
-    v_cache: *mut f32,
+    k_cache: *mut u16,
+    v_cache: *mut u16,
     k: *const f32,
     v: *const f32,
     pos_ptr: *const i32,
@@ -265,10 +265,10 @@ pub fn kv_write_from_state_on_stream(
     Ok(())
 }
 
-/// Apply RoPE to K and write rotated K plus V into the KV cache.
+/// Apply RoPE to K and write rotated K plus V into the KV cache (FP16 storage).
 pub fn kv_write_rope_from_state_on_stream(
-    k_cache: *mut f32,
-    v_cache: *mut f32,
+    k_cache: *mut u16,
+    v_cache: *mut u16,
     k: *const f32,
     v: *const f32,
     pos_ptr: *const i32,
@@ -322,10 +322,10 @@ pub fn kv_write_rope_from_state_on_stream(
     Ok(())
 }
 
-/// Write K/V to cache (batched).
+/// Write K/V to cache (batched, FP16 storage).
 pub fn kv_write_batched(
-    k_cache: *mut f32,
-    v_cache: *mut f32,
+    k_cache: *mut u16,
+    v_cache: *mut u16,
     k: *const f32,
     v: *const f32,
     start_pos: usize,
@@ -363,12 +363,12 @@ pub fn kv_write_batched(
     Ok(())
 }
 
-/// Fused multi-head attention decode.
+/// Fused multi-head attention decode (FP16 KV cache).
 pub fn flash_attn_decode_strided_multi_head(
     d_out: *mut f32,
     d_q: *const f32,
-    d_k_cache: *const f32,
-    d_v_cache: *const f32,
+    d_k_cache: *const u16,
+    d_v_cache: *const u16,
     seq_len: usize,
     num_heads: usize,
     num_kv_heads: usize,
@@ -389,12 +389,12 @@ pub fn flash_attn_decode_strided_multi_head(
     )
 }
 
-/// Fused multi-head attention decode on an explicit HIP stream.
+/// Fused multi-head attention decode on an explicit HIP stream (FP16 KV cache).
 pub fn flash_attn_decode_strided_multi_head_on_stream(
     d_out: *mut f32,
     d_q: *const f32,
-    d_k_cache: *const f32,
-    d_v_cache: *const f32,
+    d_k_cache: *const u16,
+    d_v_cache: *const u16,
     seq_len: usize,
     num_heads: usize,
     num_kv_heads: usize,
@@ -434,12 +434,12 @@ pub fn flash_attn_decode_strided_multi_head_on_stream(
     Ok(())
 }
 
-/// Fused multi-head attention decode using a device-resident sequence-length scalar.
+/// Fused multi-head attention decode using a device-resident sequence-length scalar (FP16 KV cache).
 pub fn flash_attn_decode_strided_multi_head_from_state_on_stream(
     d_out: *mut f32,
     d_q: *const f32,
-    d_k_cache: *const f32,
-    d_v_cache: *const f32,
+    d_k_cache: *const u16,
+    d_v_cache: *const u16,
     seq_len_ptr: *const i32,
     num_heads: usize,
     num_kv_heads: usize,
@@ -486,8 +486,8 @@ pub fn flash_attn_decode_strided_multi_head_from_state_on_stream(
 pub fn flash_attn_decode(
     d_out: *mut f32,
     d_q: *const f32,
-    d_k_cache: *const f32,
-    d_v_cache: *const f32,
+    d_k_cache: *const u16,
+    d_v_cache: *const u16,
     seq_len: usize,
     head_dim: usize,
     scale: f32,
@@ -501,8 +501,8 @@ pub fn flash_attn_decode(
 pub fn flash_attn_decode_strided(
     d_out: *mut f32,
     d_q: *const f32,
-    d_k_cache: *const f32,
-    d_v_cache: *const f32,
+    d_k_cache: *const u16,
+    d_v_cache: *const u16,
     seq_len: usize,
     head_dim: usize,
     kv_size: usize,

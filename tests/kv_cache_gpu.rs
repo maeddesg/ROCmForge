@@ -41,7 +41,7 @@ fn test_kv_cache_allocation() {
             assert_eq!(c.num_layers, 2);
             assert_eq!(c.max_seq_len, 256);
             assert_eq!(c.kv_size, 4 * 128); // num_kv_heads * head_dim
-            assert_eq!(c.memory_bytes(), 2 * 2 * 256 * 512 * 4); // 2 layers * K/V * seq_len * kv_size * 4 bytes
+            assert_eq!(c.memory_bytes(), 2 * 2 * 256 * 512 * 2); // 2 layers * K/V * seq_len * kv_size * 2 bytes (FP16)
         }
         Err(_) => {
             // Expected when HIP unavailable
@@ -104,11 +104,11 @@ fn test_kv_cache_memory_usage() {
     let cache = GpuKvCache::new(&config, 512);
 
     if let Ok(cache) = cache {
-        let expected_bytes = 2 * 2 * 512 * (4 * 128) * 4; // layers * K/V * seq_len * kv_size * 4
+        let expected_bytes = 2 * 2 * 512 * (4 * 128) * 2; // layers * K/V * seq_len * kv_size * 2 (FP16)
         assert_eq!(cache.memory_bytes(), expected_bytes);
 
-        // Should be 2 * num_layers * max_seq_len * kv_size * sizeof(f32)
-        let bytes_per_layer = 512 * (4 * 128) * 4;
+        // Should be 2 * num_layers * max_seq_len * kv_size * sizeof(u16)
+        let bytes_per_layer = 512 * (4 * 128) * 2;
         let total_bytes = 2 * 2 * bytes_per_layer; // K + V * num_layers
         assert_eq!(cache.memory_bytes(), total_bytes);
     }

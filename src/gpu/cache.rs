@@ -45,7 +45,7 @@ impl GpuKvCache {
     /// Ok(GpuKvCache) if all allocations succeed, Err if any fail (all freed via RAII)
     pub fn new(config: &ModelConfig, max_seq_len: usize) -> GpuResult<Self> {
         let kv_size = config.num_kv_heads * config.head_dim;
-        let layer_bytes = max_seq_len * kv_size * std::mem::size_of::<f32>();
+        let layer_bytes = max_seq_len * kv_size * std::mem::size_of::<u16>();
 
         // Allocate K cache per layer
         let mut k = Vec::with_capacity(config.num_layers);
@@ -84,25 +84,25 @@ impl GpuKvCache {
     /// Get GPU pointer to K cache for a layer.
     ///
     /// Returns pointer suitable for kernel arguments.
-    pub fn k_ptr(&self, layer: usize) -> GpuResult<*mut f32> {
+    pub fn k_ptr(&self, layer: usize) -> GpuResult<*mut u16> {
         if layer >= self.num_layers {
             return Err(GpuError::HipApiError {
                 code: -1,
                 description: format!("Layer {} exceeds num_layers {}", layer, self.num_layers),
             });
         }
-        Ok(self.k[layer].as_ptr() as *mut f32)
+        Ok(self.k[layer].as_ptr() as *mut u16)
     }
 
-    /// Get GPU pointer to V cache for a layer.
-    pub fn v_ptr(&self, layer: usize) -> GpuResult<*mut f32> {
+    /// Get GPU pointer to V cache for a layer (FP16 storage).
+    pub fn v_ptr(&self, layer: usize) -> GpuResult<*mut u16> {
         if layer >= self.num_layers {
             return Err(GpuError::HipApiError {
                 code: -1,
                 description: format!("Layer {} exceeds num_layers {}", layer, self.num_layers),
             });
         }
-        Ok(self.v[layer].as_ptr() as *mut f32)
+        Ok(self.v[layer].as_ptr() as *mut u16)
     }
 
     /// Write K/V vectors to cache at specific position using GPU kernel.
@@ -194,18 +194,20 @@ impl GpuKvCache {
     ///
     /// Requires device reference for kernel synchronization.
     pub fn clear(&mut self, device: &GpuDevice) -> GpuResult<()> {
-        let elements_per_layer = self.max_seq_len * self.kv_size;
+        // FP16 cache: each element is u16, but zero_fill works on f32.
+        // Since zero bits are the same for both types, cast and use half the count.
+        let f32_elements_per_layer = (self.max_seq_len * self.kv_size + 1) / 2;
 
         // Zero out K cache for each layer
         for layer in 0..self.num_layers {
             let k_ptr = self.k[layer].as_ptr() as *mut f32;
-            zero_fill(k_ptr, elements_per_layer, device)?;
+            zero_fill(k_ptr, f32_elements_per_layer, device)?;
         }
 
         // Zero out V cache for each layer
         for layer in 0..self.num_layers {
             let v_ptr = self.v[layer].as_ptr() as *mut f32;
-            zero_fill(v_ptr, elements_per_layer, device)?;
+            zero_fill(v_ptr, f32_elements_per_layer, device)?;
         }
 
         Ok(())
@@ -213,7 +215,7 @@ impl GpuKvCache {
 
     /// Get total VRAM usage in bytes.
     pub fn memory_bytes(&self) -> usize {
-        let bytes_per_layer = self.max_seq_len * self.kv_size * std::mem::size_of::<f32>();
+        let bytes_per_layer = self.max_seq_len * self.kv_size * std::mem::size_of::<u16>();
         let total_bytes = 2 * self.num_layers * bytes_per_layer; // K + V
         total_bytes
     }
