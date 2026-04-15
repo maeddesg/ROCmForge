@@ -22,6 +22,7 @@ use super::kernels::norm::{rms_norm, rms_norm_batched, rms_norm_on_stream};
 use super::kernels::rope::{
     rope_heads_batched, rope_heads_from_state_on_stream, rope_heads_on_stream,
 };
+use super::kernels::q8_decode::q8_0_workspace_bytes;
 use super::ops::{
     gpu_dispatch_fused_gate_up_on_stream, gpu_dispatch_fused_norm_gate_up_on_stream,
     gpu_dispatch_fused_norm_qkv_rope_kvwrite_on_stream, gpu_dispatch_fused_qkv_on_stream,
@@ -449,6 +450,8 @@ fn gpu_capture_greedy_decode_graph(
     config: &ModelConfig,
 ) -> GpuResult<super::graph::CapturedDecodeGraph> {
     let key = gpu_greedy_logits_graph_key(device, gpu_weights, config);
+    // Pre-allocate Q8 workspace before capture — hipMalloc is forbidden during stream capture.
+    device.reserve_q8_workspace(q8_0_workspace_bytes(config.hidden_size))?;
     device.begin_capture(ffi::hipStreamCaptureMode::hipStreamCaptureModeGlobal)?;
     let capture_result =
         gpu_launch_greedy_logits_tail_on_stream(device, gpu_weights, scratch, config);
@@ -1284,6 +1287,8 @@ fn gpu_capture_full_greedy_decode_graph(
     let key = gpu_full_decode_graph_key(device, gpu_weights, kv, config)?;
     scratch.upload_decode_state(0, 1, device.stream())?;
     device.synchronize()?;
+    // Pre-allocate Q8 workspace before capture — hipMalloc is forbidden during stream capture.
+    device.reserve_q8_workspace(q8_0_workspace_bytes(config.hidden_size))?;
     device.begin_capture(ffi::hipStreamCaptureMode::hipStreamCaptureModeGlobal)?;
     let capture_result =
         gpu_launch_full_greedy_decode_on_stream(device, gpu_weights, kv, scratch, config);
@@ -1329,6 +1334,8 @@ fn gpu_try_full_greedy_decode_graph(
 
         // Capture a new graph temporarily to see if we can update the executable one
         scratch.upload_decode_state(0, 1, device.stream())?;
+        // Pre-allocate Q8 workspace before capture — hipMalloc is forbidden during stream capture.
+        device.reserve_q8_workspace(q8_0_workspace_bytes(config.hidden_size))?;
         device.begin_capture(ffi::hipStreamCaptureMode::hipStreamCaptureModeGlobal)?;
         let capture_res =
             gpu_launch_full_greedy_decode_on_stream(device, gpu_weights, kv, scratch, config);

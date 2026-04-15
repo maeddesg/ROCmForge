@@ -1269,7 +1269,7 @@ pub fn gpu_dispatch_fused_norm_gate_up_on_stream(
     if gate_meta.wtype != GgmlType::Q4_0 || up_meta.wtype != GgmlType::Q4_0 {
         return Ok(false);
     }
-    if (h % 32) != 0 || (ff_size % 4) != 0 || h > 4096 {
+    if (h % 32) != 0 || (ff_size % 4) != 0 {
         return Ok(false);
     }
     // Check shared memory: max of norm phase and gemv phase
