@@ -108,6 +108,32 @@ unsafe extern "C" {
         scale: f32,
         stream: hipStream_t,
     ) -> hipError_t;
+
+    fn gpu_flash_attn_decode_gqa(
+        d_out: *mut f32,
+        d_q: *const f32,
+        d_k_cache: *const u16,
+        d_v_cache: *const u16,
+        seq_len: c_int,
+        num_heads: c_int,
+        num_kv_heads: c_int,
+        head_dim: c_int,
+        scale: f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    fn gpu_flash_attn_decode_gqa_state(
+        d_out: *mut f32,
+        d_q: *const f32,
+        d_k_cache: *const u16,
+        d_v_cache: *const u16,
+        d_seq_len: *const c_int,
+        num_heads: c_int,
+        num_kv_heads: c_int,
+        head_dim: c_int,
+        scale: f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
 }
 
 /// Write K/V to cache (FP16 storage).
@@ -476,6 +502,100 @@ pub fn flash_attn_decode_strided_multi_head_from_state_on_stream(
                 "flash_attn_decode_multi_head_state kernel failed: {:?}",
                 result
             ),
+        });
+    }
+
+    Ok(())
+}
+
+/// GQA-tiled attention decode on an explicit HIP stream (FP16 KV cache).
+///
+/// Uses 1 block per KV-head with cooperative tile loading into LDS.
+/// Each warp handles one query head — KV data shared across all query heads
+/// in the same GQA group.
+pub fn flash_attn_decode_gqa_on_stream(
+    d_out: *mut f32,
+    d_q: *const f32,
+    d_k_cache: *const u16,
+    d_v_cache: *const u16,
+    seq_len: usize,
+    num_heads: usize,
+    num_kv_heads: usize,
+    head_dim: usize,
+    scale: f32,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if seq_len == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "flash_attn_decode_gqa: seq_len cannot be zero".to_string(),
+        });
+    }
+
+    let result = unsafe {
+        gpu_flash_attn_decode_gqa(
+            d_out,
+            d_q,
+            d_k_cache,
+            d_v_cache,
+            seq_len as c_int,
+            num_heads as c_int,
+            num_kv_heads as c_int,
+            head_dim as c_int,
+            scale,
+            stream,
+        )
+    };
+
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!("flash_attn_decode_gqa kernel failed: {:?}", result),
+        });
+    }
+
+    Ok(())
+}
+
+/// GQA-tiled attention decode using a device-resident sequence-length scalar (FP16 KV cache).
+pub fn flash_attn_decode_gqa_from_state_on_stream(
+    d_out: *mut f32,
+    d_q: *const f32,
+    d_k_cache: *const u16,
+    d_v_cache: *const u16,
+    seq_len_ptr: *const i32,
+    num_heads: usize,
+    num_kv_heads: usize,
+    head_dim: usize,
+    scale: f32,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if seq_len_ptr.is_null() {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "flash_attn_decode_gqa: seq_len_ptr must be non-null".to_string(),
+        });
+    }
+
+    let result = unsafe {
+        gpu_flash_attn_decode_gqa_state(
+            d_out,
+            d_q,
+            d_k_cache,
+            d_v_cache,
+            seq_len_ptr,
+            num_heads as c_int,
+            num_kv_heads as c_int,
+            head_dim as c_int,
+            scale,
+            stream,
+        )
+    };
+
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!("flash_attn_decode_gqa_state kernel failed: {:?}", result),
         });
     }
 

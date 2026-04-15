@@ -10,6 +10,7 @@ use super::error::{GpuError, GpuResult};
 use super::ffi;
 use super::graph::{DecodeGraphKey, DecodeGraphScope, HipGraph};
 use super::kernels::attention::{
+    flash_attn_decode_gqa_from_state_on_stream, flash_attn_decode_gqa_on_stream,
     flash_attn_decode_strided_multi_head_from_state_on_stream,
     flash_attn_decode_strided_multi_head_on_stream, flash_attn_prefill_strided,
     kv_write_rope_from_state_on_stream, kv_write_rope_on_stream,

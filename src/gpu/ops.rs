@@ -13,6 +13,7 @@ use super::kernels::{
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_tile4_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_on_stream_variant, gemv_q4_0_f32_on_stream_unchecked,
+    gemv_q4_0_f32_q8_inline_residual_norm_on_stream,
     gemv_q4_0_f32_q8_inline_residual_on_stream, gemv_q4_0_f32_q8_inline_residual_on_stream_variant,
     gemv_q4_0_f32_residual_on_stream_unchecked, gemv_q4_0_q8_0_on_stream,
     gemv_q4_0_q8_0_residual_on_stream, gemv_q4_1_f32_on_stream_unchecked,
@@ -642,6 +643,54 @@ pub fn gpu_dispatch_gemv_residual_on_stream(
             }
             _ => Ok(false),
         }
+    }
+}
+
+/// Dispatch a fused GEMV + residual + RMSNorm on an explicit HIP stream.
+///
+/// Combines: Q4_0 GEMV + residual add + RMSNorm into a single kernel launch.
+/// The last block to retire computes the full RMSNorm over the output.
+/// Returns `Ok(true)` if the fused kernel was dispatched, `Ok(false)` if
+/// the weight type is unsupported (caller should fall back).
+/// Dispatch a fused GEMV + residual + RMSNorm on an explicit HIP stream.
+///
+/// NOTE: This kernel uses inter-block atomics + __threadfence() for the norm
+/// reduction. Benchmarking showed ~4.5% regression vs separate kernels because
+/// the fence overhead exceeds the savings. Kept for future experimentation.
+#[allow(dead_code)]
+pub fn gpu_dispatch_gemv_residual_norm_on_stream(
+    _device: &GpuDevice,
+    weights: &GpuBuffer,
+    meta: &WeightMeta,
+    input: *const f32,
+    residual: *const f32,
+    norm_weight: *const f32,
+    eps: f32,
+    output: *mut f32,
+    output_normed: *mut f32,
+    in_dim: usize,
+    out_dim: usize,
+    retire_count: *mut u32,
+    stream: hipStream_t,
+) -> GpuResult<bool> {
+    match meta.wtype {
+        GgmlType::Q4_0 => {
+            gemv_q4_0_f32_q8_inline_residual_norm_on_stream(
+                weights.as_ptr() as *const u8,
+                input,
+                residual,
+                norm_weight,
+                eps,
+                output,
+                output_normed,
+                in_dim,
+                out_dim,
+                retire_count,
+                stream,
+            )?;
+            Ok(true)
+        }
+        _ => Ok(false),
     }
 }
 

@@ -19,7 +19,9 @@ pub(crate) fn is_aligned<T>(ptr: *const T, alignment: usize) -> bool {
 }
 
 pub use attention::{
-    flash_attn_decode, flash_attn_decode_strided, flash_attn_decode_strided_multi_head,
+    flash_attn_decode, flash_attn_decode_gqa_from_state_on_stream,
+    flash_attn_decode_gqa_on_stream, flash_attn_decode_strided,
+    flash_attn_decode_strided_multi_head,
     flash_attn_decode_strided_multi_head_from_state_on_stream,
     flash_attn_decode_strided_multi_head_on_stream, flash_attn_prefill_strided, kv_write,
     kv_write_batched, kv_write_from_state_on_stream, kv_write_on_stream,
@@ -36,7 +38,8 @@ pub use q8_decode::{
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_tile4_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_on_stream_variant,
-    gemv_gate_up_swiglu_q4_0_q8_0_on_stream, gemv_q4_0_f32_q8_inline_residual_on_stream,
+    gemv_gate_up_swiglu_q4_0_q8_0_on_stream, gemv_q4_0_f32_q8_inline_residual_norm_on_stream,
+    gemv_q4_0_f32_q8_inline_residual_on_stream,
     gemv_q4_0_f32_q8_inline_residual_on_stream_variant, gemv_q4_0_q8_0_on_stream,
     gemv_q4_0_q8_0_residual_on_stream, q8_0_workspace_bytes, quantize_q8_0_on_stream,
 };

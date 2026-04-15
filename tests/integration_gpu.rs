@@ -1920,6 +1920,8 @@ fn test_fused_gate_up_q4_1_fallback_matches_cpu_oracle() {
         &meta,
         &d_up_quantized,
         &meta,
+        None,
+        None,
         d_input.as_ptr() as *const f32,
         d_output.as_ptr() as *mut f32,
         n_ff,

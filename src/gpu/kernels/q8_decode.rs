@@ -6,7 +6,7 @@
 
 use super::super::error::{GpuError, GpuResult};
 use super::super::ffi::{hipError_t, hipStream_t};
-use std::os::raw::{c_int, c_void};
+use std::os::raw::{c_int, c_uint, c_void};
 
 const QK4_0: usize = 32;
 const QK8_0: usize = 32;
@@ -213,6 +213,81 @@ pub fn gemv_q4_0_f32_q8_inline_residual_on_stream_variant(
             code: result as i32,
             description: format!(
                 "gemv_q4_0_f32_q8_inline_residual_variant kernel failed: {:?}",
+                result
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+pub fn gemv_q4_0_f32_q8_inline_residual_norm_on_stream(
+    weights_q4_0: *const u8,
+    input: *const f32,
+    residual: *const f32,
+    norm_weight: *const f32,
+    eps: f32,
+    output: *mut f32,
+    output_normed: *mut f32,
+    n_rows: usize,
+    ncols_dst: usize,
+    retire_count: *mut u32,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if n_rows == 0 || ncols_dst == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description:
+                "gemv_q4_0_f32_q8_inline_residual_norm: n_rows and ncols_dst cannot be zero"
+                    .to_string(),
+        });
+    }
+    if n_rows % QK4_0 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_q4_0_f32_q8_inline_residual_norm: n_rows must be multiple of {}, got {}",
+                QK4_0, n_rows
+            ),
+        });
+    }
+    if weights_q4_0.is_null()
+        || input.is_null()
+        || residual.is_null()
+        || output.is_null()
+        || output_normed.is_null()
+        || norm_weight.is_null()
+        || retire_count.is_null()
+    {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description:
+                "gemv_q4_0_f32_q8_inline_residual_norm: kernel pointers must be non-null"
+                    .to_string(),
+        });
+    }
+
+    let result = unsafe {
+        gemv_q4_0_f32_q8_inline_residual_norm_launch(
+            weights_q4_0 as *const c_void,
+            input,
+            residual,
+            norm_weight,
+            eps,
+            output,
+            output_normed,
+            n_rows as c_int,
+            ncols_dst as c_int,
+            retire_count as *mut c_uint,
+            stream,
+        )
+    };
+
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!(
+                "gemv_q4_0_f32_q8_inline_residual_norm kernel failed: {:?}",
                 result
             ),
         });
@@ -666,6 +741,20 @@ unsafe extern "C" {
         n_rows: c_int,
         ncols_dst: c_int,
         variant: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    fn gemv_q4_0_f32_q8_inline_residual_norm_launch(
+        weights_q4_0: *const c_void,
+        input: *const f32,
+        residual: *const f32,
+        norm_weight: *const f32,
+        eps: f32,
+        output: *mut f32,
+        output_normed: *mut f32,
+        n_rows: c_int,
+        ncols_dst: c_int,
+        retire_count: *mut c_uint,
         stream: hipStream_t,
     ) -> hipError_t;
 
