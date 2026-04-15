@@ -610,6 +610,343 @@ __global__ void flash_attn_decode_tiled_state_kernel(
     }
 }
 
+// ── GQA-Aware Tiled Attention (Option B) ─────────────────────────────────────────
+//
+// 1 block = 1 KV-head. All Q-heads sharing that KV-head (gqa_ratio heads)
+// are processed in parallel by separate warps within the same block.
+// The KV tile is loaded once into LDS and shared across all Q-heads,
+// reducing VRAM bandwidth by gqa_ratio× compared to v2.
+//
+// Thread mapping: 256 threads = 8 warps. Warp w handles Q-head w (if w < gqa_ratio).
+// Supports gqa_ratio up to 8 (covers Qwen2.5 0.5B/7B=7, 14B=5, Llama 3=8).
+//
+// LDS layout:
+//   s_tile:   [TILE × head_dim]        — K or V tile (f32, shared)
+//   s_q:      [gqa_ratio × head_dim]   — Q vectors for all local heads
+//   s_scores: [gqa_ratio × TILE]       — per-head attention scores
+//   s_out:    [gqa_ratio × head_dim]   — per-head output accumulators
+//
+// Grid:  num_kv_heads blocks
+// Block: 256 threads (8 warps)
+
+template<int TILE_SIZE>
+__global__ void flash_attn_decode_gqa_kernel(
+    float* __restrict__ out,
+    const float* __restrict__ q,
+    const half* __restrict__ k_cache,
+    const half* __restrict__ v_cache,
+    const int seq_len,
+    const int num_heads,
+    const int num_kv_heads,
+    const int head_dim,
+    const float scale
+) {
+    const int kv_head_idx = blockIdx.x;
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane_id = tid & 31;
+    const int gqa_ratio = num_heads / num_kv_heads;
+
+    if (kv_head_idx >= num_kv_heads) return;
+
+    const int kv_size = num_kv_heads * head_dim;
+    const int head_offset = kv_head_idx * head_dim;
+
+    // Which Q-head does this warp handle?
+    const int local_head = warp_id;
+    const int global_head = kv_head_idx * gqa_ratio + local_head;
+    const bool active = (local_head < gqa_ratio) && (global_head < num_heads);
+
+    // ── LDS allocation ──────────────────────────────────────────────
+    extern __shared__ char s_raw[];
+    float* s_tile   = reinterpret_cast<float*>(s_raw);
+    float* s_q      = s_tile + TILE_SIZE * head_dim;
+    float* s_scores = s_q + gqa_ratio * head_dim;
+    float* s_out    = s_scores + gqa_ratio * TILE_SIZE;
+
+    // ── Load Q vectors for all local heads into LDS ─────────────────
+    const int q_elems = gqa_ratio * head_dim;
+    for (int idx = tid; idx < q_elems; idx += blockDim.x) {
+        const int h = idx / head_dim;
+        const int d = idx % head_dim;
+        const int gh = kv_head_idx * gqa_ratio + h;
+        s_q[idx] = (gh < num_heads) ? q[gh * head_dim + d] : 0.0f;
+    }
+
+    // ── Initialize output accumulators ──────────────────────────────
+    const int out_elems = gqa_ratio * head_dim;
+    for (int idx = tid; idx < out_elems; idx += blockDim.x) {
+        s_out[idx] = 0.0f;
+    }
+    __syncthreads();
+
+    // ── Per-warp online softmax state (registers) ───────────────────
+    float m = kNegInf;
+    float l = 0.0f;
+
+    // ── Tile loop ───────────────────────────────────────────────────
+    for (int tile_start = 0; tile_start < seq_len; tile_start += TILE_SIZE) {
+        const int tile_end = min(tile_start + TILE_SIZE, seq_len);
+        const int tile_len = tile_end - tile_start;
+
+        // Phase 1: ALL threads cooperatively load K tile into LDS
+        const int k_elems = tile_len * head_dim;
+        for (int idx = tid; idx < k_elems; idx += blockDim.x) {
+            const int p = idx / head_dim;
+            const int d = idx % head_dim;
+            const size_t addr = (size_t)(tile_start + p) * kv_size + head_offset + d;
+            s_tile[p * head_dim + d] = __half2float(k_cache[addr]);
+        }
+        __syncthreads();
+
+        // Phase 2: Each warp computes Q·K for its Q-head
+        // 32 lanes split head_dim, warp-reduce via __shfl_down
+        if (active) {
+            const float* my_q = &s_q[local_head * head_dim];
+            for (int p = 0; p < tile_len; ++p) {
+                const float* k_row = &s_tile[p * head_dim];
+                float partial = 0.0f;
+                for (int d = lane_id; d < head_dim; d += 32) {
+                    partial += my_q[d] * k_row[d];
+                }
+                for (int off = 16; off > 0; off >>= 1) {
+                    partial += __shfl_down(partial, off);
+                }
+                if (lane_id == 0) {
+                    s_scores[local_head * TILE_SIZE + p] = partial * scale;
+                }
+            }
+        }
+        __syncthreads();
+
+        // Phase 3: Online softmax (warp-local, per Q-head)
+        float inv_l_new = 0.0f;
+        if (active) {
+            // Tile max via warp reduction
+            float tile_max = kNegInf;
+            for (int p = lane_id; p < tile_len; p += 32) {
+                tile_max = fmaxf(tile_max, s_scores[local_head * TILE_SIZE + p]);
+            }
+            for (int off = 16; off > 0; off >>= 1) {
+                tile_max = fmaxf(tile_max, __shfl_xor(tile_max, off));
+            }
+            // tile_max is now broadcast to all lanes
+
+            const float m_new = fmaxf(m, tile_max);
+            const float exp_m_old = expf(m - m_new);
+
+            // Compute weights and tile sum
+            float tile_sum = 0.0f;
+            for (int p = lane_id; p < tile_len; p += 32) {
+                const float w = expf(s_scores[local_head * TILE_SIZE + p] - m_new);
+                s_scores[local_head * TILE_SIZE + p] = w;
+                tile_sum += w;
+            }
+            for (int off = 16; off > 0; off >>= 1) {
+                tile_sum += __shfl_xor(tile_sum, off);
+            }
+            // tile_sum broadcast to all lanes
+
+            const float l_new = l * exp_m_old + tile_sum;
+            const float rescale = (l > 0.0f) ? (l * exp_m_old / l_new) : 0.0f;
+            inv_l_new = (l_new > 0.0f) ? (1.0f / l_new) : 0.0f;
+
+            // Rescale existing output accumulator
+            float* my_out = &s_out[local_head * head_dim];
+            for (int d = lane_id; d < head_dim; d += 32) {
+                my_out[d] *= rescale;
+            }
+
+            m = m_new;
+            l = l_new;
+        }
+        __syncthreads();
+
+        // Phase 4: ALL threads cooperatively load V tile into LDS
+        // (s_tile is reused; s_scores survive since they're in separate LDS region)
+        const int v_elems = tile_len * head_dim;
+        for (int idx = tid; idx < v_elems; idx += blockDim.x) {
+            const int p = idx / head_dim;
+            const int d = idx % head_dim;
+            const size_t addr = (size_t)(tile_start + p) * kv_size + head_offset + d;
+            s_tile[p * head_dim + d] = __half2float(v_cache[addr]);
+        }
+        __syncthreads();
+
+        // Phase 5: Each warp accumulates weighted V
+        if (active) {
+            float* my_out = &s_out[local_head * head_dim];
+            for (int d = lane_id; d < head_dim; d += 32) {
+                float val = 0.0f;
+                for (int p = 0; p < tile_len; ++p) {
+                    val += s_scores[local_head * TILE_SIZE + p] * s_tile[p * head_dim + d];
+                }
+                my_out[d] += val * inv_l_new;
+            }
+        }
+        __syncthreads();
+    }
+
+    // ── Write output ────────────────────────────────────────────────
+    if (active) {
+        float* head_out = out + global_head * head_dim;
+        const float* my_out = &s_out[local_head * head_dim];
+        for (int d = lane_id; d < head_dim; d += 32) {
+            head_out[d] = my_out[d];
+        }
+    }
+}
+
+// State variant (reads seq_len from device memory for HIP graph capture)
+template<int TILE_SIZE>
+__global__ void flash_attn_decode_gqa_state_kernel(
+    float* __restrict__ out,
+    const float* __restrict__ q,
+    const half* __restrict__ k_cache,
+    const half* __restrict__ v_cache,
+    const int* __restrict__ seq_len_ptr,
+    const int num_heads,
+    const int num_kv_heads,
+    const int head_dim,
+    const float scale
+) {
+    const int seq_len = *seq_len_ptr;
+    const int kv_head_idx = blockIdx.x;
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane_id = tid & 31;
+    const int gqa_ratio = num_heads / num_kv_heads;
+
+    if (kv_head_idx >= num_kv_heads) return;
+
+    const int kv_size = num_kv_heads * head_dim;
+    const int head_offset = kv_head_idx * head_dim;
+
+    const int local_head = warp_id;
+    const int global_head = kv_head_idx * gqa_ratio + local_head;
+    const bool active = (local_head < gqa_ratio) && (global_head < num_heads);
+
+    extern __shared__ char s_raw[];
+    float* s_tile   = reinterpret_cast<float*>(s_raw);
+    float* s_q      = s_tile + TILE_SIZE * head_dim;
+    float* s_scores = s_q + gqa_ratio * head_dim;
+    float* s_out    = s_scores + gqa_ratio * TILE_SIZE;
+
+    const int q_elems = gqa_ratio * head_dim;
+    for (int idx = tid; idx < q_elems; idx += blockDim.x) {
+        const int h = idx / head_dim;
+        const int d = idx % head_dim;
+        const int gh = kv_head_idx * gqa_ratio + h;
+        s_q[idx] = (gh < num_heads) ? q[gh * head_dim + d] : 0.0f;
+    }
+    const int out_elems = gqa_ratio * head_dim;
+    for (int idx = tid; idx < out_elems; idx += blockDim.x) {
+        s_out[idx] = 0.0f;
+    }
+    __syncthreads();
+
+    float m = kNegInf;
+    float l = 0.0f;
+
+    for (int tile_start = 0; tile_start < seq_len; tile_start += TILE_SIZE) {
+        const int tile_end = min(tile_start + TILE_SIZE, seq_len);
+        const int tile_len = tile_end - tile_start;
+
+        const int k_elems = tile_len * head_dim;
+        for (int idx = tid; idx < k_elems; idx += blockDim.x) {
+            const int p = idx / head_dim;
+            const int d = idx % head_dim;
+            const size_t addr = (size_t)(tile_start + p) * kv_size + head_offset + d;
+            s_tile[p * head_dim + d] = __half2float(k_cache[addr]);
+        }
+        __syncthreads();
+
+        if (active) {
+            const float* my_q = &s_q[local_head * head_dim];
+            for (int p = 0; p < tile_len; ++p) {
+                const float* k_row = &s_tile[p * head_dim];
+                float partial = 0.0f;
+                for (int d = lane_id; d < head_dim; d += 32) {
+                    partial += my_q[d] * k_row[d];
+                }
+                for (int off = 16; off > 0; off >>= 1) {
+                    partial += __shfl_down(partial, off);
+                }
+                if (lane_id == 0) {
+                    s_scores[local_head * TILE_SIZE + p] = partial * scale;
+                }
+            }
+        }
+        __syncthreads();
+
+        float inv_l_new = 0.0f;
+        if (active) {
+            float tile_max = kNegInf;
+            for (int p = lane_id; p < tile_len; p += 32) {
+                tile_max = fmaxf(tile_max, s_scores[local_head * TILE_SIZE + p]);
+            }
+            for (int off = 16; off > 0; off >>= 1) {
+                tile_max = fmaxf(tile_max, __shfl_xor(tile_max, off));
+            }
+
+            const float m_new = fmaxf(m, tile_max);
+            const float exp_m_old = expf(m - m_new);
+
+            float tile_sum = 0.0f;
+            for (int p = lane_id; p < tile_len; p += 32) {
+                const float w = expf(s_scores[local_head * TILE_SIZE + p] - m_new);
+                s_scores[local_head * TILE_SIZE + p] = w;
+                tile_sum += w;
+            }
+            for (int off = 16; off > 0; off >>= 1) {
+                tile_sum += __shfl_xor(tile_sum, off);
+            }
+
+            const float l_new = l * exp_m_old + tile_sum;
+            const float rescale = (l > 0.0f) ? (l * exp_m_old / l_new) : 0.0f;
+            inv_l_new = (l_new > 0.0f) ? (1.0f / l_new) : 0.0f;
+
+            float* my_out = &s_out[local_head * head_dim];
+            for (int d = lane_id; d < head_dim; d += 32) {
+                my_out[d] *= rescale;
+            }
+
+            m = m_new;
+            l = l_new;
+        }
+        __syncthreads();
+
+        const int v_elems = tile_len * head_dim;
+        for (int idx = tid; idx < v_elems; idx += blockDim.x) {
+            const int p = idx / head_dim;
+            const int d = idx % head_dim;
+            const size_t addr = (size_t)(tile_start + p) * kv_size + head_offset + d;
+            s_tile[p * head_dim + d] = __half2float(v_cache[addr]);
+        }
+        __syncthreads();
+
+        if (active) {
+            float* my_out = &s_out[local_head * head_dim];
+            for (int d = lane_id; d < head_dim; d += 32) {
+                float val = 0.0f;
+                for (int p = 0; p < tile_len; ++p) {
+                    val += s_scores[local_head * TILE_SIZE + p] * s_tile[p * head_dim + d];
+                }
+                my_out[d] += val * inv_l_new;
+            }
+        }
+        __syncthreads();
+    }
+
+    if (active) {
+        float* head_out = out + global_head * head_dim;
+        const float* my_out = &s_out[local_head * head_dim];
+        for (int d = lane_id; d < head_dim; d += 32) {
+            head_out[d] = my_out[d];
+        }
+    }
+}
+
 extern "C" hipError_t gpu_flash_attn_decode_strided_multi_head(
     float* d_out,
     const float* d_q,
@@ -623,7 +960,6 @@ extern "C" hipError_t gpu_flash_attn_decode_strided_multi_head(
     hipStream_t stream
 ) {
     const int threads_per_block = 256;
-    // Dynamic smem: exact seq_len scores + reduction scratch
     const size_t smem_size = (seq_len + kDecodeReductionScratch) * sizeof(float);
 
     flash_attn_decode_strided_multi_head_v2_kernel<<<num_heads, threads_per_block, smem_size, stream>>>(
