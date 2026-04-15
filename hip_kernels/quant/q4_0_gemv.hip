@@ -533,7 +533,7 @@ __global__ void gemv_q4_0_q8_0_residual_multi_row_kernel(
     }
 }
 
-template<int N_WAVES>
+template<int N_WAVES, int COLS = Q4_0_MULTI_ROW_COLS>
 __launch_bounds__(Q4_0_THREADS_PER_BLOCK, 1)
 __global__ void gemv_q4_0_f32_q8_inline_residual_multi_row_kernel(
     const void* __restrict__ weights_q4_0,
@@ -547,7 +547,7 @@ __global__ void gemv_q4_0_f32_q8_inline_residual_multi_row_kernel(
     const int wave_id = tid / WARP_SIZE;
     const int lane_id = tid % WARP_SIZE;
 
-    const int col_base = (blockIdx.x * N_WAVES + wave_id) * 4;
+    const int col_base = (blockIdx.x * N_WAVES + wave_id) * COLS;
     const int n_blocks_total = n_rows / QK4_0;
 
     if (col_base >= ncols_dst) return;
@@ -576,16 +576,18 @@ __global__ void gemv_q4_0_f32_q8_inline_residual_multi_row_kernel(
     }
     __syncthreads();
 
-    const Q4_0_block* w_cols[4];
+    const Q4_0_block* w_cols[COLS];
     #pragma unroll
-    for (int c = 0; c < 4; ++c) {
+    for (int c = 0; c < COLS; ++c) {
         int col = col_base + c;
         w_cols[c] = (col < ncols_dst) ? reinterpret_cast<const Q4_0_block*>(
             static_cast<const uint8_t*>(weights_q4_0) + (col * n_blocks_total) * Q4_0_BLOCK_SIZE
         ) : nullptr;
     }
 
-    float sums[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float sums[COLS];
+    #pragma unroll
+    for (int c = 0; c < COLS; ++c) sums[c] = 0.0f;
 
     for (int block_idx = lane_id; block_idx < n_blocks_total; block_idx += WARP_SIZE) {
         const Q8_0_block* x_block = &s_input_q8[block_idx];
@@ -593,7 +595,7 @@ __global__ void gemv_q4_0_f32_q8_inline_residual_multi_row_kernel(
         const int8_t* x_qs = x_block->qs;
 
         #pragma unroll
-        for (int c = 0; c < 4; ++c) {
+        for (int c = 0; c < COLS; ++c) {
             if (!w_cols[c]) {
                 continue;
             }
@@ -606,6 +608,118 @@ __global__ void gemv_q4_0_f32_q8_inline_residual_multi_row_kernel(
         }
     }
 
+    #pragma unroll
+    for (int c = 0; c < COLS; ++c) {
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            sums[c] += __shfl_down(sums[c], offset);
+        }
+    }
+
+    if (lane_id == 0) {
+        #pragma unroll
+        for (int c = 0; c < COLS; ++c) {
+            if (col_base + c < ncols_dst) {
+                output[col_base + c] = sums[c] + residual[col_base + c];
+            }
+        }
+    }
+}
+
+// ── Fused GEMV + Residual + RMSNorm Kernel ─────────────────────────────────
+//
+// Single-launch kernel that replaces:
+//   1. gemv_residual (Q4_0 GEMV + residual add)
+//   2. rms_norm (next operation's normalization phase)
+//
+// After all blocks finish their GEMV + residual, the LAST block to retire
+// (detected via atomicInc) computes the full RMSNorm over the output vector
+// and writes the normalized result. Other blocks simply exit.
+//
+// This eliminates one kernel launch + one full read of hidden_state from
+// global memory per fusion point (2× per layer = 56× per token for 7B).
+//
+// Requirements:
+//   - All blocks must be co-resident (grid must fit in GPU). For 7B on
+//     gfx1201 (24 CUs, 8 blocks/CU max): 112 blocks << 192 limit.
+//   - retire_count must be in device memory, initialized to 0. It self-resets
+//     via atomicInc wrap-around.
+
+template<int N_WAVES>
+__launch_bounds__(Q4_0_THREADS_PER_BLOCK, 1)
+__global__ void gemv_q4_0_f32_q8_inline_residual_norm_multi_row_kernel(
+    const void* __restrict__ weights_q4_0,
+    const float* __restrict__ input,
+    const float* __restrict__ residual,
+    const float* __restrict__ norm_weight,
+    float eps,
+    float* __restrict__ output,
+    float* __restrict__ output_normed,
+    int n_rows,
+    int ncols_dst,
+    unsigned int* __restrict__ retire_count
+) {
+    const int tid = threadIdx.x;
+    const int wave_id = tid / WARP_SIZE;
+    const int lane_id = tid % WARP_SIZE;
+
+    const int col_base = (blockIdx.x * N_WAVES + wave_id) * 4;
+    const int n_blocks_total = n_rows / QK4_0;
+
+    if (col_base >= ncols_dst) return;
+
+    // ── Phase 1: Quantize f32 input to Q8 in LDS ──────────────────────
+    extern __shared__ Q8_0_block s_input_q8_rn[];
+    for (int block_idx = wave_id; block_idx < n_blocks_total; block_idx += N_WAVES) {
+        const int row_offset = block_idx * QK4_0;
+        const float val = input[row_offset + lane_id];
+        float max_val = fabsf(val);
+
+        #pragma unroll
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            max_val = fmaxf(max_val, __shfl_down(max_val, offset));
+        }
+
+        const float scale = fmaxf(__shfl(max_val, 0, WARP_SIZE) / 127.0f, 1e-30f);
+        const half scale_h = __float2half(scale);
+        const float scale_f = __half2float(scale_h);
+        if (lane_id == 0) {
+            s_input_q8_rn[block_idx].d = scale_h;
+        }
+
+        const float inv_scale = 1.0f / scale_f;
+        const float qf = fminf(fmaxf(val * inv_scale, -127.0f), 127.0f);
+        s_input_q8_rn[block_idx].qs[lane_id] = static_cast<int8_t>(qf);
+    }
+    __syncthreads();
+
+    // ── Phase 2: Q4_0 × Q8_0 GEMV ─────────────────────────────────────
+    const Q4_0_block* w_cols[4];
+    #pragma unroll
+    for (int c = 0; c < 4; ++c) {
+        int col = col_base + c;
+        w_cols[c] = (col < ncols_dst) ? reinterpret_cast<const Q4_0_block*>(
+            static_cast<const uint8_t*>(weights_q4_0) + (col * n_blocks_total) * Q4_0_BLOCK_SIZE
+        ) : nullptr;
+    }
+
+    float sums[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    for (int block_idx = lane_id; block_idx < n_blocks_total; block_idx += WARP_SIZE) {
+        const Q8_0_block* x_block = &s_input_q8_rn[block_idx];
+        const float x_scale = __half2float(x_block->d);
+        const int8_t* x_qs = x_block->qs;
+
+        #pragma unroll
+        for (int c = 0; c < 4; ++c) {
+            if (!w_cols[c]) continue;
+            const Q4_0_block* w_block = &w_cols[c][block_idx];
+            const float combined_scale = __half2float(w_block->d) * x_scale;
+            const int block_sum = q4_0_q8_0_block_dot(w_block, x_qs);
+            sums[c] += combined_scale * static_cast<float>(block_sum);
+        }
+    }
+
+    // ── Phase 3: Warp reduction + write output with residual ───────────
     #pragma unroll
     for (int c = 0; c < 4; ++c) {
         for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
@@ -620,6 +734,58 @@ __global__ void gemv_q4_0_f32_q8_inline_residual_multi_row_kernel(
                 output[col_base + c] = sums[c] + residual[col_base + c];
             }
         }
+    }
+
+    // ── Phase 4: Inter-block retire — last block computes RMSNorm ──────
+    __threadfence();  // ensure output[] writes are visible to all CUs
+
+    __shared__ bool s_is_last;
+    if (tid == 0) {
+        unsigned int ticket = atomicInc(retire_count, gridDim.x - 1);
+        s_is_last = (ticket == gridDim.x - 1);
+    }
+    __syncthreads();
+
+    if (!s_is_last) return;
+
+    // Last block: compute full RMSNorm of output → output_normed
+    // Reuse LDS for reduction scratch
+    float* s_reduction = reinterpret_cast<float*>(s_input_q8_rn);
+
+    float local_sq = 0.0f;
+    for (int i = tid; i < ncols_dst; i += blockDim.x) {
+        float v = output[i];
+        local_sq += v * v;
+    }
+
+    // Warp-level reduction
+    #pragma unroll
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+        local_sq += __shfl_down(local_sq, offset);
+    }
+    if (lane_id == 0) {
+        s_reduction[wave_id] = local_sq;
+    }
+    __syncthreads();
+
+    // Cross-warp reduction
+    float total_sq = (tid < N_WAVES) ? s_reduction[tid] : 0.0f;
+    if (wave_id == 0) {
+        #pragma unroll
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            total_sq += __shfl_down(total_sq, offset);
+        }
+        if (tid == 0) {
+            s_reduction[0] = total_sq;
+        }
+    }
+    __syncthreads();
+
+    float inv_rms = rsqrtf(s_reduction[0] / static_cast<float>(ncols_dst) + eps);
+
+    // Normalize and write
+    for (int i = tid; i < ncols_dst; i += blockDim.x) {
+        output_normed[i] = output[i] * inv_rms * norm_weight[i];
     }
 }
 
@@ -838,23 +1004,45 @@ extern "C" hipError_t gemv_q4_0_f32_q8_inline_residual_variant_launch(
         return hipErrorInvalidValue;
     }
 
-    // variant 0 = heuristic select, variant 1 = force Q4_0_SMALL_WAVES
-    if (variant != 0 && variant != 1) {
+    // variant 0 = heuristic (4-col), variant 1 = force small waves (4-col),
+    // variant 2 = 8-col wide (2× memory-level parallelism)
+    if (variant < 0 || variant > 2) {
         return hipErrorInvalidValue;
     }
-    const int n_waves = (variant == 1) ? Q4_0_SMALL_WAVES : select_multi_row_waves_q4_0_q8(n_blocks_total);
-    const int threads_per_block = n_waves * WARP_SIZE;
-    const int n_blocks_x =
-        (ncols_dst + (n_waves * Q4_0_MULTI_ROW_COLS) - 1) / (n_waves * Q4_0_MULTI_ROW_COLS);
 
-    if (n_waves == Q4_0_SMALL_WAVES) {
-        gemv_q4_0_f32_q8_inline_residual_multi_row_kernel<Q4_0_SMALL_WAVES><<<n_blocks_x, threads_per_block, shared_mem, stream>>>(
-            weights_q4_0, input, residual, output, n_rows, ncols_dst
-        );
+    constexpr int COLS_8 = 8;
+    if (variant == 2) {
+        // 8-column variant: each warp reads 8 weight columns for 2× MLP
+        const int n_waves = select_multi_row_waves_q4_0_q8(n_blocks_total);
+        const int threads_per_block = n_waves * WARP_SIZE;
+        const int n_blocks_x =
+            (ncols_dst + (n_waves * COLS_8) - 1) / (n_waves * COLS_8);
+
+        if (n_waves == Q4_0_SMALL_WAVES) {
+            gemv_q4_0_f32_q8_inline_residual_multi_row_kernel<Q4_0_SMALL_WAVES, COLS_8><<<n_blocks_x, threads_per_block, shared_mem, stream>>>(
+                weights_q4_0, input, residual, output, n_rows, ncols_dst
+            );
+        } else {
+            gemv_q4_0_f32_q8_inline_residual_multi_row_kernel<Q4_0_FIXED_WAVES, COLS_8><<<n_blocks_x, threads_per_block, shared_mem, stream>>>(
+                weights_q4_0, input, residual, output, n_rows, ncols_dst
+            );
+        }
     } else {
-        gemv_q4_0_f32_q8_inline_residual_multi_row_kernel<Q4_0_FIXED_WAVES><<<n_blocks_x, threads_per_block, shared_mem, stream>>>(
-            weights_q4_0, input, residual, output, n_rows, ncols_dst
-        );
+        // 4-column variant (original)
+        const int n_waves = (variant == 1) ? Q4_0_SMALL_WAVES : select_multi_row_waves_q4_0_q8(n_blocks_total);
+        const int threads_per_block = n_waves * WARP_SIZE;
+        const int n_blocks_x =
+            (ncols_dst + (n_waves * Q4_0_MULTI_ROW_COLS) - 1) / (n_waves * Q4_0_MULTI_ROW_COLS);
+
+        if (n_waves == Q4_0_SMALL_WAVES) {
+            gemv_q4_0_f32_q8_inline_residual_multi_row_kernel<Q4_0_SMALL_WAVES><<<n_blocks_x, threads_per_block, shared_mem, stream>>>(
+                weights_q4_0, input, residual, output, n_rows, ncols_dst
+            );
+        } else {
+            gemv_q4_0_f32_q8_inline_residual_multi_row_kernel<Q4_0_FIXED_WAVES><<<n_blocks_x, threads_per_block, shared_mem, stream>>>(
+                weights_q4_0, input, residual, output, n_rows, ncols_dst
+            );
+        }
     }
 
     return hipGetLastError();
@@ -873,4 +1061,50 @@ extern "C" hipError_t gemv_q4_0_f32_q8_inline_residual_launch(
     return gemv_q4_0_f32_q8_inline_residual_variant_launch(
         weights_q4_0, input, residual, output, n_rows, ncols_dst, 0, stream
     );
+}
+
+extern "C" hipError_t gemv_q4_0_f32_q8_inline_residual_norm_launch(
+    const void* weights_q4_0,
+    const float* input,
+    const float* residual,
+    const float* norm_weight,
+    float eps,
+    float* output,
+    float* output_normed,
+    int n_rows,
+    int ncols_dst,
+    unsigned int* retire_count,
+    hipStream_t stream
+) {
+    if (n_rows <= 0 || ncols_dst <= 0 || input == nullptr || residual == nullptr ||
+        output == nullptr || output_normed == nullptr || norm_weight == nullptr ||
+        retire_count == nullptr) {
+        return hipErrorInvalidValue;
+    }
+    if (n_rows % QK4_0 != 0) {
+        return hipErrorInvalidValue;
+    }
+
+    const int n_blocks_total = n_rows / QK4_0;
+    const size_t shared_mem = n_blocks_total * Q8_0_BLOCK_SIZE;
+    if (shared_mem > Q4_0_MULTI_ROW_SHARED_MEM_LIMIT) {
+        return hipErrorInvalidValue;
+    }
+
+    const int n_waves = select_multi_row_waves_q4_0_q8(n_blocks_total);
+    const int threads_per_block = n_waves * WARP_SIZE;
+    const int n_blocks_x =
+        (ncols_dst + (n_waves * Q4_0_MULTI_ROW_COLS) - 1) / (n_waves * Q4_0_MULTI_ROW_COLS);
+
+    if (n_waves == Q4_0_SMALL_WAVES) {
+        gemv_q4_0_f32_q8_inline_residual_norm_multi_row_kernel<Q4_0_SMALL_WAVES><<<n_blocks_x, threads_per_block, shared_mem, stream>>>(
+            weights_q4_0, input, residual, norm_weight, eps, output, output_normed, n_rows, ncols_dst, retire_count
+        );
+    } else {
+        gemv_q4_0_f32_q8_inline_residual_norm_multi_row_kernel<Q4_0_FIXED_WAVES><<<n_blocks_x, threads_per_block, shared_mem, stream>>>(
+            weights_q4_0, input, residual, norm_weight, eps, output, output_normed, n_rows, ncols_dst, retire_count
+        );
+    }
+
+    return hipGetLastError();
 }

@@ -372,6 +372,9 @@ pub struct GpuForwardScratch {
     decode_state_next_pos: Option<usize>,
     /// Cached executable graph for repeated decode work.
     captured_decode: Option<CapturedDecodeGraph>,
+    /// Atomic retire counter for inter-block sync in fused GEMV+residual+norm kernel [1 u32].
+    /// Self-resetting via atomicInc wrap-around.
+    pub retire_count: GpuBuffer,
 }
 
 impl GpuForwardScratch {
@@ -491,6 +494,14 @@ impl GpuForwardScratch {
                 }
             })?;
 
+        let mut retire_count =
+            GpuBuffer::alloc(std::mem::size_of::<u32>()).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("retire_count buffer allocation failed: {}", e),
+                }
+            })?;
+        retire_count.copy_from_host(&[0u8; 4])?;
+
         Ok(Self {
             hidden,
             normed,
@@ -511,6 +522,7 @@ impl GpuForwardScratch {
             decode_state_host,
             decode_state_next_pos: None,
             captured_decode: None,
+            retire_count,
         })
     }
 

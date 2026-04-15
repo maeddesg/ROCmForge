@@ -995,6 +995,62 @@ extern "C" hipError_t gpu_flash_attn_decode_strided_multi_head_state(
     return hipGetLastError();
 }
 
+extern "C" hipError_t gpu_flash_attn_decode_gqa(
+    float* d_out,
+    const float* d_q,
+    const half* d_k_cache,
+    const half* d_v_cache,
+    const int seq_len,
+    const int num_heads,
+    const int num_kv_heads,
+    const int head_dim,
+    const float scale,
+    hipStream_t stream
+) {
+    constexpr int TILE = 32;
+    const int gqa_ratio = num_heads / num_kv_heads;
+    // Need at least gqa_ratio warps; round up to multiple of 32
+    const int threads_per_block = ((gqa_ratio + 7) / 8) * 256;  // 256 for gqa<=8
+    // LDS: tile(TILE*head_dim) + q(gqa*head_dim) + scores(gqa*TILE) + out(gqa*head_dim)
+    const size_t smem_size = (TILE * head_dim + gqa_ratio * head_dim
+                              + gqa_ratio * TILE + gqa_ratio * head_dim) * sizeof(float);
+
+    flash_attn_decode_gqa_kernel<TILE><<<num_kv_heads, threads_per_block, smem_size, stream>>>(
+        d_out, d_q, d_k_cache, d_v_cache, seq_len, num_heads, num_kv_heads, head_dim, scale
+    );
+
+    return hipGetLastError();
+}
+
+extern "C" hipError_t gpu_flash_attn_decode_gqa_state(
+    float* d_out,
+    const float* d_q,
+    const half* d_k_cache,
+    const half* d_v_cache,
+    const int* d_seq_len,
+    const int num_heads,
+    const int num_kv_heads,
+    const int head_dim,
+    const float scale,
+    hipStream_t stream
+) {
+    if (d_seq_len == nullptr) {
+        return hipErrorInvalidValue;
+    }
+
+    constexpr int TILE = 32;
+    const int gqa_ratio = num_heads / num_kv_heads;
+    const int threads_per_block = ((gqa_ratio + 7) / 8) * 256;
+    const size_t smem_size = (TILE * head_dim + gqa_ratio * head_dim
+                              + gqa_ratio * TILE + gqa_ratio * head_dim) * sizeof(float);
+
+    flash_attn_decode_gqa_state_kernel<TILE><<<num_kv_heads, threads_per_block, smem_size, stream>>>(
+        d_out, d_q, d_k_cache, d_v_cache, d_seq_len, num_heads, num_kv_heads, head_dim, scale
+    );
+
+    return hipGetLastError();
+}
+
 // ── KV Cache Write ───────────────────────────────────────────────────────────────
 
 __global__ void kv_write_kernel(
