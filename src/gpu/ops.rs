@@ -17,7 +17,8 @@ use super::kernels::{
     gemv_q4_0_f32_residual_on_stream_unchecked, gemv_q4_0_q8_0_on_stream,
     gemv_q4_0_q8_0_residual_on_stream, gemv_q4_1_f32_on_stream_unchecked,
     gemv_q4_1_f32_residual_on_stream_unchecked, gemv_q4_1_f32_residual_on_stream_variant_unchecked,
-    gemv_q4_k_f32_on_stream, gemv_q5_k_f32_on_stream, gemv_q8_0_f32_lm_head_on_stream,
+    gemv_q4_k_f32_on_stream, gemv_q5_k_f32_on_stream, gemv_q6_k_f32_on_stream,
+    gemv_q8_0_f32_lm_head_on_stream,
     gemv_q8_0_f32_lm_head_on_stream_variant, gemv_q8_0_f32_on_stream, gemv_qkv_q4_0_f32_on_stream,
     gemv_qkv_q4_0_f32_on_stream_variant, mul_on_stream, q8_0_workspace_bytes,
     quantize_q8_0_on_stream, rms_norm_on_stream, rms_norm_vulkan_style, silu_on_stream,
@@ -36,7 +37,7 @@ use crate::loader::GgmlType;
 fn supports_gemv_type(wtype: GgmlType) -> bool {
     matches!(
         wtype,
-        GgmlType::Q4_0 | GgmlType::Q4_1 | GgmlType::Q8_0 | GgmlType::Q4_K | GgmlType::Q5_K
+        GgmlType::Q4_0 | GgmlType::Q4_1 | GgmlType::Q8_0 | GgmlType::Q4_K | GgmlType::Q5_K | GgmlType::Q6_K
     )
 }
 
@@ -405,6 +406,14 @@ fn dispatch_gemv_impl(
                 )?
             }
             GgmlType::Q5_K => gemv_q5_k_f32_on_stream(
+                weights.as_ptr() as *const u8,
+                input,
+                output,
+                in_dim,
+                out_dim,
+                stream,
+            )?,
+            GgmlType::Q6_K => gemv_q6_k_f32_on_stream(
                 weights.as_ptr() as *const u8,
                 input,
                 output,

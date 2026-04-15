@@ -372,11 +372,25 @@ add_library(q5_k_gemv STATIC
     q5_k_gemv.hip
 )
 
+# Q6_K GEMV kernel (Q6_K × f32 matrix-vector multiplication)
+add_library(q6_k_gemv STATIC
+    q6_k_gemv.hip
+)
+
 target_link_libraries(q5_k_gemv
     quant_common
 )
 
 set_target_properties(q5_k_gemv PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+)
+
+target_link_libraries(q6_k_gemv
+    quant_common
+)
+
+set_target_properties(q6_k_gemv PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )

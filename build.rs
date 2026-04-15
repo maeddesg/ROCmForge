@@ -203,6 +203,8 @@ mod gpu_build {
                             ("libq5_k_dequantize.a", "q5_k_dequantize"),
                             ("libq5_k_verify.a", "q5_k_verify"),
                             ("libq5_k_gemv.a", "q5_k_gemv"),
+                            // Q6_K libraries
+                            ("libq6_k_gemv.a", "q6_k_gemv"),
                             // Q4_0 libraries
                             ("libq4_0_quantize.a", "q4_0_quantize"),
                             ("libq4_0_dequantize.a", "q4_0_dequantize"),
