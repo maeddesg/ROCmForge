@@ -243,24 +243,22 @@ extern "C" hipError_t gemv_norm_gate_up_swiglu_q4_0_f32_q8_inline_launch(
     }
 
     // Use same heuristic as the non-norm variant
-    if (n_rows <= 4096) {
-        if (n_ff >= 4096) {
-            const int N_WAVES = 8;
-            const int n_blocks_x = (n_ff + (N_WAVES * 4) - 1) / (N_WAVES * 4);
-            gemv_norm_gate_up_swiglu_q4_0_f32_q8_inline_v2_kernel<N_WAVES><<<n_blocks_x, 256, shared_mem, stream>>>(
-                raw_hidden, norm_weight, eps,
-                w_gate, w_up, out_swiglu, n_rows, n_ff
-            );
-        } else {
-            const int N_WAVES = 4;
-            const int n_blocks_x = (n_ff + (N_WAVES * 4) - 1) / (N_WAVES * 4);
-            gemv_norm_gate_up_swiglu_q4_0_f32_q8_inline_v2_kernel<N_WAVES><<<n_blocks_x, 128, shared_mem, stream>>>(
-                raw_hidden, norm_weight, eps,
-                w_gate, w_up, out_swiglu, n_rows, n_ff
-            );
-        }
+    // Norm phase uses looped loading (tid += blockDim.x), so any n_rows that fits
+    // in shared memory works regardless of thread count.
+    if (n_ff >= 4096) {
+        const int N_WAVES = 8;
+        const int n_blocks_x = (n_ff + (N_WAVES * 4) - 1) / (N_WAVES * 4);
+        gemv_norm_gate_up_swiglu_q4_0_f32_q8_inline_v2_kernel<N_WAVES><<<n_blocks_x, 256, shared_mem, stream>>>(
+            raw_hidden, norm_weight, eps,
+            w_gate, w_up, out_swiglu, n_rows, n_ff
+        );
     } else {
-        return hipErrorInvalidValue;
+        const int N_WAVES = 4;
+        const int n_blocks_x = (n_ff + (N_WAVES * 4) - 1) / (N_WAVES * 4);
+        gemv_norm_gate_up_swiglu_q4_0_f32_q8_inline_v2_kernel<N_WAVES><<<n_blocks_x, 128, shared_mem, stream>>>(
+            raw_hidden, norm_weight, eps,
+            w_gate, w_up, out_swiglu, n_rows, n_ff
+        );
     }
 
     return hipGetLastError();
