@@ -272,13 +272,8 @@ add_library(q4_0_fused STATIC
     q4_0_fused_qkv_rope.hip
     q4_0_fused_norm_qkv_rope.hip
     q4_0_fused_norm_gate_up.hip
-    q4_0_fused_norm_gate_up_udot4.hip
 )
 
-# GFX12 (RDNA4) optimized GEMV using v_dot4_u32_u8 instructions
-add_library(q4_0_gemv_gfx12 STATIC q4_0_gemv_gfx12.hip)
-target_link_libraries(q4_0_gemv_gfx12 quant_common)
-set_target_properties(q4_0_gemv_gfx12 PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 target_link_libraries(q4_0_fused quant_common)
 set_target_properties(q4_0_fused PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 

@@ -52,12 +52,6 @@ impl GpuArchitecture {
         }
     }
 
-    /// Whether this architecture has v_dot4_u32_u8 (unsigned 4×8-bit dot product).
-    /// Available on RDNA2+ (gfx1030, gfx1100, gfx1201) via dot7-insts.
-    pub fn has_udot4(&self) -> bool {
-        matches!(self, Self::Gfx1201 | Self::Gfx1100 | Self::Gfx1030)
-    }
-
     /// Parse from device name string (e.g., "gfx1100")
     pub fn from_name(name: &str) -> Option<Self> {
         // Handle format: "gfx1100" or "gfx1100_architecture" or similar

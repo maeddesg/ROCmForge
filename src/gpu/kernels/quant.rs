@@ -2147,19 +2147,6 @@ unsafe extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 
-    // Fused RMSNorm + Gate+Up+SiLU kernel with udot4 (RDNA2+)
-    fn gemv_norm_gate_up_swiglu_q4_0_f32_q8_udot4_launch(
-        raw_hidden: *const f32,
-        norm_weight: *const f32,
-        eps: f32,
-        w_gate: *const u8,
-        w_up: *const u8,
-        out_swiglu: *mut f32,
-        n_rows: c_int,
-        n_ff: c_int,
-        stream: hipStream_t,
-    ) -> hipError_t;
-
     fn gemv_gate_up_swiglu_vulkan_q4_0_f32_launch(
         w_gate: *const u8,
         w_up: *const u8,
@@ -2602,46 +2589,6 @@ pub fn gemv_norm_gate_up_swiglu_q4_0_f32_on_stream(
             code: result as i32,
             description: format!(
                 "gemv_norm_gate_up_swiglu_q4_0_f32 kernel failed: {:?}",
-                result
-            ),
-        });
-    }
-    Ok(())
-}
-
-/// Fused RMSNorm + Gate+Up+SiLU with udot4 (RDNA2+) for Q4_0 quantized weights.
-///
-/// Same fusion as `gemv_norm_gate_up_swiglu_q4_0_f32_on_stream` but uses
-/// `v_dot4_u32_u8` for the Q4_0×Q8_0 inner loop (~4.5× ALU reduction).
-pub fn gemv_norm_gate_up_swiglu_q4_0_f32_udot4_on_stream(
-    raw_hidden: *const f32,
-    norm_weight: *const f32,
-    eps: f32,
-    w_gate: *const u8,
-    w_up: *const u8,
-    out_swiglu: *mut f32,
-    n_rows: usize,
-    n_ff: usize,
-    stream: hipStream_t,
-) -> GpuResult<()> {
-    let result = unsafe {
-        gemv_norm_gate_up_swiglu_q4_0_f32_q8_udot4_launch(
-            raw_hidden,
-            norm_weight,
-            eps,
-            w_gate,
-            w_up,
-            out_swiglu,
-            n_rows as c_int,
-            n_ff as c_int,
-            stream,
-        )
-    };
-    if result != hipError_t::hipSuccess {
-        return Err(GpuError::HipApiError {
-            code: result as i32,
-            description: format!(
-                "gemv_norm_gate_up_swiglu_q4_0_f32_udot4 kernel failed: {:?}",
                 result
             ),
         });

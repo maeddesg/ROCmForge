@@ -24,7 +24,6 @@ pub struct GpuDevice {
     stream: ffi::hipStream_t,
     warp_size: usize,
     max_shared_mem_per_block: usize,
-    architecture: super::arch::GpuArchitecture,
     q8_workspace: Mutex<Q8Workspace>,
 }
 
@@ -39,15 +38,11 @@ impl GpuDevice {
         // Create HIP stream
         let stream = ffi::hip_stream_create()?;
 
-        let architecture = super::arch::GpuArchitecture::from_name(&info.arch_name)
-            .unwrap_or(super::arch::GpuArchitecture::Unknown(0));
-
         Ok(Self {
             device_id,
             stream,
             warp_size: info.warp_size,
             max_shared_mem_per_block: info.max_shared_mem_per_block,
-            architecture,
             q8_workspace: Mutex::new(Q8Workspace {
                 buffer: None,
                 size: 0,
@@ -77,11 +72,6 @@ impl GpuDevice {
                 .unwrap_or(super::arch::GpuArchitecture::Unknown(0)),
             max_shared_mem_per_block: info.max_shared_mem_per_block,
         })
-    }
-
-    /// Get the GPU architecture (cached at init time).
-    pub fn architecture(&self) -> super::arch::GpuArchitecture {
-        self.architecture
     }
 
     /// Get the HIP stream for this device.
