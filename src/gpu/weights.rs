@@ -342,6 +342,7 @@ fn supports_gpu_matrix_type(wtype: GgmlType) -> bool {
             | GgmlType::Q4_1
             | GgmlType::Q4_K
             | GgmlType::Q5_K
+            | GgmlType::Q6_K
             | GgmlType::Q8_0
     )
 }
