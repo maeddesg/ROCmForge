@@ -48,8 +48,8 @@ __global__ void gemv_norm_qkv_rope_kvwrite_q4_0_f32_kernel(
     // Q output (with RoPE applied)
     float* __restrict__ out_q,
     // KV cache pointers
-    float* __restrict__ k_cache,
-    float* __restrict__ v_cache,
+    half* __restrict__ k_cache,
+    half* __restrict__ v_cache,
     // Dimensions
     int n_rows,         // hidden_size (input dimension)
     int n_q,            // num_heads * head_dim
@@ -288,16 +288,16 @@ __global__ void gemv_norm_qkv_rope_kvwrite_q4_0_f32_kernel(
             const size_t cache_base = (size_t)pos * kv_size;
             #pragma unroll
             for (int c = 0; c < 4; ++c) {
-                k_cache[cache_base + out_col_base + c] = sums[c];
+                k_cache[cache_base + out_col_base + c] = __float2half(sums[c]);
             }
 
         } else {
-            // V columns: add bias, write directly to v_cache (no RoPE)
+            // V columns: add bias, write directly to v_cache (no RoPE, f32 → f16)
             const size_t cache_base = (size_t)pos * kv_size;
             #pragma unroll
             for (int c = 0; c < 4; ++c) {
                 const float val = sums[c] + (bias_v ? bias_v[out_col_base + c] : 0.0f);
-                v_cache[cache_base + out_col_base + c] = val;
+                v_cache[cache_base + out_col_base + c] = __float2half(val);
             }
         }
     }
@@ -312,7 +312,7 @@ extern "C" hipError_t gemv_norm_qkv_rope_kvwrite_q4_0_f32_launch(
     const void* w_q, const void* w_k, const void* w_v,
     const float* bias_q, const float* bias_k, const float* bias_v,
     float* out_q,
-    float* k_cache, float* v_cache,
+    half* k_cache, half* v_cache,
     int n_rows, int n_q, int n_kv,
     const int* pos_ptr,
     int head_dim,

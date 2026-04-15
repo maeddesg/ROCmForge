@@ -2845,6 +2845,20 @@ fn test_rope_heads_batched_kernel_correctness() {
 }
 
 // ============================================================================
+// FP16 Helpers for KV Cache Tests
+// ============================================================================
+
+/// Convert f32 to IEEE 754 FP16 (binary16) stored as u16.
+fn f32_to_f16(val: f32) -> u16 {
+    half::f16::from_f32(val).to_bits()
+}
+
+/// Convert IEEE 754 FP16 stored as u16 back to f32.
+fn f16_to_f32(bits: u16) -> f32 {
+    half::f16::from_bits(bits).to_f32()
+}
+
+// ============================================================================
 // KV Write Kernel Correctness Tests
 // ============================================================================
 
@@ -2861,34 +2875,34 @@ fn test_kv_write_kernel_correctness() {
     let kv_size = 512; // 4 heads * 128 dim
     let write_pos = 100; // Position to write at
 
-    // Test K and V vectors
+    // Test K and V vectors (f32 input — kernel converts to f16 on write)
     let k: Vec<f32> = (0..kv_size).map(|i| i as f32 * 0.1).collect();
     let v: Vec<f32> = (0..kv_size).map(|i| i as f32 * 0.2).collect();
 
-    // Pre-fill cache with known values (so we can verify write happened)
+    // Pre-fill FP16 cache with known values (so we can verify write happened)
     let cache_size = max_seq * kv_size;
-    let k_cache_init = vec![999.0f32; cache_size];
-    let v_cache_init = vec![888.0f32; cache_size];
+    let k_cache_init: Vec<u16> = vec![f32_to_f16(999.0); cache_size];
+    let v_cache_init: Vec<u16> = vec![f32_to_f16(888.0); cache_size];
 
-    // Allocate GPU buffers
-    let mut gpu_k_cache = GpuBuffer::alloc(cache_size * 4).unwrap();
-    let mut gpu_v_cache = GpuBuffer::alloc(cache_size * 4).unwrap();
+    // Allocate GPU buffers (cache is FP16 = 2 bytes, input is f32 = 4 bytes)
+    let mut gpu_k_cache = GpuBuffer::alloc(cache_size * 2).unwrap();
+    let mut gpu_v_cache = GpuBuffer::alloc(cache_size * 2).unwrap();
     let mut gpu_k = GpuBuffer::alloc(kv_size * 4).unwrap();
     let mut gpu_v = GpuBuffer::alloc(kv_size * 4).unwrap();
 
-    // Initialize cache with known values
+    // Initialize FP16 cache with known values
     gpu_k_cache
         .copy_from_host(unsafe {
-            std::slice::from_raw_parts(k_cache_init.as_ptr() as *const u8, cache_size * 4)
+            std::slice::from_raw_parts(k_cache_init.as_ptr() as *const u8, cache_size * 2)
         })
         .unwrap();
     gpu_v_cache
         .copy_from_host(unsafe {
-            std::slice::from_raw_parts(v_cache_init.as_ptr() as *const u8, cache_size * 4)
+            std::slice::from_raw_parts(v_cache_init.as_ptr() as *const u8, cache_size * 2)
         })
         .unwrap();
 
-    // Copy K/V to write
+    // Copy f32 K/V input vectors
     gpu_k
         .copy_from_host(unsafe { std::slice::from_raw_parts(k.as_ptr() as *const u8, kv_size * 4) })
         .unwrap();
@@ -2896,10 +2910,10 @@ fn test_kv_write_kernel_correctness() {
         .copy_from_host(unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, kv_size * 4) })
         .unwrap();
 
-    // Run KV write kernel (from hip_kernels/attention.hip:14)
+    // Run KV write kernel — cache is FP16, input is f32
     kv_write(
-        gpu_k_cache.as_ptr() as *mut f32,
-        gpu_v_cache.as_ptr() as *mut f32,
+        gpu_k_cache.as_ptr() as *mut u16,
+        gpu_v_cache.as_ptr() as *mut u16,
         gpu_k.as_ptr() as *const f32,
         gpu_v.as_ptr() as *const f32,
         write_pos,
@@ -2908,45 +2922,43 @@ fn test_kv_write_kernel_correctness() {
     )
     .expect("GPU kv_write kernel should succeed");
 
-    // Copy back and verify
-    let mut k_result = vec![0u8; cache_size * 4];
-    let mut v_result = vec![0u8; cache_size * 4];
+    // Copy back FP16 cache and convert to f32 for comparison
+    let mut k_result = vec![0u8; cache_size * 2];
+    let mut v_result = vec![0u8; cache_size * 2];
     gpu_k_cache.copy_to_host(&mut k_result).unwrap();
     gpu_v_cache.copy_to_host(&mut v_result).unwrap();
 
-    let k_cache_out: &[f32] =
-        unsafe { std::slice::from_raw_parts(k_result.as_ptr() as *const f32, cache_size) };
-    let v_cache_out: &[f32] =
-        unsafe { std::slice::from_raw_parts(v_result.as_ptr() as *const f32, cache_size) };
+    let k_cache_u16: &[u16] =
+        unsafe { std::slice::from_raw_parts(k_result.as_ptr() as *const u16, cache_size) };
+    let v_cache_u16: &[u16] =
+        unsafe { std::slice::from_raw_parts(v_result.as_ptr() as *const u16, cache_size) };
 
     // Verify that K/V were written at the correct position
     let k_start = write_pos * kv_size;
-    let v_start = write_pos * kv_size;
 
-    let k_written = &k_cache_out[k_start..k_start + kv_size];
-    let v_written = &v_cache_out[v_start..v_start + kv_size];
+    let k_written: Vec<f32> = k_cache_u16[k_start..k_start + kv_size].iter().map(|&b| f16_to_f32(b)).collect();
+    let v_written: Vec<f32> = v_cache_u16[k_start..k_start + kv_size].iter().map(|&b| f16_to_f32(b)).collect();
 
-    assert_close(k_written, &k, 1e-5);
-    assert_close(v_written, &v, 1e-5);
+    // FP16 has ~3 decimal digits of precision
+    assert_close(&k_written, &k, 5e-2);
+    assert_close(&v_written, &v, 5e-2);
 
     // Verify other positions weren't modified
     for pos in 0..max_seq {
         if pos != write_pos {
             let offset = pos * kv_size;
-            // Should still have initial values
             for i in 0..kv_size.min(10) {
-                // Check first 10 elements
-                assert_eq!(
-                    k_cache_out[offset + i],
-                    999.0,
-                    "K cache at pos {} should be unchanged",
-                    pos
+                let k_val = f16_to_f32(k_cache_u16[offset + i]);
+                let v_val = f16_to_f32(v_cache_u16[offset + i]);
+                assert!(
+                    (k_val - 999.0).abs() < 1.0,
+                    "K cache at pos {} should be ~999.0, got {}",
+                    pos, k_val
                 );
-                assert_eq!(
-                    v_cache_out[offset + i],
-                    888.0,
-                    "V cache at pos {} should be unchanged",
-                    pos
+                assert!(
+                    (v_val - 888.0).abs() < 1.0,
+                    "V cache at pos {} should be ~888.0, got {}",
+                    pos, v_val
                 );
             }
         }
@@ -2967,27 +2979,28 @@ fn test_kv_write_batched_kernel_correctness() {
     let start_pos = 50;
     let seq_len = 10;
 
-    // Test data for 10 positions
+    // Test data for 10 positions (f32 input)
     let k: Vec<f32> = (0..seq_len * kv_size).map(|i| i as f32 * 0.1).collect();
     let v: Vec<f32> = (0..seq_len * kv_size).map(|i| i as f32 * 0.2).collect();
 
     let cache_size = max_seq * kv_size;
-    let k_cache_init = vec![999.0f32; cache_size];
-    let v_cache_init = vec![888.0f32; cache_size];
+    let k_cache_init: Vec<u16> = vec![f32_to_f16(999.0); cache_size];
+    let v_cache_init: Vec<u16> = vec![f32_to_f16(888.0); cache_size];
 
-    let mut gpu_k_cache = GpuBuffer::alloc(cache_size * 4).unwrap();
-    let mut gpu_v_cache = GpuBuffer::alloc(cache_size * 4).unwrap();
+    // FP16 cache buffers (2 bytes per element)
+    let mut gpu_k_cache = GpuBuffer::alloc(cache_size * 2).unwrap();
+    let mut gpu_v_cache = GpuBuffer::alloc(cache_size * 2).unwrap();
     let mut gpu_k = GpuBuffer::alloc(seq_len * kv_size * 4).unwrap();
     let mut gpu_v = GpuBuffer::alloc(seq_len * kv_size * 4).unwrap();
 
     gpu_k_cache
         .copy_from_host(unsafe {
-            std::slice::from_raw_parts(k_cache_init.as_ptr() as *const u8, cache_size * 4)
+            std::slice::from_raw_parts(k_cache_init.as_ptr() as *const u8, cache_size * 2)
         })
         .unwrap();
     gpu_v_cache
         .copy_from_host(unsafe {
-            std::slice::from_raw_parts(v_cache_init.as_ptr() as *const u8, cache_size * 4)
+            std::slice::from_raw_parts(v_cache_init.as_ptr() as *const u8, cache_size * 2)
         })
         .unwrap();
 
@@ -3003,8 +3016,8 @@ fn test_kv_write_batched_kernel_correctness() {
         .unwrap();
 
     kv_write_batched(
-        gpu_k_cache.as_ptr() as *mut f32,
-        gpu_v_cache.as_ptr() as *mut f32,
+        gpu_k_cache.as_ptr() as *mut u16,
+        gpu_v_cache.as_ptr() as *mut u16,
         gpu_k.as_ptr() as *const f32,
         gpu_v.as_ptr() as *const f32,
         start_pos,
@@ -3014,29 +3027,29 @@ fn test_kv_write_batched_kernel_correctness() {
     )
     .expect("GPU kv_write_batched kernel should succeed");
 
-    let mut k_result = vec![0u8; cache_size * 4];
-    let mut v_result = vec![0u8; cache_size * 4];
+    let mut k_result = vec![0u8; cache_size * 2];
+    let mut v_result = vec![0u8; cache_size * 2];
     gpu_k_cache.copy_to_host(&mut k_result).unwrap();
     gpu_v_cache.copy_to_host(&mut v_result).unwrap();
 
-    let k_cache_out: &[f32] =
-        unsafe { std::slice::from_raw_parts(k_result.as_ptr() as *const f32, cache_size) };
-    let v_cache_out: &[f32] =
-        unsafe { std::slice::from_raw_parts(v_result.as_ptr() as *const f32, cache_size) };
+    let k_cache_u16: &[u16] =
+        unsafe { std::slice::from_raw_parts(k_result.as_ptr() as *const u16, cache_size) };
+    let v_cache_u16: &[u16] =
+        unsafe { std::slice::from_raw_parts(v_result.as_ptr() as *const u16, cache_size) };
 
-    // Verify all written positions
+    // Verify all written positions (FP16 tolerance)
     for s in 0..seq_len {
         let pos = start_pos + s;
         let offset = pos * kv_size;
         let k_offset = s * kv_size;
 
-        let k_written = &k_cache_out[offset..offset + kv_size];
-        let v_written = &v_cache_out[offset..offset + kv_size];
+        let k_written: Vec<f32> = k_cache_u16[offset..offset + kv_size].iter().map(|&b| f16_to_f32(b)).collect();
+        let v_written: Vec<f32> = v_cache_u16[offset..offset + kv_size].iter().map(|&b| f16_to_f32(b)).collect();
         let k_expected = &k[k_offset..k_offset + kv_size];
         let v_expected = &v[k_offset..k_offset + kv_size];
 
-        assert_close(k_written, k_expected, 1e-5);
-        assert_close(v_written, v_expected, 1e-5);
+        assert_close(&k_written, k_expected, 5e-2);
+        assert_close(&v_written, v_expected, 5e-2);
     }
 }
 
@@ -3057,17 +3070,17 @@ fn test_flash_attn_decode_kernel_correctness() {
     let head_dim = 128;
     let scale = (1.0 / (head_dim as f32).sqrt()) as f32;
 
-    // Query for single token
+    // Query for single token (f32)
     let q: Vec<f32> = (0..head_dim)
         .map(|i| if i == 0 { 1.0 } else { 0.0 })
         .collect();
 
-    // Cached K/V (simple pattern: k[0] = 1, others = 0 for each position)
-    let mut k_cache = vec![0.0f32; seq_len * head_dim];
-    let mut v_cache = vec![0.0f32; seq_len * head_dim];
+    // Cached K/V in FP16 (simple pattern: k[0] = 1, others = 0 for each position)
+    let mut k_cache = vec![f32_to_f16(0.0); seq_len * head_dim];
+    let mut v_cache = vec![f32_to_f16(0.0); seq_len * head_dim];
     for pos in 0..seq_len {
-        k_cache[pos * head_dim] = 1.0; // First dimension matches
-        v_cache[pos * head_dim] = pos as f32; // Value = position
+        k_cache[pos * head_dim] = f32_to_f16(1.0); // First dimension matches
+        v_cache[pos * head_dim] = f32_to_f16(pos as f32); // Value = position
     }
 
     // Expected output: attention-weighted sum of V
@@ -3077,8 +3090,8 @@ fn test_flash_attn_decode_kernel_correctness() {
     expected[0] = (0..seq_len).map(|i| i as f32).sum::<f32>() / seq_len as f32;
 
     let mut gpu_q = GpuBuffer::alloc(head_dim * 4).unwrap();
-    let mut gpu_k_cache = GpuBuffer::alloc(seq_len * head_dim * 4).unwrap();
-    let mut gpu_v_cache = GpuBuffer::alloc(seq_len * head_dim * 4).unwrap();
+    let mut gpu_k_cache = GpuBuffer::alloc(seq_len * head_dim * 2).unwrap(); // FP16
+    let mut gpu_v_cache = GpuBuffer::alloc(seq_len * head_dim * 2).unwrap(); // FP16
     let mut gpu_out = GpuBuffer::alloc(head_dim * 4).unwrap();
 
     gpu_q
@@ -3088,21 +3101,21 @@ fn test_flash_attn_decode_kernel_correctness() {
         .unwrap();
     gpu_k_cache
         .copy_from_host(unsafe {
-            std::slice::from_raw_parts(k_cache.as_ptr() as *const u8, seq_len * head_dim * 4)
+            std::slice::from_raw_parts(k_cache.as_ptr() as *const u8, seq_len * head_dim * 2)
         })
         .unwrap();
     gpu_v_cache
         .copy_from_host(unsafe {
-            std::slice::from_raw_parts(v_cache.as_ptr() as *const u8, seq_len * head_dim * 4)
+            std::slice::from_raw_parts(v_cache.as_ptr() as *const u8, seq_len * head_dim * 2)
         })
         .unwrap();
 
-    // Run flash attention decode (from hip_kernels/attention.hip:77)
+    // Run flash attention decode — KV cache is FP16
     flash_attn_decode(
         gpu_out.as_ptr() as *mut f32,
         gpu_q.as_ptr() as *const f32,
-        gpu_k_cache.as_ptr() as *const f32,
-        gpu_v_cache.as_ptr() as *const f32,
+        gpu_k_cache.as_ptr() as *const u16,
+        gpu_v_cache.as_ptr() as *const u16,
         seq_len,
         head_dim,
         scale,
@@ -3114,9 +3127,8 @@ fn test_flash_attn_decode_kernel_correctness() {
     let gpu_out_f32: &[f32] =
         unsafe { std::slice::from_raw_parts(result.as_ptr() as *const f32, head_dim) };
 
-    // Flash attention uses online softmax which can have numerical differences
-    // Use higher tolerance for the complex reduction
-    assert_close(&expected, gpu_out_f32, 1e-2); // 1% tolerance
+    // Flash attention uses online softmax + FP16 cache, use higher tolerance
+    assert_close(&expected, gpu_out_f32, 5e-2);
 }
 
 #[test]
@@ -3139,27 +3151,27 @@ fn test_flash_attn_decode_strided_kernel_correctness() {
         .map(|i| if i == 0 { 1.0 } else { 0.0 })
         .collect();
 
-    let mut k_cache = vec![0.0f32; seq_len * kv_size];
-    let mut v_cache = vec![0.0f32; seq_len * kv_size];
+    // FP16 KV cache
+    let mut k_cache = vec![f32_to_f16(0.0); seq_len * kv_size];
+    let mut v_cache = vec![f32_to_f16(0.0); seq_len * kv_size];
     for pos in 0..seq_len {
         let row = pos * kv_size;
 
-        // Head 0 carries a very different signal. If the kernel ignores head_offset,
-        // the output will be obviously wrong.
-        k_cache[row] = 5.0;
-        v_cache[row] = 1000.0 + pos as f32;
+        // Head 0 carries a very different signal
+        k_cache[row] = f32_to_f16(5.0);
+        v_cache[row] = f32_to_f16(1000.0 + pos as f32);
 
-        // Head 1 is the head we actually want to read.
-        k_cache[row + head_offset] = 1.0;
-        v_cache[row + head_offset] = pos as f32;
+        // Head 1 is the head we actually want to read
+        k_cache[row + head_offset] = f32_to_f16(1.0);
+        v_cache[row + head_offset] = f32_to_f16(pos as f32);
     }
 
     let mut expected = vec![0.0f32; head_dim];
     expected[0] = (0..seq_len).map(|i| i as f32).sum::<f32>() / seq_len as f32;
 
     let mut gpu_q = GpuBuffer::alloc(head_dim * 4).unwrap();
-    let mut gpu_k_cache = GpuBuffer::alloc(seq_len * kv_size * 4).unwrap();
-    let mut gpu_v_cache = GpuBuffer::alloc(seq_len * kv_size * 4).unwrap();
+    let mut gpu_k_cache = GpuBuffer::alloc(seq_len * kv_size * 2).unwrap(); // FP16
+    let mut gpu_v_cache = GpuBuffer::alloc(seq_len * kv_size * 2).unwrap(); // FP16
     let mut gpu_out = GpuBuffer::alloc(head_dim * 4).unwrap();
 
     gpu_q
@@ -3169,20 +3181,20 @@ fn test_flash_attn_decode_strided_kernel_correctness() {
         .unwrap();
     gpu_k_cache
         .copy_from_host(unsafe {
-            std::slice::from_raw_parts(k_cache.as_ptr() as *const u8, seq_len * kv_size * 4)
+            std::slice::from_raw_parts(k_cache.as_ptr() as *const u8, seq_len * kv_size * 2)
         })
         .unwrap();
     gpu_v_cache
         .copy_from_host(unsafe {
-            std::slice::from_raw_parts(v_cache.as_ptr() as *const u8, seq_len * kv_size * 4)
+            std::slice::from_raw_parts(v_cache.as_ptr() as *const u8, seq_len * kv_size * 2)
         })
         .unwrap();
 
     flash_attn_decode_strided(
         gpu_out.as_ptr() as *mut f32,
         gpu_q.as_ptr() as *const f32,
-        gpu_k_cache.as_ptr() as *const f32,
-        gpu_v_cache.as_ptr() as *const f32,
+        gpu_k_cache.as_ptr() as *const u16,
+        gpu_v_cache.as_ptr() as *const u16,
         seq_len,
         head_dim,
         kv_size,
@@ -3196,7 +3208,7 @@ fn test_flash_attn_decode_strided_kernel_correctness() {
     let gpu_out_f32: &[f32] =
         unsafe { std::slice::from_raw_parts(result.as_ptr() as *const f32, head_dim) };
 
-    assert_close(&expected, gpu_out_f32, 1e-2);
+    assert_close(&expected, gpu_out_f32, 5e-2);
 }
 
 #[test]

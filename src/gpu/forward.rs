@@ -554,8 +554,8 @@ fn gpu_attention_decode(
     let head_dim = config.head_dim;
     let scale = 1.0f32 / (head_dim as f32).sqrt();
 
-    let k_cache = kv.k_ptr(layer_idx)? as *const f32;
-    let v_cache = kv.v_ptr(layer_idx)? as *const f32;
+    let k_cache = kv.k_ptr(layer_idx)? as *const u16;
+    let v_cache = kv.v_ptr(layer_idx)? as *const u16;
     let q_base = scratch.q.as_ptr() as *const f32;
     let out_base = scratch.attn_out.as_ptr() as *mut f32;
 
@@ -583,8 +583,8 @@ fn gpu_attention_decode_from_state(
     let head_dim = config.head_dim;
     let scale = 1.0f32 / (head_dim as f32).sqrt();
 
-    let k_cache = kv.k_ptr(layer_idx)? as *const f32;
-    let v_cache = kv.v_ptr(layer_idx)? as *const f32;
+    let k_cache = kv.k_ptr(layer_idx)? as *const u16;
+    let v_cache = kv.v_ptr(layer_idx)? as *const u16;
     let q_base = scratch.q.as_ptr() as *const f32;
     let out_base = scratch.attn_out.as_ptr() as *mut f32;
 
