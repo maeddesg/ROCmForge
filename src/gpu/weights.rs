@@ -176,6 +176,25 @@ impl GpuBuffer {
         ffi::hip_memcpy_h2d(self.as_ptr(), src.as_ptr(), self.size)
     }
 
+    /// Copy up to `self.size` bytes from CPU to this GPU buffer.
+    /// Unlike `copy_from_host`, the source may be smaller than the buffer.
+    pub fn copy_from_host_partial(&mut self, src: &[u8]) -> GpuResult<()> {
+        if src.len() > self.size {
+            return Err(GpuError::HipApiError {
+                code: -1,
+                description: format!(
+                    "partial copy overflow: got {} bytes, buffer is {}",
+                    src.len(),
+                    self.size
+                ),
+            });
+        }
+        if src.is_empty() {
+            return Ok(());
+        }
+        ffi::hip_memcpy_h2d(self.as_ptr(), src.as_ptr(), src.len())
+    }
+
     /// Copy data from CPU to this GPU buffer on an explicit HIP stream.
     pub fn copy_from_host_on_stream(&mut self, src: &[u8], stream: hipStream_t) -> GpuResult<()> {
         if src.len() != self.size {

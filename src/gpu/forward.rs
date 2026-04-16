@@ -58,8 +58,16 @@ fn upload_f32(dst: &mut GpuBuffer, src: &[f32]) -> GpuResult<()> {
     dst.copy_from_host(bytes_of_f32_slice(src))
 }
 
+fn upload_f32_partial(dst: &mut GpuBuffer, src: &[f32]) -> GpuResult<()> {
+    dst.copy_from_host_partial(bytes_of_f32_slice(src))
+}
+
 fn upload_i32(dst: &mut GpuBuffer, src: &[i32]) -> GpuResult<()> {
     dst.copy_from_host(bytes_of_i32_slice(src))
+}
+
+fn upload_i32_partial(dst: &mut GpuBuffer, src: &[i32]) -> GpuResult<()> {
+    dst.copy_from_host_partial(bytes_of_i32_slice(src))
 }
 
 fn download_f32(src: &GpuBuffer, dst: &mut [f32]) -> GpuResult<()> {
@@ -697,7 +705,7 @@ fn gpu_embed_tokens_hybrid(
                     description: "prefill token id out of vocab range".to_string(),
                 });
             }
-            upload_i32(&mut scratch.token_ids, &token_ids)?;
+            upload_i32_partial(&mut scratch.token_ids, &token_ids)?;
             embed_q8_0_batch(
                 gpu_weights.token_emb.as_ptr(),
                 scratch.token_ids.as_ptr() as *const i32,
@@ -717,7 +725,7 @@ fn gpu_embed_tokens_hybrid(
                     config,
                 );
             }
-            upload_f32(&mut scratch.hidden, &host_hidden)
+            upload_f32_partial(&mut scratch.hidden, &host_hidden)
         }
     }
 }
@@ -1043,42 +1051,29 @@ fn gpu_attention_verify(
     start_pos: usize,
     config: &ModelConfig,
 ) -> GpuResult<()> {
-    use super::kernels::attention::flash_attn_verify_strided_on_stream;
+    use super::kernels::attention::flash_attn_verify_all_heads_on_stream;
 
     let seq_len = scratch.seq_len;
-    let q_size = config.num_heads * config.head_dim;
-    let kv_size = config.num_kv_heads * config.head_dim;
-    let kv_group = config.num_heads / config.num_kv_heads;
     let scale = 1.0f32 / (config.head_dim as f32).sqrt();
 
     let k_cache = kv.k_ptr(layer_idx)? as *const u16;
     let v_cache = kv.v_ptr(layer_idx)? as *const u16;
 
-    for head in 0..config.num_heads {
-        let kv_head = head / kv_group;
-        let q_offset = head * config.head_dim;
-        let kv_offset = kv_head * config.head_dim;
-
-        flash_attn_verify_strided_on_stream(
-            scratch.attn_out.as_ptr() as *mut f32,
-            scratch.q.as_ptr() as *const f32,
-            k_cache,
-            v_cache,
-            seq_len,
-            start_pos,
-            config.head_dim,
-            q_size,      // out_stride
-            q_size,      // q_stride
-            kv_size,     // kv_size (stride in cache)
-            q_offset,    // out_head_offset
-            q_offset,    // q_head_offset
-            kv_offset,   // kv_head_offset
-            scale,
-            ffi::hipStream_t::null(),
-        )?;
-    }
-
-    Ok(())
+    // Single dispatch: all heads × all verify positions in one kernel launch.
+    // Grid: (num_kv_heads, n_verify). Previously: num_heads × n_verify launches.
+    flash_attn_verify_all_heads_on_stream(
+        scratch.attn_out.as_ptr() as *mut f32,
+        scratch.q.as_ptr() as *const f32,
+        k_cache,
+        v_cache,
+        seq_len,
+        start_pos,
+        config.num_heads,
+        config.num_kv_heads,
+        config.head_dim,
+        scale,
+        ffi::hipStream_t::null(),
+    )
 }
 
 /// Verify layer forward: like prefill but reads K/V from FP16 KV cache for attention.
@@ -1206,15 +1201,18 @@ pub fn gpu_verify_forward(
             ),
         });
     }
-    if prefill.seq_len != tokens.len() {
+    if tokens.len() > prefill.seq_len {
         return Err(GpuError::HipApiError {
             code: -1,
             description: format!(
-                "gpu_verify_forward: scratch seq_len {} != tokens {}",
-                prefill.seq_len, tokens.len()
+                "gpu_verify_forward: tokens {} exceeds scratch capacity {}",
+                tokens.len(), prefill.seq_len
             ),
         });
     }
+    // Temporarily adjust seq_len for this call (buffers are large enough)
+    let saved_seq_len = prefill.seq_len;
+    prefill.seq_len = tokens.len();
 
     // Embed tokens into prefill scratch
     gpu_embed_tokens_hybrid(tokens, gpu_weights, cpu_weights, prefill, config)?;
@@ -1277,10 +1275,14 @@ pub fn gpu_verify_forward(
                 let token = crate::cpu::sampler::cpu_sample_greedy(&host_scratch.logits[..v]);
                 result_tokens.push(token as u32);
             }
-            Err(err) => return Err(err),
+            Err(err) => {
+                prefill.seq_len = saved_seq_len;
+                return Err(err);
+            }
         }
     }
 
+    prefill.seq_len = saved_seq_len;
     Ok(result_tokens)
 }
 
@@ -1315,7 +1317,7 @@ pub fn gpu_speculative_decode_step(
     target_weights: &GpuModelWeights,
     target_cpu_weights: &CpuModelWeights,
     target_kv: &mut GpuKvCache,
-    verify_scratch: &mut GpuPrefillScratch,
+    _verify_scratch: &mut GpuPrefillScratch,
     target_scratch: &mut GpuForwardScratch,
     target_host_scratch: &mut CpuForwardScratch,
     target_config: &ModelConfig,
@@ -1354,27 +1356,19 @@ pub fn gpu_speculative_decode_step(
     let n_drafted = draft_tokens.len();
     let actual_depth = n_drafted;
 
-    // ── Step 2: Verify draft tokens + get bonus prediction ─────────────────
-    // Process actual_depth + 1 tokens through target: [input, draft[0], ..., draft[N-1]].
-    // This gives us N comparison points + 1 bonus prediction.
+    // ── Step 2: Batched verify through target model ────────────────────────
+    // Process [input_token, draft[0], ..., draft[N-1]] in one batched forward pass.
+    // Uses batched GEMV (single weight load, N dot products) for Q4_0 projections
+    // and all-heads verify attention (single dispatch per layer) for attention.
     let mut verify_tokens = Vec::with_capacity(actual_depth + 1);
     verify_tokens.push(input_token);
     verify_tokens.extend_from_slice(&draft_tokens);
 
-    let mut target_argmax = Vec::with_capacity(actual_depth + 1);
-    for (i, &vtoken) in verify_tokens.iter().enumerate() {
-        let pos = target_pos + i;
-        gpu_embed_token_hybrid(
-            device, vtoken, target_weights, target_cpu_weights,
-            target_scratch, target_host_scratch, target_config,
-        )?;
-        let next = gpu_full_forward_hybrid(
-            device, target_weights, target_cpu_weights,
-            target_kv, target_scratch, target_host_scratch,
-            pos, target_config, GpuLogitsMode::GreedyArgmax,
-        )?;
-        target_argmax.push(next.expect("verify decode should produce a token"));
-    }
+    let target_argmax = gpu_verify_forward(
+        device, target_weights, target_cpu_weights,
+        target_kv, _verify_scratch, target_scratch, target_host_scratch,
+        &verify_tokens, target_pos, target_config,
+    )?;
 
     // ── Step 3: Accept/reject ───────────────────────────────────────────────
     // target_argmax[i] = target's prediction after processing verify_tokens[i]
