@@ -793,6 +793,15 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         let mut ema_acceptance: f32 = args.spec_depth as f32 * 0.5; // optimistic start
         let spec_debug = std::env::var_os("ROCMFORGE_SPEC_DEBUG").is_some();
 
+        // Emit the first token from prefill (same as standard decode loop).
+        // Subsequent next_tokens are already emitted via accepted_tokens.
+        if !tok.is_eog(next_token) && n_generated < args.max_tokens {
+            let text = tok.decode_token(next_token);
+            print!("{}", text);
+            std::io::stdout().flush().ok();
+            n_generated += 1;
+        }
+
         loop {
             if tok.is_eog(next_token) || n_generated >= args.max_tokens || pos >= max_seq {
                 break;
