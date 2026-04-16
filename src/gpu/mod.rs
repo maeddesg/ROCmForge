@@ -42,7 +42,7 @@ pub use error::{GpuError, GpuResult};
 pub use forward::{
     gpu_embed_token_hybrid, gpu_full_forward_hybrid, gpu_layer_forward_hybrid,
     gpu_prefill_forward_hybrid, gpu_prefill_layer_forward_hybrid, gpu_speculative_decode_step,
-    gpu_verify_forward, GpuLogitsMode, SpecDecodeResult,
+    gpu_verify_forward, GpuLogitsMode, SpecDecodeResult, MAX_SPEC_DEPTH, MAX_VERIFY_BATCH,
 };
 pub use graph::{CapturedDecodeGraph, DecodeGraphKey, HipGraph, HipGraphExec};
 pub use kernels::{
@@ -75,11 +75,12 @@ pub use quant::{
 };
 pub use quant_wrapper::GpuQuant;
 pub use safety::{
-    decode_graph_enabled, experimental_ffn_fastpath_enabled, experimental_gpu_kernels_enabled,
-    experimental_q8_activation_fastpath_enabled, gpu_safe_mode_enabled,
-    real_model_gpu_tests_enabled, refresh_runtime_env_flags,
+    batched_lm_head_enabled, decode_graph_enabled, experimental_ffn_fastpath_enabled,
+    experimental_gpu_kernels_enabled, experimental_q8_activation_fastpath_enabled,
+    gpu_safe_mode_enabled, real_model_gpu_tests_enabled, refresh_runtime_env_flags,
     run_experimental_gpu_tests_enabled, run_gpu_benches_enabled, tiled_gemv_enabled,
-    DISABLE_DECODE_GRAPH_ENV, DISABLE_TILED_GEMV_ENV, ENABLE_DECODE_GRAPH_ENV,
+    DISABLE_BATCHED_LM_HEAD_ENV, DISABLE_DECODE_GRAPH_ENV, DISABLE_TILED_GEMV_ENV,
+    ENABLE_DECODE_GRAPH_ENV,
     ENABLE_EXPERIMENTAL_FFN_FASTPATH_ENV, ENABLE_EXPERIMENTAL_GPU_KERNELS_ENV,
     ENABLE_EXPERIMENTAL_Q8_ACTIVATION_FASTPATH_ENV, ENABLE_LAUNCH_AUTOTUNE_ENV,
     GPU_SAFE_MODE_ENV,

@@ -40,6 +40,12 @@ use crate::loader::GgmlType;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
+/// Maximum speculative decoding depth. Determines fixed scratch buffer sizes
+/// for batched verify (logits_batch = MAX_VERIFY_BATCH × vocab_size × 4B).
+pub const MAX_SPEC_DEPTH: usize = 8;
+/// Maximum batch size for verify lm_head (depth + 1 for the input token).
+pub const MAX_VERIFY_BATCH: usize = MAX_SPEC_DEPTH + 1;
+
 fn bytes_of_f32_slice(src: &[f32]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(src.as_ptr() as *const u8, std::mem::size_of_val(src)) }
 }
@@ -1187,6 +1193,81 @@ pub fn gpu_verify_layer_forward(
     Ok(())
 }
 
+/// Batched final norm + lm_head + argmax for verify.
+///
+/// Replaces the sequential per-position loop with:
+/// 1. Single batched RMS norm (all N positions)
+/// 2. Single batched GEMV (all N positions → N × vocab logits)
+/// 3. N argmax reductions (reusing partial scratch)
+/// 4. Single D2H copy + sync
+fn gpu_verify_lm_head_batched(
+    device: &GpuDevice,
+    gpu_weights: &GpuModelWeights,
+    prefill: &GpuPrefillScratch,
+    decode_scratch: &mut GpuForwardScratch,
+    config: &ModelConfig,
+    n: usize,
+) -> GpuResult<Vec<u32>> {
+    let h = config.hidden_size;
+    let v = config.vocab_size;
+
+    // Step 1: Batched RMS norm — all N positions at once
+    // Input: prefill.hidden (n × h), Output: prefill.normed (n × h)
+    rms_norm_batched(
+        prefill.hidden.as_ptr() as *const f32,
+        gpu_weights.output_norm.as_ptr() as *const f32,
+        prefill.normed.as_ptr() as *mut f32,
+        h,
+        config.rms_norm_eps,
+        n,
+    )?;
+
+    // Step 2: Batched GEMV — all N positions at once
+    // Input: prefill.normed (n × h), Output: logits_batch (n × v)
+    gpu_dispatch_gemm(
+        device,
+        &gpu_weights.lm_head,
+        &gpu_weights.lm_head_meta,
+        prefill.normed.as_ptr() as *const f32,
+        decode_scratch.logits_batch.as_ptr() as *mut f32,
+        v,
+        h,
+        n,
+    )?;
+
+    // Step 3: Argmax per position (N × 2 dispatches, no sync between)
+    for i in 0..n {
+        let logits_row = unsafe {
+            (decode_scratch.logits_batch.as_ptr() as *const f32).add(i * v)
+        };
+        let result_slot = unsafe {
+            (decode_scratch.argmax_batch_device.as_ptr() as *mut i32).add(i)
+        };
+        argmax_f32(
+            logits_row,
+            decode_scratch.argmax_partial_values_mut_ptr(),
+            decode_scratch.argmax_partial_indices_mut_ptr(),
+            result_slot,
+            v,
+        )?;
+    }
+
+    // Step 4: Single D2H copy of all N result indices + single sync
+    unsafe {
+        ffi::hip_memcpy_d2h_async(
+            decode_scratch.argmax_batch_host.as_ptr(),
+            decode_scratch.argmax_batch_device.as_ptr(),
+            n * std::mem::size_of::<i32>(),
+            device.stream(),
+        )?;
+    }
+    device.synchronize()?;
+
+    // Step 5: Read results from pinned host buffer
+    let results = decode_scratch.argmax_batch_host.as_slice::<i32>();
+    Ok((0..n).map(|i| results[i] as u32).collect())
+}
+
 /// Verify forward pass for speculative decoding.
 ///
 /// Runs `tokens` through the model starting at `start_pos`, writing to KV cache,
@@ -1254,8 +1335,32 @@ pub fn gpu_verify_forward(
     let h = config.hidden_size;
     let v = config.vocab_size;
     let n = tokens.len();
-    let mut result_tokens = Vec::with_capacity(n);
 
+    // Try batched path if enabled and n fits the fixed scratch.
+    if super::safety::batched_lm_head_enabled() && n <= MAX_VERIFY_BATCH {
+        match gpu_verify_lm_head_batched(device, gpu_weights, prefill, decode_scratch, config, n) {
+            Ok(result_tokens) => {
+                prefill.seq_len = saved_seq_len;
+                return Ok(result_tokens);
+            }
+            Err(GpuError::InvalidWeightLayout { .. })
+            | Err(GpuError::UnsupportedWeightType { .. }) => {
+                if std::env::var_os("ROCMFORGE_SPEC_DEBUG").is_some() {
+                    eprintln!(
+                        "[SPEC] batched lm_head: GPU weight type unsupported, falling back to sequential"
+                    );
+                }
+                // Fall through to sequential path below
+            }
+            Err(err) => {
+                prefill.seq_len = saved_seq_len;
+                return Err(err);
+            }
+        }
+    }
+
+    // Sequential fallback (default when flag disabled, or on unsupported weight types)
+    let mut result_tokens = Vec::with_capacity(n);
     for i in 0..n {
         let hidden_row = unsafe { (prefill.hidden.as_ptr() as *const f32).add(i * h) };
         rms_norm(

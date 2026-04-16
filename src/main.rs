@@ -114,7 +114,11 @@ fn parse_args() -> Args {
                     .next()
                     .unwrap_or_else(|| usage())
                     .parse()
-                    .unwrap_or_else(|_| usage())
+                    .unwrap_or_else(|_| usage());
+                if spec_depth > 8 {
+                    eprintln!("Error: --spec-depth maximum is 8 (got {})", spec_depth);
+                    usage();
+                }
             }
             "-h" | "--help" => usage(),
             other => {

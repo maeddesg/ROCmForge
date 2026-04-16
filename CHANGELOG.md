@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Batched lm_head for Speculative Verify
+
+- **Batched lm_head** for speculative decode verify. Replaces sequential
+  per-position norm+GEMV+argmax with a single batched dispatch for norm
+  and GEMV, followed by per-position argmax. Token output is byte-identical
+  to the sequential path. Measured savings: ~114 μs per verify step at
+  depth=3 (~0.4% of verify time). The improvement is negligible at the
+  throughput level (<0.1%), but the code is cleaner and establishes the
+  `MAX_SPEC_DEPTH=8` scratch buffer infrastructure for future optimizations.
+  Disable with `ROCMFORGE_DISABLE_BATCHED_LM_HEAD=1`.
+- **Key learning:** Memory-bandwidth-bound GEMV kernels do not benefit
+  significantly from batching when dispatched back-to-back on the same
+  stream — the GPU memory controller pipelines consecutive accesses
+  effectively.
+- **CLI validation:** `--spec-depth` now rejects values > 8.
+
 ### Spec-Step Profiling + Tiled Batched GEMV
 
 - **Spec-step cost breakdown profiler** (`ROCMFORGE_PROFILE_SPEC_STEP=1`): HIP Event-based timing for 5 phases (draft_forward, target_verify, accept_reject, host_overhead, total). Prints table and JSON to stderr.

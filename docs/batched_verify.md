@@ -85,7 +85,7 @@ Location: `src/gpu/ops.rs`, batched GEMV dispatch in `gpu_dispatch_gemm`.
 
 **Standard batched GEMV** (`q4_0_gemv_batched.hip`): caches all Q8-quantized inputs in LDS. LDS budget: `batch × (in_dim/32) × 34` bytes, max 32 KB. Works for all projections where in_dim ≤ ~3584 (QKV, O-proj, gate, up, LM head).
 
-**Tiled batched GEMV** (`q4_0_gemv_batched_tiled.hip`): tiles along the input dimension in chunks of 1024 elements when LDS limit is exceeded. Preserves single weight load. Gated behind `ROCMFORGE_EXPERIMENTAL_TILED_GEMV=1`.
+**Tiled batched GEMV** (`q4_0_gemv_batched_tiled.hip`): tiles along the input dimension in chunks of 1024 elements when LDS limit is exceeded. Preserves single weight load. Enabled by default; disable with `ROCMFORGE_DISABLE_TILED_GEMV=1`.
 
 **Sequential fallback**: when neither batched kernel fits, loops over batch elements with single-row GEMV. This is the default for large in_dim.
 
@@ -116,3 +116,49 @@ This finding is critical for evaluating future optimizations:
 - **Fused FFN** (gate+up+SiLU+down in fewer launches): primary benefit is reduced launch overhead, not bandwidth savings
 - **WMMA GEMM**: benefit comes from compute efficiency (matrix cores), not from avoiding redundant weight reads
 - **Launch overhead profiling** should measure kernel submission + sync cost per verify step to quantify the actual launch overhead budget
+
+## Batched lm_head for Verify
+
+Location: `src/gpu/forward.rs`, `gpu_verify_lm_head_batched()`.
+
+Replaces the sequential per-position `norm → GEMV → argmax → sync` loop at the end of `gpu_verify_forward()` with:
+
+1. **Batched RMS norm** (`rms_norm_batched`): all N positions in one dispatch
+2. **Batched GEMV** (`gpu_dispatch_gemm`): all N positions in one dispatch (uses batched Q4_0 GEMV kernel, LDS fits for batch ≤ 9 at in_dim=3584)
+3. **Per-position argmax**: N × 2 dispatches (stage1 + finalize), reusing partial scratch
+4. **Single D2H copy + sync**: one `hipMemcpyD2HAsync` of N result indices
+
+### Scratch Buffers
+
+`MAX_SPEC_DEPTH = 8` → `MAX_VERIFY_BATCH = 9` (depth + 1 for the input token).
+
+| Buffer | Size | Location |
+|--------|------|----------|
+| `logits_batch` | 9 × vocab_size × 4 B = ~5.2 MB | `GpuForwardScratch` |
+| `argmax_batch_device` | 9 × 4 B = 36 B | `GpuForwardScratch` |
+| `argmax_batch_host` | 9 × 4 B = 36 B (pinned) | `GpuForwardScratch` |
+| normed output | reuses `prefill.normed` (already sized for batch) | `GpuPrefillScratch` |
+
+CLI validation: `--spec-depth` rejects values > 8.
+
+### Dispatch Count Comparison
+
+| Component | Sequential (per pos) | Batched (total) | Savings at n=4 |
+|-----------|---------------------|-----------------|----------------|
+| rms_norm  | 1 × n               | 1               | -3 dispatches  |
+| GEMV      | 1 × n               | 1               | -3 dispatches  |
+| argmax    | 2 × n               | 2 × n           | 0              |
+| sync      | 1 × n               | 1               | -3 syncs       |
+
+### Measured Savings (depth=3, code_01, 5 runs)
+
+| Metric | Sequential (μs) | Batched (μs) | Delta |
+|--------|-----------------|--------------|-------|
+| non_layer_overhead (median) | 3,363 | 3,249 | **-114 μs** |
+| verify_total (median) | 32,014 | 31,864 | -150 μs |
+
+**End-to-end throughput improvement: <0.1% (within noise).** The lm_head weight matrix (~307 MB Q4_0) is memory-bandwidth-bound, and back-to-back sequential dispatches on the same stream pipeline efficiently enough that batching saves only dispatch submission overhead (~16 μs) and sync elimination (~57 μs), not bandwidth.
+
+### Flag
+
+`ROCMFORGE_DISABLE_BATCHED_LM_HEAD=1` reverts to the sequential path. Default: batched enabled.

@@ -67,6 +67,7 @@ All flags are opt-in; defaults are conservative.
 | `ROCMFORGE_PROFILE_SPEC_STEP=1` | HIP Event timing for spec-step cost breakdown (5 phases) |
 | `ROCMFORGE_PROFILE_VERIFY_BREAKDOWN=1` | Sub-phase timing within verify layers (requires PROFILE_SPEC_STEP) |
 | `ROCMFORGE_DISABLE_TILED_GEMV=1` | Disable tiled batched GEMV for large FFN projections (default on) |
+| `ROCMFORGE_DISABLE_BATCHED_LM_HEAD=1` | Disable batched verify lm_head, fall back to sequential per-position dispatch |
 | `ROCMFORGE_RUN_REAL_MODEL_GPU_TESTS=1` | Enable real-model benchmark tests |
 | `ROCMFORGE_RUN_GPU_BENCHES=1` | Enable Criterion GPU benchmarks |
 
