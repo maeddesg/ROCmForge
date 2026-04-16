@@ -189,6 +189,16 @@ set_target_properties(q4_0_gemv PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
 
+# Q4_0 Batched GEMV kernel (single weight load, N dot products for spec decode verify)
+add_library(q4_0_gemv_batched STATIC
+    q4_0_gemv_batched.hip
+)
+target_link_libraries(q4_0_gemv_batched quant_common)
+set_target_properties(q4_0_gemv_batched PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+)
+
 # Q4_1 GEMV kernel (Q4_1 × f32 matrix-vector multiplication)
 add_library(q4_1_gemv STATIC
     q4_1_gemv.hip

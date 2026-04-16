@@ -8,6 +8,7 @@ use super::ffi::hip_stream_synchronize;
 use super::ffi::{hipStreamCaptureStatus, hipStream_t, hip_stream_is_capturing};
 use super::kernels::{
     add_on_stream, gemm_q4_0_f32, gemm_q4_1_f32, gemm_q4_k_f32, gemm_q5_k_f32, gemm_q8_0_f32,
+    gemv_q4_0_f32_batched_on_stream,
     gemv_gate_up_q4_0_f32_on_stream, gemv_gate_up_q4_0_q8_0_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_on_stream,
@@ -1439,6 +1440,34 @@ pub fn gpu_dispatch_gemm(
 ) -> GpuResult<()> {
     if seq_len == 1 && supports_gemv_type(meta.wtype) {
         return gpu_dispatch_gemv(device, weights, meta, input, output, out_dim, in_dim);
+    }
+
+    // For small batch sizes (2-8), use batched GEMV: single weight load, N dot products.
+    // This reads quantized weights once from VRAM instead of N times, saving N× bandwidth.
+    // LDS limit: batch_size × (in_dim / 32) × 34 bytes must fit in 32 KB.
+    if seq_len <= 8 && meta.wtype == GgmlType::Q4_0 {
+        let lds_bytes = seq_len * (in_dim / 32) * 34;
+        if lds_bytes <= 32 * 1024 {
+            return gemv_q4_0_f32_batched_on_stream(
+                weights.as_ptr() as *const u8,
+                input,
+                output,
+                in_dim,
+                out_dim,
+                seq_len,
+                hipStream_t::null(),
+            );
+        }
+    }
+
+    // Fallback to sequential GEMV for large inputs or other quantization types
+    if seq_len <= 8 && supports_gemv_type(meta.wtype) {
+        for row in 0..seq_len {
+            let row_input = unsafe { input.add(row * in_dim) };
+            let row_output = unsafe { output.add(row * out_dim) };
+            gpu_dispatch_gemv(device, weights, meta, row_input, row_output, out_dim, in_dim)?;
+        }
+        return Ok(());
     }
 
     unsafe {
