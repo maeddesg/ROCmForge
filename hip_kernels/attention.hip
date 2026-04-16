@@ -169,7 +169,7 @@ __global__ void flash_attn_decode_strided_multi_head_v2_kernel(
     // 1. Compute scores for all positions
     // We use shared memory to store scores if seq_len is small.
     extern __shared__ float s_scores[];
-    float* s_reduce = s_scores + kDecodeScoreCapacity;
+    float* s_reduce = s_scores + seq_len;  // reduction scratch follows scores
 
     // Each thread handles some positions
     for (int pos = tid; pos < seq_len; pos += blockDim.x) {

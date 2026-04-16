@@ -1294,6 +1294,8 @@ pub struct SpecDecodeResult {
     pub n_draft_accepted: usize,
     /// Total draft tokens generated this step.
     pub n_drafted: usize,
+    /// True if generation should stop (EOS encountered).
+    pub hit_eog: bool,
 }
 
 /// Run one speculative decode step: draft N tokens with draft model, verify with target.
@@ -1322,10 +1324,13 @@ pub fn gpu_speculative_decode_step(
     draft_pos: usize,
     target_pos: usize,
     spec_depth: usize,
+    eog_ids: &[u32],
 ) -> GpuResult<SpecDecodeResult> {
     // ── Step 1: Draft N tokens with the small model ─────────────────────────
+    // Stop early if the draft model produces an EOS token.
     let mut draft_tokens = Vec::with_capacity(spec_depth);
     let mut token = input_token;
+    let mut draft_hit_eog = false;
 
     for step in 0..spec_depth {
         let pos = draft_pos + step;
@@ -1340,21 +1345,23 @@ pub fn gpu_speculative_decode_step(
         )?;
         token = next.expect("draft decode should produce a token");
         draft_tokens.push(token);
+        if eog_ids.contains(&token) {
+            draft_hit_eog = true;
+            break;
+        }
     }
 
     let n_drafted = draft_tokens.len();
+    let actual_depth = n_drafted;
 
-    // ── Step 2: Verify all draft tokens with the target model ───────────────
-    // Process token-by-token through target model WITHOUT HIP graph.
-    // Graph must be bypassed because draft and target may share the same
-    // graph singleton (same config) but use different KV caches.
-    let mut verify_tokens = Vec::with_capacity(spec_depth);
+    // ── Step 2: Verify draft tokens + get bonus prediction ─────────────────
+    // Process actual_depth + 1 tokens through target: [input, draft[0], ..., draft[N-1]].
+    // This gives us N comparison points + 1 bonus prediction.
+    let mut verify_tokens = Vec::with_capacity(actual_depth + 1);
     verify_tokens.push(input_token);
-    if spec_depth > 1 {
-        verify_tokens.extend_from_slice(&draft_tokens[..spec_depth - 1]);
-    }
+    verify_tokens.extend_from_slice(&draft_tokens);
 
-    let mut target_argmax = Vec::with_capacity(spec_depth);
+    let mut target_argmax = Vec::with_capacity(actual_depth + 1);
     for (i, &vtoken) in verify_tokens.iter().enumerate() {
         let pos = target_pos + i;
         gpu_embed_token_hybrid(
@@ -1370,40 +1377,81 @@ pub fn gpu_speculative_decode_step(
     }
 
     // ── Step 3: Accept/reject ───────────────────────────────────────────────
-    // target_argmax[i] is the target model's prediction for position target_pos+i+1.
-    // draft_tokens[i] is the draft model's prediction for position draft_pos+i+1.
-    // Compare: does target agree with draft?
+    // target_argmax[i] = target's prediction after processing verify_tokens[i]
+    //                   = prediction for position target_pos + i + 1
+    // draft_tokens[i]  = draft's prediction for position draft_pos + i + 1
+    // Compare target_argmax[i] with draft_tokens[i] for i in 0..actual_depth.
     if std::env::var_os("ROCMFORGE_SPEC_DEBUG").is_some() {
         eprintln!(
-            "[SPEC] draft={:?} verify={:?} target={:?}",
-            draft_tokens, verify_tokens, target_argmax
+            "[SPEC] draft={:?} target={:?} draft_eog={}",
+            draft_tokens, &target_argmax, draft_hit_eog
         );
     }
-    let mut accepted = Vec::with_capacity(spec_depth + 1);
+    let mut accepted = Vec::with_capacity(actual_depth + 1);
     let mut n_accepted = 0usize;
+    let mut hit_eog = false;
 
-    for i in 0..spec_depth {
-        // target_argmax[i] = what target predicts for next token at position i
-        // draft_tokens[i] = what draft predicted for that same position
+    for i in 0..actual_depth {
         if target_argmax[i] == draft_tokens[i] {
             accepted.push(draft_tokens[i]);
             n_accepted += 1;
+            // If the accepted token is EOS, stop — don't continue comparing
+            if eog_ids.contains(&draft_tokens[i]) {
+                hit_eog = true;
+                break;
+            }
         } else {
-            // Mismatch: accept target's token as bonus, stop
+            // Mismatch: accept target's correction, stop.
+            // Fix draft KV cache: position draft_pos+i has K/V for the rejected
+            // draft token. Overwrite with the correction token's K/V so the draft
+            // cache stays valid for the next round.
+            let correction_pos = draft_pos + i;
+            gpu_embed_token_hybrid(
+                device, target_argmax[i], draft_weights, draft_cpu_weights,
+                draft_scratch, draft_host_scratch, draft_config,
+            )?;
+            let _ = gpu_full_forward_hybrid(
+                device, draft_weights, draft_cpu_weights,
+                draft_kv, draft_scratch, draft_host_scratch,
+                correction_pos, draft_config, GpuLogitsMode::Skip,
+            )?;
             accepted.push(target_argmax[i]);
+            if eog_ids.contains(&target_argmax[i]) {
+                hit_eog = true;
+            }
             break;
         }
     }
 
-    // If all draft tokens matched, add target's prediction for the last position as bonus
-    if n_accepted == spec_depth {
-        accepted.push(target_argmax[spec_depth - 1]);
+    // If all draft tokens matched (and we didn't hit EOS), add bonus token.
+    // Also "catch up" the draft KV cache: the draft only wrote positions
+    // draft_pos..draft_pos+actual_depth-1, but accepting the bonus means we advance
+    // by actual_depth+1. We must fill draft position draft_pos+actual_depth by running
+    // the draft on draft_tokens[actual_depth-1] so the KV cache stays contiguous.
+    if n_accepted == actual_depth && !hit_eog {
+        let bonus = target_argmax[actual_depth];
+        accepted.push(bonus);
+        if eog_ids.contains(&bonus) {
+            hit_eog = true;
+        }
+        // Fill draft KV cache gap
+        let catchup_pos = draft_pos + actual_depth;
+        gpu_embed_token_hybrid(
+            device, draft_tokens[actual_depth - 1], draft_weights, draft_cpu_weights,
+            draft_scratch, draft_host_scratch, draft_config,
+        )?;
+        let _ = gpu_full_forward_hybrid(
+            device, draft_weights, draft_cpu_weights,
+            draft_kv, draft_scratch, draft_host_scratch,
+            catchup_pos, draft_config, GpuLogitsMode::Skip,
+        )?;
     }
 
     Ok(SpecDecodeResult {
         accepted_tokens: accepted,
         n_draft_accepted: n_accepted,
         n_drafted,
+        hit_eog,
     })
 }
 
@@ -1691,6 +1739,13 @@ fn gpu_try_full_greedy_decode_graph(
     if decode_graph_disabled() {
         return Ok(None);
     }
+    // Full-decode graph (all layers + lm_head in one graph) is disabled.
+    // On RDNA4 (gfx1201), graph replay of kernels that read pos/seq_len
+    // from device pointers returns stale values, producing wrong output.
+    // The tail-only graph (lm_head + argmax) gives equivalent performance
+    // since layer kernels are memory-bound anyway.
+    // TODO: re-enable when ROCm fixes device-pointer reads in graph replay.
+    return Ok(None);
 
     let key = gpu_full_decode_graph_key(device, gpu_weights, kv, config)?;
     if !scratch.has_decode_graph_for(key) {
