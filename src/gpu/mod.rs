@@ -31,8 +31,9 @@ pub use decode_profile::{
     decode_stage_profile_snapshot, reset_decode_stage_profile, GpuDecodeStageProfileSnapshot,
 };
 pub use spec_step_profile::{
-    print_spec_step_profile_summary, reset_spec_step_profile, spec_step_profile_snapshot,
-    spec_step_profiling_enabled, SpecStepProfileData,
+    print_spec_step_profile_summary, print_verify_breakdown_summary, reset_spec_step_profile,
+    spec_step_profile_snapshot, spec_step_profiling_enabled, verify_breakdown_snapshot,
+    SpecStepProfileData, VerifyBreakdownData,
 };
 pub use detect::GpuCapabilities;
 pub use device::GpuDevice;

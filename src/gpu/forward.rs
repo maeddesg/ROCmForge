@@ -1086,12 +1086,16 @@ pub fn gpu_verify_layer_forward(
     start_pos: usize,
     config: &ModelConfig,
 ) -> GpuResult<()> {
+    use super::spec_step_profile::VerifyLayerTimer;
+
     let seq_len = scratch.seq_len;
     let h = config.hidden_size;
     let q_size = config.num_heads * config.head_dim;
     let kv_size = config.num_kv_heads * config.head_dim;
     let ff_size = config.intermediate_size;
     let eps = config.rms_norm_eps;
+
+    let mut vt = VerifyLayerTimer::begin()?;
 
     // Attention: norm → QKV → RoPE → KV write → verify attention → O-proj → residual
     gpu_rms_norm_rows(
@@ -1100,6 +1104,7 @@ pub fn gpu_verify_layer_forward(
         scratch.normed.as_ptr() as *mut f32,
         seq_len, h, eps,
     )?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → attn_qkv
 
     gpu_project_rows(device, &gpu_layer.attn_q, &gpu_layer.attn_q_meta,
         scratch.normed.as_ptr() as *const f32, scratch.q.as_ptr() as *mut f32,
@@ -1123,18 +1128,22 @@ pub fn gpu_verify_layer_forward(
         add_batched(scratch.v.as_ptr() as *const f32, bv.as_ptr() as *const f32,
             scratch.v.as_ptr() as *mut f32, kv_size, seq_len)?;
     }
+    if let Some(ref mut t) = vt { t.mark()?; } // → attn_rope
 
     gpu_rope_rows(scratch.q.as_ptr() as *mut f32, start_pos, seq_len,
         config.num_heads, config.head_dim, config.rope_theta, config.rope_neox)?;
     gpu_rope_rows(scratch.k.as_ptr() as *mut f32, start_pos, seq_len,
         config.num_kv_heads, config.head_dim, config.rope_theta, config.rope_neox)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → attn_kv_write
 
     // Write new K/V to cache at start_pos..start_pos+seq_len
     kv.write_batched(layer_idx, start_pos, seq_len,
         scratch.k.as_ptr() as *const f32, scratch.v.as_ptr() as *const f32)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → attn_scores
 
     // Verify attention: read ALL K/V from FP16 cache (positions 0..start_pos+i per query)
     gpu_attention_verify(scratch, kv, layer_idx, start_pos, config)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → attn_o_residual
 
     // O-projection + residual
     gpu_project_rows(device, &gpu_layer.attn_o, &gpu_layer.attn_o_meta,
@@ -1142,6 +1151,7 @@ pub fn gpu_verify_layer_forward(
         seq_len, h, q_size)?;
     add(scratch.hidden.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *const f32,
         scratch.hidden.as_ptr() as *mut f32, seq_len * h)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → ffn_norm
 
     // FFN: norm → gate → up → SiLU → mul → down → residual
     gpu_rms_norm_rows(
@@ -1150,6 +1160,8 @@ pub fn gpu_verify_layer_forward(
         scratch.normed.as_ptr() as *mut f32,
         seq_len, h, eps,
     )?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → ffn_gate_up_silu_mul
+
     gpu_project_rows(device, &gpu_layer.ffn_gate, &gpu_layer.ffn_gate_meta,
         scratch.normed.as_ptr() as *const f32, scratch.gate.as_ptr() as *mut f32,
         seq_len, ff_size, h)?;
@@ -1161,11 +1173,16 @@ pub fn gpu_verify_layer_forward(
     super::kernels::mul(scratch.gate.as_ptr() as *const f32,
         scratch.swiglu.as_ptr() as *const f32, scratch.swiglu.as_ptr() as *mut f32,
         seq_len * ff_size)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → ffn_down_residual
+
     gpu_project_rows(device, &gpu_layer.ffn_down, &gpu_layer.ffn_down_meta,
         scratch.swiglu.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *mut f32,
         seq_len, h, ff_size)?;
     add(scratch.hidden.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *const f32,
         scratch.hidden.as_ptr() as *mut f32, seq_len * h)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // end
+
+    if let Some(t) = vt { t.finish()?; }
 
     Ok(())
 }
@@ -1213,6 +1230,9 @@ pub fn gpu_verify_forward(
     // Temporarily adjust seq_len for this call (buffers are large enough)
     let saved_seq_len = prefill.seq_len;
     prefill.seq_len = tokens.len();
+
+    // Mark verify step for sub-phase breakdown profiling
+    super::spec_step_profile::verify_breakdown_mark_step();
 
     // Embed tokens into prefill scratch
     gpu_embed_tokens_hybrid(tokens, gpu_weights, cpu_weights, prefill, config)?;

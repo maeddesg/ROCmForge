@@ -258,3 +258,284 @@ pub fn print_spec_step_profile_summary() {
         data.n_steps, avg_draft, avg_verify, avg_accept, avg_overhead, avg_total
     );
 }
+
+// ── Verify Sub-Phase Breakdown ────────────────────────────────────────────────
+
+pub(crate) const PROFILE_VERIFY_BREAKDOWN_ENV: &str = "ROCMFORGE_PROFILE_VERIFY_BREAKDOWN";
+
+static PROFILE_VERIFY_BREAKDOWN_FLAG: AtomicU8 = AtomicU8::new(ENV_UNKNOWN);
+
+pub fn verify_breakdown_enabled() -> bool {
+    if !spec_step_profiling_enabled() {
+        return false;
+    }
+    match PROFILE_VERIFY_BREAKDOWN_FLAG.load(Ordering::Relaxed) {
+        ENV_DISABLED => false,
+        ENV_ENABLED => true,
+        _ => {
+            let enabled = std::env::var_os(PROFILE_VERIFY_BREAKDOWN_ENV).is_some();
+            PROFILE_VERIFY_BREAKDOWN_FLAG.store(
+                if enabled { ENV_ENABLED } else { ENV_DISABLED },
+                Ordering::Relaxed,
+            );
+            enabled
+        }
+    }
+}
+
+pub(crate) fn refresh_verify_breakdown_env_flag() {
+    PROFILE_VERIFY_BREAKDOWN_FLAG.store(ENV_UNKNOWN, Ordering::Relaxed);
+}
+
+/// Sub-phase timing for one verify layer.
+#[derive(Clone, Copy, Debug, Default)]
+struct SubPhaseTiming {
+    total_us: f64,
+    count: u64,
+}
+
+/// Accumulated verify sub-phase data across all layers and steps.
+#[derive(Debug, Default)]
+struct VerifyBreakdownAccumulator {
+    attn_norm: SubPhaseTiming,
+    attn_qkv: SubPhaseTiming,
+    attn_rope: SubPhaseTiming,
+    attn_kv_write: SubPhaseTiming,
+    attn_scores: SubPhaseTiming,
+    attn_o_residual: SubPhaseTiming,
+    ffn_norm: SubPhaseTiming,
+    ffn_gate_up_silu_mul: SubPhaseTiming,
+    ffn_down_residual: SubPhaseTiming,
+    /// Total layers profiled (for averaging)
+    n_layers: u64,
+    /// Total verify steps profiled
+    n_steps: u64,
+}
+
+fn verify_breakdown_store() -> &'static Mutex<VerifyBreakdownAccumulator> {
+    static STORE: OnceLock<Mutex<VerifyBreakdownAccumulator>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(VerifyBreakdownAccumulator::default()))
+}
+
+/// Snapshot of verify sub-phase timings.
+#[derive(Clone, Debug, Default)]
+pub struct VerifyBreakdownData {
+    pub attn_norm_us: f64,
+    pub attn_qkv_us: f64,
+    pub attn_rope_us: f64,
+    pub attn_kv_write_us: f64,
+    pub attn_scores_us: f64,
+    pub attn_o_residual_us: f64,
+    pub ffn_norm_us: f64,
+    pub ffn_gate_up_silu_mul_us: f64,
+    pub ffn_down_residual_us: f64,
+    pub n_layers: u64,
+    pub n_steps: u64,
+}
+
+pub fn verify_breakdown_snapshot() -> VerifyBreakdownData {
+    let guard = verify_breakdown_store()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    VerifyBreakdownData {
+        attn_norm_us: guard.attn_norm.total_us,
+        attn_qkv_us: guard.attn_qkv.total_us,
+        attn_rope_us: guard.attn_rope.total_us,
+        attn_kv_write_us: guard.attn_kv_write.total_us,
+        attn_scores_us: guard.attn_scores.total_us,
+        attn_o_residual_us: guard.attn_o_residual.total_us,
+        ffn_norm_us: guard.ffn_norm.total_us,
+        ffn_gate_up_silu_mul_us: guard.ffn_gate_up_silu_mul.total_us,
+        ffn_down_residual_us: guard.ffn_down_residual.total_us,
+        n_layers: guard.n_layers,
+        n_steps: guard.n_steps,
+    }
+}
+
+pub fn reset_verify_breakdown() {
+    let mut guard = verify_breakdown_store()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    *guard = VerifyBreakdownAccumulator::default();
+}
+
+/// Increment the step counter (called once per verify forward pass).
+pub(crate) fn verify_breakdown_mark_step() {
+    if !verify_breakdown_enabled() {
+        return;
+    }
+    let mut guard = verify_breakdown_store()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    guard.n_steps += 1;
+}
+
+/// RAII timer for verify sub-phases within a single layer.
+/// Uses HIP events on the default stream.
+pub(crate) struct VerifyLayerTimer {
+    events: [ffi::hipEvent_t; 10], // 10 boundaries = 9 phases
+    stream: ffi::hipStream_t,
+    next_event: usize,
+}
+
+impl VerifyLayerTimer {
+    /// Create if verify breakdown profiling is enabled.
+    pub(crate) fn begin() -> GpuResult<Option<Self>> {
+        if !verify_breakdown_enabled() {
+            return Ok(None);
+        }
+        let stream = ffi::hipStream_t::null();
+        let mut events = [ffi::hipEvent_t::null(); 10];
+        for e in &mut events {
+            *e = ffi::hip_event_create()?;
+        }
+        // Record the start event
+        ffi::hip_event_record(events[0], stream)?;
+        Ok(Some(Self {
+            events,
+            stream,
+            next_event: 1,
+        }))
+    }
+
+    /// Record the next boundary event.
+    pub(crate) fn mark(&mut self) -> GpuResult<()> {
+        if self.next_event < self.events.len() {
+            ffi::hip_event_record(self.events[self.next_event], self.stream)?;
+            self.next_event += 1;
+        }
+        Ok(())
+    }
+
+    /// Finalize: synchronize, compute intervals, accumulate.
+    /// Phases in order:
+    ///   0→1: attn_norm
+    ///   1→2: attn_qkv (Q+K+V projections + biases)
+    ///   2→3: attn_rope
+    ///   3→4: attn_kv_write
+    ///   4→5: attn_scores (verify attention)
+    ///   5→6: attn_o_residual (O-proj + residual add)
+    ///   6→7: ffn_norm
+    ///   7→8: ffn_gate_up_silu_mul (gate + up + silu + mul)
+    ///   8→9: ffn_down_residual (down + residual add)
+    pub(crate) fn finish(self) -> GpuResult<()> {
+        let n = self.next_event;
+        if n < 2 {
+            // Not enough events recorded
+            for e in &self.events {
+                if !e.is_null() {
+                    ffi::hip_event_destroy(*e)?;
+                }
+            }
+            return Ok(());
+        }
+
+        // Synchronize on the last recorded event
+        ffi::hip_event_synchronize(self.events[n - 1])?;
+
+        // Compute intervals
+        let mut intervals = [0.0f64; 9];
+        for i in 0..(n - 1) {
+            let ms = ffi::hip_event_elapsed_time(self.events[i], self.events[i + 1])?;
+            intervals[i] = ms as f64 * 1000.0; // ms → μs
+        }
+
+        // Accumulate
+        let mut guard = verify_breakdown_store()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+
+        if n > 1 { guard.attn_norm.total_us += intervals[0]; guard.attn_norm.count += 1; }
+        if n > 2 { guard.attn_qkv.total_us += intervals[1]; guard.attn_qkv.count += 1; }
+        if n > 3 { guard.attn_rope.total_us += intervals[2]; guard.attn_rope.count += 1; }
+        if n > 4 { guard.attn_kv_write.total_us += intervals[3]; guard.attn_kv_write.count += 1; }
+        if n > 5 { guard.attn_scores.total_us += intervals[4]; guard.attn_scores.count += 1; }
+        if n > 6 { guard.attn_o_residual.total_us += intervals[5]; guard.attn_o_residual.count += 1; }
+        if n > 7 { guard.ffn_norm.total_us += intervals[6]; guard.ffn_norm.count += 1; }
+        if n > 8 { guard.ffn_gate_up_silu_mul.total_us += intervals[7]; guard.ffn_gate_up_silu_mul.count += 1; }
+        if n > 9 { guard.ffn_down_residual.total_us += intervals[8]; guard.ffn_down_residual.count += 1; }
+        guard.n_layers += 1;
+
+        drop(guard);
+
+        // Destroy events
+        for e in &self.events {
+            if !e.is_null() {
+                ffi::hip_event_destroy(*e)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Print verify breakdown summary to stderr.
+pub fn print_verify_breakdown_summary() {
+    if !verify_breakdown_enabled() {
+        return;
+    }
+    let data = verify_breakdown_snapshot();
+    if data.n_steps == 0 || data.n_layers == 0 {
+        return;
+    }
+
+    let n_steps = data.n_steps as f64;
+    // Sum per-step (across all layers)
+    let attn_norm = data.attn_norm_us / n_steps;
+    let attn_qkv = data.attn_qkv_us / n_steps;
+    let attn_rope = data.attn_rope_us / n_steps;
+    let attn_kv_write = data.attn_kv_write_us / n_steps;
+    let attn_scores = data.attn_scores_us / n_steps;
+    let attn_o_res = data.attn_o_residual_us / n_steps;
+    let ffn_norm = data.ffn_norm_us / n_steps;
+    let ffn_gate_up = data.ffn_gate_up_silu_mul_us / n_steps;
+    let ffn_down_res = data.ffn_down_residual_us / n_steps;
+
+    let total = attn_norm + attn_qkv + attn_rope + attn_kv_write + attn_scores
+        + attn_o_res + ffn_norm + ffn_gate_up + ffn_down_res;
+
+    let attn_total = attn_norm + attn_qkv + attn_rope + attn_kv_write + attn_scores + attn_o_res;
+    let ffn_total = ffn_norm + ffn_gate_up + ffn_down_res;
+
+    let pct = |v: f64| -> f64 { if total > 0.0 { v / total * 100.0 } else { 0.0 } };
+
+    let layers_per_step = data.n_layers as f64 / n_steps;
+
+    eprintln!();
+    eprintln!("╔═══════════════════════════════════════════════════════════════╗");
+    eprintln!("║     Verify Sub-Phase Breakdown ({} steps, {:.0} layers/step)    ║",
+        data.n_steps, layers_per_step);
+    eprintln!("╠═══════════════════════════════════════════════════════════════╣");
+    eprintln!("║ ATTENTION                                                     ║");
+    eprintln!("║   attn_norm         {:>8.0} μs  ({:>5.1}%)                     ║", attn_norm, pct(attn_norm));
+    eprintln!("║   attn_qkv+bias     {:>8.0} μs  ({:>5.1}%)                     ║", attn_qkv, pct(attn_qkv));
+    eprintln!("║   attn_rope         {:>8.0} μs  ({:>5.1}%)                     ║", attn_rope, pct(attn_rope));
+    eprintln!("║   attn_kv_write     {:>8.0} μs  ({:>5.1}%)                     ║", attn_kv_write, pct(attn_kv_write));
+    eprintln!("║   attn_scores       {:>8.0} μs  ({:>5.1}%)                     ║", attn_scores, pct(attn_scores));
+    eprintln!("║   attn_o+residual   {:>8.0} μs  ({:>5.1}%)                     ║", attn_o_res, pct(attn_o_res));
+    eprintln!("║   ── subtotal       {:>8.0} μs  ({:>5.1}%)                     ║", attn_total, pct(attn_total));
+    eprintln!("║ FFN                                                           ║");
+    eprintln!("║   ffn_norm          {:>8.0} μs  ({:>5.1}%)                     ║", ffn_norm, pct(ffn_norm));
+    eprintln!("║   gate+up+silu+mul  {:>8.0} μs  ({:>5.1}%)                     ║", ffn_gate_up, pct(ffn_gate_up));
+    eprintln!("║   down+residual     {:>8.0} μs  ({:>5.1}%)                     ║", ffn_down_res, pct(ffn_down_res));
+    eprintln!("║   ── subtotal       {:>8.0} μs  ({:>5.1}%)                     ║", ffn_total, pct(ffn_total));
+    eprintln!("╠═══════════════════════════════════════════════════════════════╣");
+    eprintln!("║ TOTAL (layers)      {:>8.0} μs                                ║", total);
+    eprintln!("╚═══════════════════════════════════════════════════════════════╝");
+
+    // Machine-parseable JSON
+    eprintln!(
+        "[VERIFY_BREAKDOWN_JSON] {{\"n_steps\":{},\"n_layers\":{},\"layers_per_step\":{:.0},\
+         \"attn_norm_us\":{:.1},\"attn_qkv_us\":{:.1},\"attn_rope_us\":{:.1},\
+         \"attn_kv_write_us\":{:.1},\"attn_scores_us\":{:.1},\"attn_o_residual_us\":{:.1},\
+         \"attn_subtotal_us\":{:.1},\
+         \"ffn_norm_us\":{:.1},\"ffn_gate_up_silu_mul_us\":{:.1},\"ffn_down_residual_us\":{:.1},\
+         \"ffn_subtotal_us\":{:.1},\
+         \"total_us\":{:.1}}}",
+        data.n_steps, data.n_layers, layers_per_step,
+        attn_norm, attn_qkv, attn_rope,
+        attn_kv_write, attn_scores, attn_o_res, attn_total,
+        ffn_norm, ffn_gate_up, ffn_down_res, ffn_total,
+        total,
+    );
+}

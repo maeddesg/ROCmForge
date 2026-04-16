@@ -117,6 +117,7 @@ pub fn refresh_runtime_env_flags() {
     Q8_FASTPATH_RUNTIME_DISABLE_LOGGED.store(false, Ordering::Relaxed);
     super::decode_profile::refresh_decode_profile_env_flag();
     super::spec_step_profile::refresh_spec_step_profile_env_flag();
+    super::spec_step_profile::refresh_verify_breakdown_env_flag();
 }
 
 pub fn decode_graph_enabled() -> bool {
