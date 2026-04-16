@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Speculative Decoding — Batched Verify + Adaptive Depth (PR #14)
+
+- **Batched verify forward**: Replace N+1 sequential target forwards with a single batched forward pass using a dedicated batched Q4_0 GEMV kernel (single weight load, N dot products) and an all-heads verify attention kernel (1 dispatch per layer instead of 784 for 7B).
+- **Adaptive speculation depth**: EMA-based tracking of acceptance rate, automatically reduces depth on low-acceptance prompts (+34–107% speedup over fixed depth=5).
+- **Draft KV cache fix**: Bounded allocation to actual need instead of full context window, saving multiple GB of VRAM.
+- **First-token output fix**: Speculative decode now correctly emits the prefill result token.
+
 ### [GPU Backend]
 
 **fix(gpu): critical decode graph and Q8_0 kernel memory corruption bugs**
