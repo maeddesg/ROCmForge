@@ -1102,6 +1102,222 @@ extern "C" hipError_t gpu_flash_attn_verify_strided(
     return hipGetLastError();
 }
 
+// ── All-Heads Verify Attention (single dispatch per layer) ───────────────────
+//
+// For speculative decode verify: processes N query tokens × all heads in ONE
+// kernel launch per layer, instead of N × num_heads separate launches.
+//
+// Grid: (num_kv_heads, n_verify, 1)
+//   blockIdx.x = KV head group
+//   blockIdx.y = query position (0..n_verify-1)
+//
+// Each block handles one KV-head group for one query position.
+// Causal mask: query i attends to positions 0..start_pos+i (inclusive).
+//
+// Layout: Q/Out are [n_verify × num_heads × head_dim], strided.
+// K/V cache: [max_seq × num_kv_heads × head_dim], FP16.
+
+template<int TILE_SIZE>
+__global__ void flash_attn_verify_all_heads_kernel(
+    float* __restrict__ out,         // [n_verify × num_heads × head_dim]
+    const float* __restrict__ q,     // [n_verify × num_heads × head_dim]
+    const half* __restrict__ k_cache,
+    const half* __restrict__ v_cache,
+    const int n_verify,
+    const int start_pos,
+    const int num_heads,
+    const int num_kv_heads,
+    const int head_dim,
+    const float scale
+) {
+    const int kv_head_idx = blockIdx.x;
+    const int query_idx = blockIdx.y;
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane_id = tid & 31;
+    const int gqa_ratio = num_heads / num_kv_heads;
+
+    if (kv_head_idx >= num_kv_heads || query_idx >= n_verify) return;
+
+    // Causal mask: this query position can see start_pos + query_idx + 1 KV entries
+    const int causal_len = start_pos + query_idx + 1;
+
+    const int kv_size = num_kv_heads * head_dim;
+    const int q_size = num_heads * head_dim;
+    const int head_offset = kv_head_idx * head_dim;
+
+    // Which Q-head does this warp handle?
+    const int local_head = warp_id;
+    const int global_head = kv_head_idx * gqa_ratio + local_head;
+    const bool active = (local_head < gqa_ratio) && (global_head < num_heads);
+
+    // ── LDS allocation ──────────────────────────────────────────────
+    extern __shared__ char s_raw[];
+    float* s_tile   = reinterpret_cast<float*>(s_raw);
+    float* s_q      = s_tile + TILE_SIZE * head_dim;
+    float* s_scores = s_q + gqa_ratio * head_dim;
+    float* s_out    = s_scores + gqa_ratio * TILE_SIZE;
+
+    // ── Load Q vectors for all local heads (from this query row) ────
+    const float* q_row = q + (size_t)query_idx * q_size;
+    const int q_elems = gqa_ratio * head_dim;
+    for (int idx = tid; idx < q_elems; idx += blockDim.x) {
+        const int h = idx / head_dim;
+        const int d = idx % head_dim;
+        const int gh = kv_head_idx * gqa_ratio + h;
+        s_q[idx] = (gh < num_heads) ? q_row[gh * head_dim + d] : 0.0f;
+    }
+
+    // ── Initialize output accumulators ──────────────────────────────
+    const int out_elems = gqa_ratio * head_dim;
+    for (int idx = tid; idx < out_elems; idx += blockDim.x) {
+        s_out[idx] = 0.0f;
+    }
+    __syncthreads();
+
+    // ── Per-warp online softmax state ───────────────────────────────
+    float m = kNegInf;
+    float l = 0.0f;
+
+    // ── Tile loop (respecting causal mask) ──────────────────────────
+    for (int tile_start = 0; tile_start < causal_len; tile_start += TILE_SIZE) {
+        const int tile_end = min(tile_start + TILE_SIZE, causal_len);
+        const int tile_len = tile_end - tile_start;
+
+        // Phase 1: ALL threads cooperatively load K tile into LDS
+        const int k_elems = tile_len * head_dim;
+        for (int idx = tid; idx < k_elems; idx += blockDim.x) {
+            const int p = idx / head_dim;
+            const int d = idx % head_dim;
+            const size_t addr = (size_t)(tile_start + p) * kv_size + head_offset + d;
+            s_tile[p * head_dim + d] = __half2float(k_cache[addr]);
+        }
+        __syncthreads();
+
+        // Phase 2: Each warp computes Q·K for its Q-head
+        if (active) {
+            const float* my_q = &s_q[local_head * head_dim];
+            for (int p = 0; p < tile_len; ++p) {
+                const float* k_row = &s_tile[p * head_dim];
+                float partial = 0.0f;
+                for (int d = lane_id; d < head_dim; d += 32) {
+                    partial += my_q[d] * k_row[d];
+                }
+                for (int off = 16; off > 0; off >>= 1) {
+                    partial += __shfl_down(partial, off);
+                }
+                if (lane_id == 0) {
+                    s_scores[local_head * TILE_SIZE + p] = partial * scale;
+                }
+            }
+        }
+        __syncthreads();
+
+        // Phase 3: Online softmax
+        float inv_l_new = 0.0f;
+        if (active) {
+            float tile_max = kNegInf;
+            for (int p = lane_id; p < tile_len; p += 32) {
+                tile_max = fmaxf(tile_max, s_scores[local_head * TILE_SIZE + p]);
+            }
+            for (int off = 16; off > 0; off >>= 1) {
+                tile_max = fmaxf(tile_max, __shfl_xor(tile_max, off));
+            }
+
+            const float m_new = fmaxf(m, tile_max);
+            const float exp_m_old = expf(m - m_new);
+
+            float tile_sum = 0.0f;
+            for (int p = lane_id; p < tile_len; p += 32) {
+                const float w = expf(s_scores[local_head * TILE_SIZE + p] - m_new);
+                s_scores[local_head * TILE_SIZE + p] = w;
+                tile_sum += w;
+            }
+            for (int off = 16; off > 0; off >>= 1) {
+                tile_sum += __shfl_xor(tile_sum, off);
+            }
+
+            const float l_new = l * exp_m_old + tile_sum;
+            const float rescale = (l > 0.0f) ? (l * exp_m_old / l_new) : 0.0f;
+            inv_l_new = (l_new > 0.0f) ? (1.0f / l_new) : 0.0f;
+
+            float* my_out = &s_out[local_head * head_dim];
+            for (int d = lane_id; d < head_dim; d += 32) {
+                my_out[d] *= rescale;
+            }
+
+            m = m_new;
+            l = l_new;
+        }
+        __syncthreads();
+
+        // Phase 4: Load V tile into LDS (reuse s_tile)
+        const int v_elems = tile_len * head_dim;
+        for (int idx = tid; idx < v_elems; idx += blockDim.x) {
+            const int p = idx / head_dim;
+            const int d = idx % head_dim;
+            const size_t addr = (size_t)(tile_start + p) * kv_size + head_offset + d;
+            s_tile[p * head_dim + d] = __half2float(v_cache[addr]);
+        }
+        __syncthreads();
+
+        // Phase 5: Accumulate weighted V
+        if (active) {
+            float* my_out = &s_out[local_head * head_dim];
+            for (int d = lane_id; d < head_dim; d += 32) {
+                float val = 0.0f;
+                for (int p = 0; p < tile_len; ++p) {
+                    val += s_scores[local_head * TILE_SIZE + p] * s_tile[p * head_dim + d];
+                }
+                my_out[d] += val * inv_l_new;
+            }
+        }
+        __syncthreads();
+    }
+
+    // ── Write output (to this query row's output) ───────────────────
+    float* out_row = out + (size_t)query_idx * q_size;
+    if (active) {
+        float* head_out = out_row + global_head * head_dim;
+        const float* my_out = &s_out[local_head * head_dim];
+        for (int d = lane_id; d < head_dim; d += 32) {
+            head_out[d] = my_out[d];
+        }
+    }
+}
+
+extern "C" hipError_t gpu_flash_attn_verify_all_heads(
+    float* d_out,
+    const float* d_q,
+    const half* d_k_cache,
+    const half* d_v_cache,
+    const int n_verify,
+    const int start_pos,
+    const int num_heads,
+    const int num_kv_heads,
+    const int head_dim,
+    const float scale,
+    hipStream_t stream
+) {
+    if (n_verify <= 0 || num_heads <= 0 || num_kv_heads <= 0 || head_dim <= 0) {
+        return hipErrorInvalidValue;
+    }
+
+    constexpr int TILE = 32;
+    const int gqa_ratio = num_heads / num_kv_heads;
+    const int threads_per_block = ((gqa_ratio + 7) / 8) * 256;
+    const size_t smem_size = (TILE * head_dim + gqa_ratio * head_dim
+                              + gqa_ratio * TILE + gqa_ratio * head_dim) * sizeof(float);
+
+    dim3 grid(num_kv_heads, n_verify);
+    flash_attn_verify_all_heads_kernel<TILE><<<grid, threads_per_block, smem_size, stream>>>(
+        d_out, d_q, d_k_cache, d_v_cache, n_verify, start_pos,
+        num_heads, num_kv_heads, head_dim, scale
+    );
+
+    return hipGetLastError();
+}
+
 extern "C" hipError_t gpu_flash_attn_decode_gqa(
     float* d_out,
     const float* d_q,
