@@ -599,7 +599,9 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     }
     eprintln!("Prompt: {} tokens", prompt_tokens.len());
 
-    let max_seq = (prompt_tokens.len() + args.max_tokens).min(config.max_seq_len);
+    // Add headroom for speculative decoding: verify + draft catch-up may use extra positions
+    let spec_overhead = if args.draft_model.is_some() { args.spec_depth * 2 } else { 0 };
+    let max_seq = (prompt_tokens.len() + args.max_tokens + spec_overhead).min(config.max_seq_len);
     let mut kv = gpu::GpuKvCache::new(&config, max_seq).map_err(|e| format!("gpu kv: {}", e))?;
     let mut gpu_scratch =
         gpu::GpuForwardScratch::new(&config).map_err(|e| format!("gpu scratch: {}", e))?;
@@ -780,6 +782,8 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         let mut draft_pos = prompt_tokens.len();
         let mut total_drafted = 0usize;
         let mut total_accepted = 0usize;
+        let mut total_steps = 0usize;
+        let eog_ids = tok.eog_ids();
 
         loop {
             if tok.is_eog(next_token) || n_generated >= args.max_tokens || pos >= max_seq {
@@ -801,10 +805,12 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
                 &mut kv, &mut verify_scratch, &mut gpu_scratch, &mut host_scratch,
                 &config,
                 next_token, draft_pos, pos, depth,
+                &eog_ids,
             ).map_err(|e| format!("speculative decode: {}", e))?;
 
             total_drafted += result.n_drafted;
             total_accepted += result.n_draft_accepted;
+            total_steps += 1;
 
             for &tok_id in &result.accepted_tokens {
                 if tok.is_eog(tok_id) {
@@ -819,12 +825,8 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
                 next_token = tok_id;
             }
 
-            // Check if last accepted token was EOS
-            if let Some(&last) = result.accepted_tokens.last() {
-                if tok.is_eog(last) {
-                    break;
-                }
-                next_token = last;
+            if result.hit_eog {
+                break;
             }
         }
 
@@ -837,12 +839,18 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 0.0
             };
+            let avg_accepted = if total_steps > 0 {
+                total_accepted as f64 / total_steps as f64
+            } else {
+                0.0
+            };
             eprintln!(
-                "\n{} tokens in {:.1}ms = {:.1} tok/s (speculative: {}/{} accepted = {:.1}%)",
+                "\n{} tokens in {:.1}ms = {:.1} tok/s (speculative: {}/{} accepted = {:.1}%, avg {:.1}/step over {} steps)",
                 n_generated, gen_ms,
                 n_generated as f64 / gen_ms * 1000.0,
                 total_accepted, total_drafted,
                 acceptance_rate * 100.0,
+                avg_accepted, total_steps,
             );
         } else {
             eprintln!("\n[EOS on first token]");

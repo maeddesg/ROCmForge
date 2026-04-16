@@ -476,6 +476,25 @@ impl BpeTokenizer {
         self.eos_id
     }
 
+    /// Returns all end-of-generation token IDs (for passing to GPU-side code).
+    pub fn eog_ids(&self) -> Vec<u32> {
+        let mut ids = Vec::new();
+        if let Some(eos) = self.eos_id {
+            ids.push(eos);
+        }
+        let eog_texts = [
+            "", "<|eos|>", "</s>", "<|eot_id|>",
+            "<|eom_id|>", "<|im_end|>", "<|end|>", "<end_of_turn>",
+        ];
+        for (i, bytes) in self.vocab.iter().enumerate() {
+            let text = String::from_utf8_lossy(bytes);
+            if eog_texts.contains(&text.as_ref()) && !ids.contains(&(i as u32)) {
+                ids.push(i as u32);
+            }
+        }
+        ids
+    }
+
     /// Returns whether BOS token should be added.
     pub fn add_bos(&self) -> bool {
         self.add_bos
