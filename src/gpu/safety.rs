@@ -21,7 +21,7 @@ pub const GPU_SAFE_MODE_ENV: &str = "ROCMFORGE_GPU_SAFE_MODE";
 pub const RUN_REAL_MODEL_GPU_TESTS_ENV: &str = "ROCMFORGE_RUN_REAL_MODEL_GPU_TESTS";
 pub const RUN_EXPERIMENTAL_GPU_TESTS_ENV: &str = "ROCMFORGE_RUN_EXPERIMENTAL_GPU_TESTS";
 pub const RUN_GPU_BENCHES_ENV: &str = "ROCMFORGE_RUN_GPU_BENCHES";
-pub const EXPERIMENTAL_TILED_GEMV_ENV: &str = "ROCMFORGE_EXPERIMENTAL_TILED_GEMV";
+pub const DISABLE_TILED_GEMV_ENV: &str = "ROCMFORGE_DISABLE_TILED_GEMV";
 
 const ENV_UNKNOWN: u8 = 0;
 const ENV_DISABLED: u8 = 1;
@@ -79,8 +79,8 @@ static RUN_REAL_MODEL_GPU_TESTS_FLAG: CachedEnvFlag =
 static RUN_EXPERIMENTAL_GPU_TESTS_FLAG: CachedEnvFlag =
     CachedEnvFlag::new(RUN_EXPERIMENTAL_GPU_TESTS_ENV, false);
 static RUN_GPU_BENCHES_FLAG: CachedEnvFlag = CachedEnvFlag::new(RUN_GPU_BENCHES_ENV, false);
-static EXPERIMENTAL_TILED_GEMV_FLAG: CachedEnvFlag =
-    CachedEnvFlag::new(EXPERIMENTAL_TILED_GEMV_ENV, false);
+static DISABLE_TILED_GEMV_FLAG: CachedEnvFlag =
+    CachedEnvFlag::new(DISABLE_TILED_GEMV_ENV, false);
 static DECODE_GRAPH_RUNTIME_DISABLED: AtomicBool = AtomicBool::new(false);
 static Q8_ACTIVATION_FASTPATH_RUNTIME_DISABLED: AtomicBool = AtomicBool::new(false);
 static DECODE_GRAPH_RUNTIME_DISABLE_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -110,7 +110,7 @@ pub fn refresh_runtime_env_flags() {
     RUN_REAL_MODEL_GPU_TESTS_FLAG.reset();
     RUN_EXPERIMENTAL_GPU_TESTS_FLAG.reset();
     RUN_GPU_BENCHES_FLAG.reset();
-    EXPERIMENTAL_TILED_GEMV_FLAG.reset();
+    DISABLE_TILED_GEMV_FLAG.reset();
     DECODE_GRAPH_RUNTIME_DISABLED.store(false, Ordering::Relaxed);
     Q8_ACTIVATION_FASTPATH_RUNTIME_DISABLED.store(false, Ordering::Relaxed);
     DECODE_GRAPH_RUNTIME_DISABLE_LOGGED.store(false, Ordering::Relaxed);
@@ -173,8 +173,8 @@ pub fn run_gpu_benches_enabled() -> bool {
     RUN_GPU_BENCHES_FLAG.enabled()
 }
 
-pub fn experimental_tiled_gemv_enabled() -> bool {
-    !gpu_safe_mode_enabled() && EXPERIMENTAL_TILED_GEMV_FLAG.enabled()
+pub fn tiled_gemv_enabled() -> bool {
+    !gpu_safe_mode_enabled() && !DISABLE_TILED_GEMV_FLAG.enabled()
 }
 
 pub fn decode_graph_runtime_disabled() -> bool {

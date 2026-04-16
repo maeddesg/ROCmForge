@@ -1463,7 +1463,7 @@ pub fn gpu_dispatch_gemm(
         // Tiled batched GEMV: tiles along input dimension for large in_dim
         // (e.g., FFN down-projection in_dim=18944). Preserves single weight load
         // while fitting input quantization tiles into LDS.
-        if super::safety::experimental_tiled_gemv_enabled() {
+        if super::safety::tiled_gemv_enabled() {
             return gemv_q4_0_f32_batched_tiled_on_stream(
                 weights.as_ptr() as *const u8,
                 input,
