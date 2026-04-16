@@ -1328,6 +1328,11 @@ pub fn gpu_speculative_decode_step(
     spec_depth: usize,
     eog_ids: &[u32],
 ) -> GpuResult<SpecDecodeResult> {
+    use super::spec_step_profile::SpecStepTimer;
+
+    // ── Profiling: begin step timer (no-op if flag disabled) ────────────────
+    let mut timer = SpecStepTimer::begin(device)?;
+
     // ── Step 1: Draft N tokens with the small model ─────────────────────────
     // Stop early if the draft model produces an EOS token.
     let mut draft_tokens = Vec::with_capacity(spec_depth);
@@ -1353,6 +1358,11 @@ pub fn gpu_speculative_decode_step(
         }
     }
 
+    // ── Profiling: mark end of draft phase ──────────────────────────────────
+    if let Some(ref mut t) = timer {
+        t.mark_draft_end()?;
+    }
+
     let n_drafted = draft_tokens.len();
     let actual_depth = n_drafted;
 
@@ -1369,6 +1379,12 @@ pub fn gpu_speculative_decode_step(
         target_kv, _verify_scratch, target_scratch, target_host_scratch,
         &verify_tokens, target_pos, target_config,
     )?;
+
+    // ── Profiling: mark end of verify phase ─────────────────────────────────
+    if let Some(ref mut t) = timer {
+        t.mark_verify_end()?;
+        t.host_phase_begin();
+    }
 
     // ── Step 3: Accept/reject ───────────────────────────────────────────────
     // target_argmax[i] = target's prediction after processing verify_tokens[i]
@@ -1439,6 +1455,12 @@ pub fn gpu_speculative_decode_step(
             draft_kv, draft_scratch, draft_host_scratch,
             catchup_pos, draft_config, GpuLogitsMode::Skip,
         )?;
+    }
+
+    // ── Profiling: record accept/reject time and finalize ───────────────────
+    if let Some(mut t) = timer {
+        t.host_phase_end_accept_reject();
+        t.finish()?;
     }
 
     Ok(SpecDecodeResult {

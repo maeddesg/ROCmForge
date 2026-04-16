@@ -891,6 +891,8 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
                 avg_accepted, total_steps,
                 depth_info,
             );
+            #[cfg(feature = "gpu")]
+            gpu::print_spec_step_profile_summary();
         } else {
             eprintln!("\n[EOS on first token]");
         }

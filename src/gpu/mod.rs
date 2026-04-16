@@ -22,12 +22,17 @@ pub mod ops;
 pub mod quant;
 pub mod quant_wrapper;
 pub mod safety;
+pub mod spec_step_profile;
 pub mod weights;
 
 pub use arch::GpuArchitecture;
 pub use cache::{GpuForwardScratch, GpuKvCache, GpuPrefillScratch};
 pub use decode_profile::{
     decode_stage_profile_snapshot, reset_decode_stage_profile, GpuDecodeStageProfileSnapshot,
+};
+pub use spec_step_profile::{
+    print_spec_step_profile_summary, reset_spec_step_profile, spec_step_profile_snapshot,
+    spec_step_profiling_enabled, SpecStepProfileData,
 };
 pub use detect::GpuCapabilities;
 pub use device::GpuDevice;
@@ -70,11 +75,12 @@ pub use quant::{
 pub use quant_wrapper::GpuQuant;
 pub use safety::{
     decode_graph_enabled, experimental_ffn_fastpath_enabled, experimental_gpu_kernels_enabled,
-    experimental_q8_activation_fastpath_enabled, gpu_safe_mode_enabled,
-    real_model_gpu_tests_enabled, refresh_runtime_env_flags, run_experimental_gpu_tests_enabled,
-    run_gpu_benches_enabled, DISABLE_DECODE_GRAPH_ENV, ENABLE_DECODE_GRAPH_ENV,
-    ENABLE_EXPERIMENTAL_FFN_FASTPATH_ENV, ENABLE_EXPERIMENTAL_GPU_KERNELS_ENV,
-    ENABLE_EXPERIMENTAL_Q8_ACTIVATION_FASTPATH_ENV, ENABLE_LAUNCH_AUTOTUNE_ENV, GPU_SAFE_MODE_ENV,
+    experimental_q8_activation_fastpath_enabled, experimental_tiled_gemv_enabled,
+    gpu_safe_mode_enabled, real_model_gpu_tests_enabled, refresh_runtime_env_flags,
+    run_experimental_gpu_tests_enabled, run_gpu_benches_enabled, DISABLE_DECODE_GRAPH_ENV,
+    ENABLE_DECODE_GRAPH_ENV, ENABLE_EXPERIMENTAL_FFN_FASTPATH_ENV,
+    ENABLE_EXPERIMENTAL_GPU_KERNELS_ENV, ENABLE_EXPERIMENTAL_Q8_ACTIVATION_FASTPATH_ENV,
+    ENABLE_LAUNCH_AUTOTUNE_ENV, EXPERIMENTAL_TILED_GEMV_ENV, GPU_SAFE_MODE_ENV,
     RUN_EXPERIMENTAL_GPU_TESTS_ENV, RUN_GPU_BENCHES_ENV, RUN_REAL_MODEL_GPU_TESTS_ENV,
 };
 pub use weights::{GpuBuffer, GpuLayerWeights, GpuModelWeights, TensorRole, WeightMeta};
