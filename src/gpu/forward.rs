@@ -1034,6 +1034,256 @@ pub fn gpu_prefill_forward_hybrid(
     }
 }
 
+// ── Speculative Decoding: Verify Forward Pass ───────────────────────────────────
+
+fn gpu_attention_verify(
+    scratch: &mut GpuPrefillScratch,
+    kv: &GpuKvCache,
+    layer_idx: usize,
+    start_pos: usize,
+    config: &ModelConfig,
+) -> GpuResult<()> {
+    use super::kernels::attention::flash_attn_verify_strided_on_stream;
+
+    let seq_len = scratch.seq_len;
+    let q_size = config.num_heads * config.head_dim;
+    let kv_size = config.num_kv_heads * config.head_dim;
+    let kv_group = config.num_heads / config.num_kv_heads;
+    let scale = 1.0f32 / (config.head_dim as f32).sqrt();
+
+    let k_cache = kv.k_ptr(layer_idx)? as *const u16;
+    let v_cache = kv.v_ptr(layer_idx)? as *const u16;
+
+    for head in 0..config.num_heads {
+        let kv_head = head / kv_group;
+        let q_offset = head * config.head_dim;
+        let kv_offset = kv_head * config.head_dim;
+
+        flash_attn_verify_strided_on_stream(
+            scratch.attn_out.as_ptr() as *mut f32,
+            scratch.q.as_ptr() as *const f32,
+            k_cache,
+            v_cache,
+            seq_len,
+            start_pos,
+            config.head_dim,
+            q_size,      // out_stride
+            q_size,      // q_stride
+            kv_size,     // kv_size (stride in cache)
+            q_offset,    // out_head_offset
+            q_offset,    // q_head_offset
+            kv_offset,   // kv_head_offset
+            scale,
+            ffi::hipStream_t::null(),
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Verify layer forward: like prefill but reads K/V from FP16 KV cache for attention.
+pub fn gpu_verify_layer_forward(
+    device: &GpuDevice,
+    gpu_layer: &GpuLayerWeights,
+    kv: &mut GpuKvCache,
+    scratch: &mut GpuPrefillScratch,
+    layer_idx: usize,
+    start_pos: usize,
+    config: &ModelConfig,
+) -> GpuResult<()> {
+    let seq_len = scratch.seq_len;
+    let h = config.hidden_size;
+    let q_size = config.num_heads * config.head_dim;
+    let kv_size = config.num_kv_heads * config.head_dim;
+    let ff_size = config.intermediate_size;
+    let eps = config.rms_norm_eps;
+
+    // Attention: norm → QKV → RoPE → KV write → verify attention → O-proj → residual
+    gpu_rms_norm_rows(
+        scratch.hidden.as_ptr() as *const f32,
+        gpu_layer.attn_norm.as_ptr() as *const f32,
+        scratch.normed.as_ptr() as *mut f32,
+        seq_len, h, eps,
+    )?;
+
+    gpu_project_rows(device, &gpu_layer.attn_q, &gpu_layer.attn_q_meta,
+        scratch.normed.as_ptr() as *const f32, scratch.q.as_ptr() as *mut f32,
+        seq_len, q_size, h)?;
+    gpu_project_rows(device, &gpu_layer.attn_k, &gpu_layer.attn_k_meta,
+        scratch.normed.as_ptr() as *const f32, scratch.k.as_ptr() as *mut f32,
+        seq_len, kv_size, h)?;
+    gpu_project_rows(device, &gpu_layer.attn_v, &gpu_layer.attn_v_meta,
+        scratch.normed.as_ptr() as *const f32, scratch.v.as_ptr() as *mut f32,
+        seq_len, kv_size, h)?;
+
+    if let Some(bq) = &gpu_layer.attn_q_bias {
+        add_batched(scratch.q.as_ptr() as *const f32, bq.as_ptr() as *const f32,
+            scratch.q.as_ptr() as *mut f32, q_size, seq_len)?;
+    }
+    if let Some(bk) = &gpu_layer.attn_k_bias {
+        add_batched(scratch.k.as_ptr() as *const f32, bk.as_ptr() as *const f32,
+            scratch.k.as_ptr() as *mut f32, kv_size, seq_len)?;
+    }
+    if let Some(bv) = &gpu_layer.attn_v_bias {
+        add_batched(scratch.v.as_ptr() as *const f32, bv.as_ptr() as *const f32,
+            scratch.v.as_ptr() as *mut f32, kv_size, seq_len)?;
+    }
+
+    gpu_rope_rows(scratch.q.as_ptr() as *mut f32, start_pos, seq_len,
+        config.num_heads, config.head_dim, config.rope_theta, config.rope_neox)?;
+    gpu_rope_rows(scratch.k.as_ptr() as *mut f32, start_pos, seq_len,
+        config.num_kv_heads, config.head_dim, config.rope_theta, config.rope_neox)?;
+
+    // Write new K/V to cache at start_pos..start_pos+seq_len
+    kv.write_batched(layer_idx, start_pos, seq_len,
+        scratch.k.as_ptr() as *const f32, scratch.v.as_ptr() as *const f32)?;
+
+    // Verify attention: read ALL K/V from FP16 cache (positions 0..start_pos+i per query)
+    gpu_attention_verify(scratch, kv, layer_idx, start_pos, config)?;
+
+    // O-projection + residual
+    gpu_project_rows(device, &gpu_layer.attn_o, &gpu_layer.attn_o_meta,
+        scratch.attn_out.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *mut f32,
+        seq_len, h, q_size)?;
+    add(scratch.hidden.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *const f32,
+        scratch.hidden.as_ptr() as *mut f32, seq_len * h)?;
+
+    // FFN: norm → gate → up → SiLU → mul → down → residual
+    gpu_rms_norm_rows(
+        scratch.hidden.as_ptr() as *const f32,
+        gpu_layer.ffn_norm.as_ptr() as *const f32,
+        scratch.normed.as_ptr() as *mut f32,
+        seq_len, h, eps,
+    )?;
+    gpu_project_rows(device, &gpu_layer.ffn_gate, &gpu_layer.ffn_gate_meta,
+        scratch.normed.as_ptr() as *const f32, scratch.gate.as_ptr() as *mut f32,
+        seq_len, ff_size, h)?;
+    gpu_project_rows(device, &gpu_layer.ffn_up, &gpu_layer.ffn_up_meta,
+        scratch.normed.as_ptr() as *const f32, scratch.swiglu.as_ptr() as *mut f32,
+        seq_len, ff_size, h)?;
+    silu(scratch.gate.as_ptr() as *const f32, scratch.gate.as_ptr() as *mut f32,
+        seq_len * ff_size)?;
+    super::kernels::mul(scratch.gate.as_ptr() as *const f32,
+        scratch.swiglu.as_ptr() as *const f32, scratch.swiglu.as_ptr() as *mut f32,
+        seq_len * ff_size)?;
+    gpu_project_rows(device, &gpu_layer.ffn_down, &gpu_layer.ffn_down_meta,
+        scratch.swiglu.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *mut f32,
+        seq_len, h, ff_size)?;
+    add(scratch.hidden.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *const f32,
+        scratch.hidden.as_ptr() as *mut f32, seq_len * h)?;
+
+    Ok(())
+}
+
+/// Verify forward pass for speculative decoding.
+///
+/// Runs `tokens` through the model starting at `start_pos`, writing to KV cache,
+/// and returns the argmax token for EACH of the N positions (not just the last).
+pub fn gpu_verify_forward(
+    device: &GpuDevice,
+    gpu_weights: &GpuModelWeights,
+    cpu_weights: &CpuModelWeights,
+    kv: &mut GpuKvCache,
+    prefill: &mut GpuPrefillScratch,
+    decode_scratch: &mut GpuForwardScratch,
+    host_scratch: &mut CpuForwardScratch,
+    tokens: &[u32],
+    start_pos: usize,
+    config: &ModelConfig,
+) -> GpuResult<Vec<u32>> {
+    if tokens.is_empty() {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gpu_verify_forward: empty token list".to_string(),
+        });
+    }
+    if start_pos + tokens.len() > kv.max_seq_len {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gpu_verify_forward: start_pos {} + tokens {} exceeds kv cache {}",
+                start_pos, tokens.len(), kv.max_seq_len
+            ),
+        });
+    }
+    if prefill.seq_len != tokens.len() {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gpu_verify_forward: scratch seq_len {} != tokens {}",
+                prefill.seq_len, tokens.len()
+            ),
+        });
+    }
+
+    // Embed tokens into prefill scratch
+    gpu_embed_tokens_hybrid(tokens, gpu_weights, cpu_weights, prefill, config)?;
+
+    // Layer loop
+    for layer_idx in 0..config.num_layers {
+        gpu_verify_layer_forward(
+            device,
+            gpu_weights.layer(layer_idx),
+            kv,
+            prefill,
+            layer_idx,
+            start_pos,
+            config,
+        )?;
+    }
+
+    // Final norm + lm_head for ALL N positions
+    let h = config.hidden_size;
+    let v = config.vocab_size;
+    let n = tokens.len();
+    let mut result_tokens = Vec::with_capacity(n);
+
+    for i in 0..n {
+        let hidden_row = unsafe { (prefill.hidden.as_ptr() as *const f32).add(i * h) };
+        rms_norm(
+            hidden_row,
+            gpu_weights.output_norm.as_ptr() as *const f32,
+            decode_scratch.normed.as_ptr() as *mut f32,
+            h,
+            config.rms_norm_eps,
+        )?;
+
+        match gpu_dispatch_gemv(
+            device,
+            &gpu_weights.lm_head,
+            &gpu_weights.lm_head_meta,
+            decode_scratch.normed.as_ptr() as *const f32,
+            decode_scratch.logits.as_ptr() as *mut f32,
+            v,
+            h,
+        ) {
+            Ok(()) => {
+                let token = gpu_greedy_argmax_token(device, decode_scratch, v)?;
+                result_tokens.push(token);
+            }
+            Err(GpuError::InvalidWeightLayout { .. })
+            | Err(GpuError::UnsupportedWeightType { .. }) => {
+                cpu_fallback_gemv(
+                    "lm_head",
+                    &cpu_weights.lm_head,
+                    &cpu_weights.lm_head_meta,
+                    &decode_scratch.normed,
+                    &mut host_scratch.normed,
+                    &mut host_scratch.logits,
+                    v,
+                    h,
+                    &mut host_scratch.q8_scratch,
+                )?;
+                let token = crate::cpu::sampler::cpu_sample_greedy(&host_scratch.logits[..v]);
+                result_tokens.push(token as u32);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Ok(result_tokens)
+}
+
 fn gpu_layer_forward_from_state_on_stream(
     device: &GpuDevice,
     gpu_layer: &GpuLayerWeights,

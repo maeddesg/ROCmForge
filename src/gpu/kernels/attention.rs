@@ -109,6 +109,24 @@ unsafe extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 
+    fn gpu_flash_attn_verify_strided(
+        d_out: *mut f32,
+        d_q: *const f32,
+        d_k_cache: *const u16,
+        d_v_cache: *const u16,
+        n_verify: c_int,
+        start_pos: c_int,
+        head_dim: c_int,
+        out_stride: c_int,
+        q_stride: c_int,
+        kv_size: c_int,
+        out_head_offset: c_int,
+        q_head_offset: c_int,
+        kv_head_offset: c_int,
+        scale: f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
     fn gpu_flash_attn_decode_gqa(
         d_out: *mut f32,
         d_q: *const f32,
@@ -596,6 +614,65 @@ pub fn flash_attn_decode_gqa_from_state_on_stream(
         return Err(GpuError::HipApiError {
             code: result as i32,
             description: format!("flash_attn_decode_gqa_state kernel failed: {:?}", result),
+        });
+    }
+
+    Ok(())
+}
+
+/// Batched verify attention for speculative decoding (FP16 KV cache).
+///
+/// Processes `n_verify` query positions against the full KV cache.
+/// Called once per head from the Rust side (same pattern as prefill).
+/// Causal mask: query at index `i` attends to KV positions `0..start_pos+i`.
+pub fn flash_attn_verify_strided_on_stream(
+    d_out: *mut f32,
+    d_q: *const f32,
+    d_k_cache: *const u16,
+    d_v_cache: *const u16,
+    n_verify: usize,
+    start_pos: usize,
+    head_dim: usize,
+    out_stride: usize,
+    q_stride: usize,
+    kv_size: usize,
+    out_head_offset: usize,
+    q_head_offset: usize,
+    kv_head_offset: usize,
+    scale: f32,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if n_verify == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "flash_attn_verify: n_verify cannot be zero".to_string(),
+        });
+    }
+
+    let result = unsafe {
+        gpu_flash_attn_verify_strided(
+            d_out,
+            d_q,
+            d_k_cache,
+            d_v_cache,
+            n_verify as c_int,
+            start_pos as c_int,
+            head_dim as c_int,
+            out_stride as c_int,
+            q_stride as c_int,
+            kv_size as c_int,
+            out_head_offset as c_int,
+            q_head_offset as c_int,
+            kv_head_offset as c_int,
+            scale,
+            stream,
+        )
+    };
+
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!("flash_attn_verify_strided kernel failed: {:?}", result),
         });
     }
 
