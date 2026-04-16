@@ -11,7 +11,7 @@ This document records the current GPU performance investigation for batch-1 deco
 - Runtime: ROCm/HIP 7.2.x
 - Reference model: `Qwen2.5-0.5B-Instruct Q4_0`
 - Larger-model validation: `Qwen2.5-7B-Instruct Q4_0`
-- Main comparator: local `llama.cpp` Vulkan backend
+- Main comparator: local `llama.cpp` ROCm backend (previously Vulkan, switched April 16 for fair HIP-to-HIP comparison)
 
 ## What Landed
 
@@ -100,12 +100,15 @@ Conclusion:
 
 ### The remaining gap is decode efficiency
 
-Current local comparison shows the problem clearly:
+Current comparison (April 16, 2026, RX 9070 XT / gfx1201, ROCm 7.2.1):
 
-- `rocmforge`: about `205 tok/s` decode on the 64-token CLI run.
-- Local `llama-bench` on `Vulkan0`: `619.35 tok/s` for `tg128`.
+- `rocmforge` 0.5B Q4_0: `222 tok/s` decode (full-decode graph disabled due to RDNA4 bug)
+- `rocmforge` 7B Q4_0: `82 tok/s` decode
+- `llama.cpp` ROCm 0.5B Q4_0: `358 tok/s` for `tg128`
+- `llama.cpp` ROCm 7B Q4_0: `117 tok/s` for `tg128`
 
-These are not identical workloads, but they are close enough to show that `rocmforge` is still far behind on batch-1 decode.
+ROCmForge achieves 62% (0.5B) and 70% (7B) of llama.cpp ROCm decode throughput.
+The gap is primarily due to the disabled full-decode HIP graph on RDNA4 (was 646 tok/s with graph + fusions).
 
 The main reasons are:
 
