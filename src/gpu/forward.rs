@@ -1034,6 +1034,427 @@ pub fn gpu_prefill_forward_hybrid(
     }
 }
 
+// ── Speculative Decoding: Verify Forward Pass ───────────────────────────────────
+
+fn gpu_attention_verify(
+    scratch: &mut GpuPrefillScratch,
+    kv: &GpuKvCache,
+    layer_idx: usize,
+    start_pos: usize,
+    config: &ModelConfig,
+) -> GpuResult<()> {
+    use super::kernels::attention::flash_attn_verify_strided_on_stream;
+
+    let seq_len = scratch.seq_len;
+    let q_size = config.num_heads * config.head_dim;
+    let kv_size = config.num_kv_heads * config.head_dim;
+    let kv_group = config.num_heads / config.num_kv_heads;
+    let scale = 1.0f32 / (config.head_dim as f32).sqrt();
+
+    let k_cache = kv.k_ptr(layer_idx)? as *const u16;
+    let v_cache = kv.v_ptr(layer_idx)? as *const u16;
+
+    for head in 0..config.num_heads {
+        let kv_head = head / kv_group;
+        let q_offset = head * config.head_dim;
+        let kv_offset = kv_head * config.head_dim;
+
+        flash_attn_verify_strided_on_stream(
+            scratch.attn_out.as_ptr() as *mut f32,
+            scratch.q.as_ptr() as *const f32,
+            k_cache,
+            v_cache,
+            seq_len,
+            start_pos,
+            config.head_dim,
+            q_size,      // out_stride
+            q_size,      // q_stride
+            kv_size,     // kv_size (stride in cache)
+            q_offset,    // out_head_offset
+            q_offset,    // q_head_offset
+            kv_offset,   // kv_head_offset
+            scale,
+            ffi::hipStream_t::null(),
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Verify layer forward: like prefill but reads K/V from FP16 KV cache for attention.
+pub fn gpu_verify_layer_forward(
+    device: &GpuDevice,
+    gpu_layer: &GpuLayerWeights,
+    kv: &mut GpuKvCache,
+    scratch: &mut GpuPrefillScratch,
+    layer_idx: usize,
+    start_pos: usize,
+    config: &ModelConfig,
+) -> GpuResult<()> {
+    let seq_len = scratch.seq_len;
+    let h = config.hidden_size;
+    let q_size = config.num_heads * config.head_dim;
+    let kv_size = config.num_kv_heads * config.head_dim;
+    let ff_size = config.intermediate_size;
+    let eps = config.rms_norm_eps;
+
+    // Attention: norm → QKV → RoPE → KV write → verify attention → O-proj → residual
+    gpu_rms_norm_rows(
+        scratch.hidden.as_ptr() as *const f32,
+        gpu_layer.attn_norm.as_ptr() as *const f32,
+        scratch.normed.as_ptr() as *mut f32,
+        seq_len, h, eps,
+    )?;
+
+    gpu_project_rows(device, &gpu_layer.attn_q, &gpu_layer.attn_q_meta,
+        scratch.normed.as_ptr() as *const f32, scratch.q.as_ptr() as *mut f32,
+        seq_len, q_size, h)?;
+    gpu_project_rows(device, &gpu_layer.attn_k, &gpu_layer.attn_k_meta,
+        scratch.normed.as_ptr() as *const f32, scratch.k.as_ptr() as *mut f32,
+        seq_len, kv_size, h)?;
+    gpu_project_rows(device, &gpu_layer.attn_v, &gpu_layer.attn_v_meta,
+        scratch.normed.as_ptr() as *const f32, scratch.v.as_ptr() as *mut f32,
+        seq_len, kv_size, h)?;
+
+    if let Some(bq) = &gpu_layer.attn_q_bias {
+        add_batched(scratch.q.as_ptr() as *const f32, bq.as_ptr() as *const f32,
+            scratch.q.as_ptr() as *mut f32, q_size, seq_len)?;
+    }
+    if let Some(bk) = &gpu_layer.attn_k_bias {
+        add_batched(scratch.k.as_ptr() as *const f32, bk.as_ptr() as *const f32,
+            scratch.k.as_ptr() as *mut f32, kv_size, seq_len)?;
+    }
+    if let Some(bv) = &gpu_layer.attn_v_bias {
+        add_batched(scratch.v.as_ptr() as *const f32, bv.as_ptr() as *const f32,
+            scratch.v.as_ptr() as *mut f32, kv_size, seq_len)?;
+    }
+
+    gpu_rope_rows(scratch.q.as_ptr() as *mut f32, start_pos, seq_len,
+        config.num_heads, config.head_dim, config.rope_theta, config.rope_neox)?;
+    gpu_rope_rows(scratch.k.as_ptr() as *mut f32, start_pos, seq_len,
+        config.num_kv_heads, config.head_dim, config.rope_theta, config.rope_neox)?;
+
+    // Write new K/V to cache at start_pos..start_pos+seq_len
+    kv.write_batched(layer_idx, start_pos, seq_len,
+        scratch.k.as_ptr() as *const f32, scratch.v.as_ptr() as *const f32)?;
+
+    // Verify attention: read ALL K/V from FP16 cache (positions 0..start_pos+i per query)
+    gpu_attention_verify(scratch, kv, layer_idx, start_pos, config)?;
+
+    // O-projection + residual
+    gpu_project_rows(device, &gpu_layer.attn_o, &gpu_layer.attn_o_meta,
+        scratch.attn_out.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *mut f32,
+        seq_len, h, q_size)?;
+    add(scratch.hidden.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *const f32,
+        scratch.hidden.as_ptr() as *mut f32, seq_len * h)?;
+
+    // FFN: norm → gate → up → SiLU → mul → down → residual
+    gpu_rms_norm_rows(
+        scratch.hidden.as_ptr() as *const f32,
+        gpu_layer.ffn_norm.as_ptr() as *const f32,
+        scratch.normed.as_ptr() as *mut f32,
+        seq_len, h, eps,
+    )?;
+    gpu_project_rows(device, &gpu_layer.ffn_gate, &gpu_layer.ffn_gate_meta,
+        scratch.normed.as_ptr() as *const f32, scratch.gate.as_ptr() as *mut f32,
+        seq_len, ff_size, h)?;
+    gpu_project_rows(device, &gpu_layer.ffn_up, &gpu_layer.ffn_up_meta,
+        scratch.normed.as_ptr() as *const f32, scratch.swiglu.as_ptr() as *mut f32,
+        seq_len, ff_size, h)?;
+    silu(scratch.gate.as_ptr() as *const f32, scratch.gate.as_ptr() as *mut f32,
+        seq_len * ff_size)?;
+    super::kernels::mul(scratch.gate.as_ptr() as *const f32,
+        scratch.swiglu.as_ptr() as *const f32, scratch.swiglu.as_ptr() as *mut f32,
+        seq_len * ff_size)?;
+    gpu_project_rows(device, &gpu_layer.ffn_down, &gpu_layer.ffn_down_meta,
+        scratch.swiglu.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *mut f32,
+        seq_len, h, ff_size)?;
+    add(scratch.hidden.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *const f32,
+        scratch.hidden.as_ptr() as *mut f32, seq_len * h)?;
+
+    Ok(())
+}
+
+/// Verify forward pass for speculative decoding.
+///
+/// Runs `tokens` through the model starting at `start_pos`, writing to KV cache,
+/// and returns the argmax token for EACH of the N positions (not just the last).
+pub fn gpu_verify_forward(
+    device: &GpuDevice,
+    gpu_weights: &GpuModelWeights,
+    cpu_weights: &CpuModelWeights,
+    kv: &mut GpuKvCache,
+    prefill: &mut GpuPrefillScratch,
+    decode_scratch: &mut GpuForwardScratch,
+    host_scratch: &mut CpuForwardScratch,
+    tokens: &[u32],
+    start_pos: usize,
+    config: &ModelConfig,
+) -> GpuResult<Vec<u32>> {
+    if tokens.is_empty() {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gpu_verify_forward: empty token list".to_string(),
+        });
+    }
+    if start_pos + tokens.len() > kv.max_seq_len {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gpu_verify_forward: start_pos {} + tokens {} exceeds kv cache {}",
+                start_pos, tokens.len(), kv.max_seq_len
+            ),
+        });
+    }
+    if prefill.seq_len != tokens.len() {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gpu_verify_forward: scratch seq_len {} != tokens {}",
+                prefill.seq_len, tokens.len()
+            ),
+        });
+    }
+
+    // Embed tokens into prefill scratch
+    gpu_embed_tokens_hybrid(tokens, gpu_weights, cpu_weights, prefill, config)?;
+
+    // Layer loop
+    for layer_idx in 0..config.num_layers {
+        gpu_verify_layer_forward(
+            device,
+            gpu_weights.layer(layer_idx),
+            kv,
+            prefill,
+            layer_idx,
+            start_pos,
+            config,
+        )?;
+    }
+
+    // Final norm + lm_head for ALL N positions
+    let h = config.hidden_size;
+    let v = config.vocab_size;
+    let n = tokens.len();
+    let mut result_tokens = Vec::with_capacity(n);
+
+    for i in 0..n {
+        let hidden_row = unsafe { (prefill.hidden.as_ptr() as *const f32).add(i * h) };
+        rms_norm(
+            hidden_row,
+            gpu_weights.output_norm.as_ptr() as *const f32,
+            decode_scratch.normed.as_ptr() as *mut f32,
+            h,
+            config.rms_norm_eps,
+        )?;
+
+        match gpu_dispatch_gemv(
+            device,
+            &gpu_weights.lm_head,
+            &gpu_weights.lm_head_meta,
+            decode_scratch.normed.as_ptr() as *const f32,
+            decode_scratch.logits.as_ptr() as *mut f32,
+            v,
+            h,
+        ) {
+            Ok(()) => {
+                let token = gpu_greedy_argmax_token(device, decode_scratch, v)?;
+                result_tokens.push(token);
+            }
+            Err(GpuError::InvalidWeightLayout { .. })
+            | Err(GpuError::UnsupportedWeightType { .. }) => {
+                cpu_fallback_gemv(
+                    "lm_head",
+                    &cpu_weights.lm_head,
+                    &cpu_weights.lm_head_meta,
+                    &decode_scratch.normed,
+                    &mut host_scratch.normed,
+                    &mut host_scratch.logits,
+                    v,
+                    h,
+                    &mut host_scratch.q8_scratch,
+                )?;
+                let token = crate::cpu::sampler::cpu_sample_greedy(&host_scratch.logits[..v]);
+                result_tokens.push(token as u32);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Ok(result_tokens)
+}
+
+// ── Speculative Decoding: Draft→Verify→Accept ───────────────────────────────────
+
+/// Result of one speculative decode step.
+pub struct SpecDecodeResult {
+    /// Accepted tokens (1..=spec_depth+1). Always at least 1 (the bonus token).
+    pub accepted_tokens: Vec<u32>,
+    /// How many draft tokens were accepted (0..=spec_depth).
+    pub n_draft_accepted: usize,
+    /// Total draft tokens generated this step.
+    pub n_drafted: usize,
+    /// True if generation should stop (EOS encountered).
+    pub hit_eog: bool,
+}
+
+/// Run one speculative decode step: draft N tokens with draft model, verify with target.
+///
+/// Returns accepted tokens (greedy verification). The last token is always the target
+/// model's prediction (bonus token), guaranteeing output is identical to standard greedy decode.
+pub fn gpu_speculative_decode_step(
+    device: &GpuDevice,
+    // Draft model resources
+    draft_weights: &GpuModelWeights,
+    draft_cpu_weights: &CpuModelWeights,
+    draft_kv: &mut GpuKvCache,
+    draft_scratch: &mut GpuForwardScratch,
+    draft_host_scratch: &mut CpuForwardScratch,
+    draft_config: &ModelConfig,
+    // Target model resources
+    target_weights: &GpuModelWeights,
+    target_cpu_weights: &CpuModelWeights,
+    target_kv: &mut GpuKvCache,
+    verify_scratch: &mut GpuPrefillScratch,
+    target_scratch: &mut GpuForwardScratch,
+    target_host_scratch: &mut CpuForwardScratch,
+    target_config: &ModelConfig,
+    // Input
+    input_token: u32,
+    draft_pos: usize,
+    target_pos: usize,
+    spec_depth: usize,
+    eog_ids: &[u32],
+) -> GpuResult<SpecDecodeResult> {
+    // ── Step 1: Draft N tokens with the small model ─────────────────────────
+    // Stop early if the draft model produces an EOS token.
+    let mut draft_tokens = Vec::with_capacity(spec_depth);
+    let mut token = input_token;
+    let mut draft_hit_eog = false;
+
+    for step in 0..spec_depth {
+        let pos = draft_pos + step;
+        gpu_embed_token_hybrid(
+            device, token, draft_weights, draft_cpu_weights,
+            draft_scratch, draft_host_scratch, draft_config,
+        )?;
+        let next = gpu_full_forward_hybrid(
+            device, draft_weights, draft_cpu_weights,
+            draft_kv, draft_scratch, draft_host_scratch,
+            pos, draft_config, GpuLogitsMode::GreedyArgmax,
+        )?;
+        token = next.expect("draft decode should produce a token");
+        draft_tokens.push(token);
+        if eog_ids.contains(&token) {
+            draft_hit_eog = true;
+            break;
+        }
+    }
+
+    let n_drafted = draft_tokens.len();
+    let actual_depth = n_drafted;
+
+    // ── Step 2: Verify draft tokens + get bonus prediction ─────────────────
+    // Process actual_depth + 1 tokens through target: [input, draft[0], ..., draft[N-1]].
+    // This gives us N comparison points + 1 bonus prediction.
+    let mut verify_tokens = Vec::with_capacity(actual_depth + 1);
+    verify_tokens.push(input_token);
+    verify_tokens.extend_from_slice(&draft_tokens);
+
+    let mut target_argmax = Vec::with_capacity(actual_depth + 1);
+    for (i, &vtoken) in verify_tokens.iter().enumerate() {
+        let pos = target_pos + i;
+        gpu_embed_token_hybrid(
+            device, vtoken, target_weights, target_cpu_weights,
+            target_scratch, target_host_scratch, target_config,
+        )?;
+        let next = gpu_full_forward_hybrid(
+            device, target_weights, target_cpu_weights,
+            target_kv, target_scratch, target_host_scratch,
+            pos, target_config, GpuLogitsMode::GreedyArgmax,
+        )?;
+        target_argmax.push(next.expect("verify decode should produce a token"));
+    }
+
+    // ── Step 3: Accept/reject ───────────────────────────────────────────────
+    // target_argmax[i] = target's prediction after processing verify_tokens[i]
+    //                   = prediction for position target_pos + i + 1
+    // draft_tokens[i]  = draft's prediction for position draft_pos + i + 1
+    // Compare target_argmax[i] with draft_tokens[i] for i in 0..actual_depth.
+    if std::env::var_os("ROCMFORGE_SPEC_DEBUG").is_some() {
+        eprintln!(
+            "[SPEC] draft={:?} target={:?} draft_eog={}",
+            draft_tokens, &target_argmax, draft_hit_eog
+        );
+    }
+    let mut accepted = Vec::with_capacity(actual_depth + 1);
+    let mut n_accepted = 0usize;
+    let mut hit_eog = false;
+
+    for i in 0..actual_depth {
+        if target_argmax[i] == draft_tokens[i] {
+            accepted.push(draft_tokens[i]);
+            n_accepted += 1;
+            // If the accepted token is EOS, stop — don't continue comparing
+            if eog_ids.contains(&draft_tokens[i]) {
+                hit_eog = true;
+                break;
+            }
+        } else {
+            // Mismatch: accept target's correction, stop.
+            // Fix draft KV cache: position draft_pos+i has K/V for the rejected
+            // draft token. Overwrite with the correction token's K/V so the draft
+            // cache stays valid for the next round.
+            let correction_pos = draft_pos + i;
+            gpu_embed_token_hybrid(
+                device, target_argmax[i], draft_weights, draft_cpu_weights,
+                draft_scratch, draft_host_scratch, draft_config,
+            )?;
+            let _ = gpu_full_forward_hybrid(
+                device, draft_weights, draft_cpu_weights,
+                draft_kv, draft_scratch, draft_host_scratch,
+                correction_pos, draft_config, GpuLogitsMode::Skip,
+            )?;
+            accepted.push(target_argmax[i]);
+            if eog_ids.contains(&target_argmax[i]) {
+                hit_eog = true;
+            }
+            break;
+        }
+    }
+
+    // If all draft tokens matched (and we didn't hit EOS), add bonus token.
+    // Also "catch up" the draft KV cache: the draft only wrote positions
+    // draft_pos..draft_pos+actual_depth-1, but accepting the bonus means we advance
+    // by actual_depth+1. We must fill draft position draft_pos+actual_depth by running
+    // the draft on draft_tokens[actual_depth-1] so the KV cache stays contiguous.
+    if n_accepted == actual_depth && !hit_eog {
+        let bonus = target_argmax[actual_depth];
+        accepted.push(bonus);
+        if eog_ids.contains(&bonus) {
+            hit_eog = true;
+        }
+        // Fill draft KV cache gap
+        let catchup_pos = draft_pos + actual_depth;
+        gpu_embed_token_hybrid(
+            device, draft_tokens[actual_depth - 1], draft_weights, draft_cpu_weights,
+            draft_scratch, draft_host_scratch, draft_config,
+        )?;
+        let _ = gpu_full_forward_hybrid(
+            device, draft_weights, draft_cpu_weights,
+            draft_kv, draft_scratch, draft_host_scratch,
+            catchup_pos, draft_config, GpuLogitsMode::Skip,
+        )?;
+    }
+
+    Ok(SpecDecodeResult {
+        accepted_tokens: accepted,
+        n_draft_accepted: n_accepted,
+        n_drafted,
+        hit_eog,
+    })
+}
+
 fn gpu_layer_forward_from_state_on_stream(
     device: &GpuDevice,
     gpu_layer: &GpuLayerWeights,
@@ -1318,6 +1739,13 @@ fn gpu_try_full_greedy_decode_graph(
     if decode_graph_disabled() {
         return Ok(None);
     }
+    // Full-decode graph (all layers + lm_head in one graph) is disabled.
+    // On RDNA4 (gfx1201), graph replay of kernels that read pos/seq_len
+    // from device pointers returns stale values, producing wrong output.
+    // The tail-only graph (lm_head + argmax) gives equivalent performance
+    // since layer kernels are memory-bound anyway.
+    // TODO: re-enable when ROCm fixes device-pointer reads in graph replay.
+    return Ok(None);
 
     let key = gpu_full_decode_graph_key(device, gpu_weights, kv, config)?;
     if !scratch.has_decode_graph_for(key) {

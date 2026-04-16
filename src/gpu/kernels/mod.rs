@@ -23,9 +23,10 @@ pub use attention::{
     flash_attn_decode_gqa_on_stream, flash_attn_decode_strided,
     flash_attn_decode_strided_multi_head,
     flash_attn_decode_strided_multi_head_from_state_on_stream,
-    flash_attn_decode_strided_multi_head_on_stream, flash_attn_prefill_strided, kv_write,
-    kv_write_batched, kv_write_from_state_on_stream, kv_write_on_stream,
-    kv_write_rope_from_state_on_stream, kv_write_rope_on_stream,
+    flash_attn_decode_strided_multi_head_on_stream, flash_attn_prefill_strided,
+    flash_attn_verify_strided_on_stream, kv_write, kv_write_batched,
+    kv_write_from_state_on_stream, kv_write_on_stream, kv_write_rope_from_state_on_stream,
+    kv_write_rope_on_stream,
 };
 pub use elementwise::{
     add, add_batched, add_on_stream, argmax_f32, argmax_f32_on_stream, embed_q4_0_batch,

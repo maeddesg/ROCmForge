@@ -169,7 +169,7 @@ __global__ void flash_attn_decode_strided_multi_head_v2_kernel(
     // 1. Compute scores for all positions
     // We use shared memory to store scores if seq_len is small.
     extern __shared__ float s_scores[];
-    float* s_reduce = s_scores + kDecodeScoreCapacity;
+    float* s_reduce = s_scores + seq_len;  // reduction scratch follows scores
 
     // Each thread handles some positions
     for (int pos = tid; pos < seq_len; pos += blockDim.x) {
@@ -992,6 +992,113 @@ extern "C" hipError_t gpu_flash_attn_decode_strided_multi_head_state(
         d_out, d_q, d_k_cache, d_v_cache, d_seq_len, num_heads, num_kv_heads, head_dim, scale
     );
 
+    return hipGetLastError();
+}
+
+// ── Verify Attention (Speculative Decoding) ─────────────────────────────────────
+//
+// Like prefill attention, but reads K/V from the FP16 KV cache instead of
+// FP32 scratch. Used for the verify step in speculative decoding where N
+// draft tokens are verified in one batch pass against the target model.
+//
+// Grid:  n_verify blocks (one per query position in the verify batch)
+// Block: 256 threads
+// Called once per head from Rust side (same pattern as prefill).
+//
+// Causal mask: query at batch index i attends to KV positions 0..start_pos+i.
+
+__global__ void flash_attn_verify_strided_kernel(
+    float* __restrict__ out,
+    const float* __restrict__ q,
+    const half* __restrict__ k_cache,
+    const half* __restrict__ v_cache,
+    const int n_verify,
+    const int start_pos,
+    const int head_dim,
+    const int out_stride,
+    const int q_stride,
+    const int kv_size,
+    const int out_head_offset,
+    const int q_head_offset,
+    const int kv_head_offset,
+    const float scale
+) {
+    extern __shared__ float smem[];
+    const int query_idx = blockIdx.x;
+    const int tid = threadIdx.x;
+    if (query_idx >= n_verify) return;
+
+    const int total_seq_len = start_pos + query_idx + 1;
+
+    const float* q_ptr = q + (size_t)query_idx * q_stride + q_head_offset;
+    float* out_ptr = out + (size_t)query_idx * out_stride + out_head_offset;
+
+    if (tid < head_dim) out_ptr[tid] = 0.0f;
+    __syncthreads();
+
+    float m = kNegInf;
+    float l = 0.0f;
+
+    for (int key_pos = 0; key_pos < total_seq_len; ++key_pos) {
+        const size_t cache_base = (size_t)key_pos * kv_size + kv_head_offset;
+
+        // Q·K dot product (Q is FP32, K is FP16 in cache)
+        float score = 0.0f;
+        for (int i = tid; i < head_dim; i += blockDim.x) {
+            score += q_ptr[i] * __half2float(k_cache[cache_base + i]);
+        }
+
+        smem[tid] = score;
+        __syncthreads();
+        for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+            if (tid < s) smem[tid] += smem[tid + s];
+            __syncthreads();
+        }
+        score = smem[0] * scale;
+
+        // Online softmax + V accumulation (single-thread, same as prefill)
+        if (tid == 0) {
+            const float prev_m = m;
+            const float prev_l = l;
+            m = max(prev_m, score);
+            const float exp_diff = expf(prev_m - m);
+            const float exp_score = expf(score - m);
+            l = prev_l * exp_diff + exp_score;
+            const float old_scale = (l > 0.0f) ? (prev_l * exp_diff / l) : 0.0f;
+            const float new_scale = (l > 0.0f) ? (exp_score / l) : 0.0f;
+
+            for (int i = 0; i < head_dim; ++i) {
+                out_ptr[i] = out_ptr[i] * old_scale
+                    + __half2float(v_cache[cache_base + i]) * new_scale;
+            }
+        }
+        __syncthreads();
+    }
+}
+
+extern "C" hipError_t gpu_flash_attn_verify_strided(
+    float* d_out,
+    const float* d_q,
+    const half* d_k_cache,
+    const half* d_v_cache,
+    const int n_verify,
+    const int start_pos,
+    const int head_dim,
+    const int out_stride,
+    const int q_stride,
+    const int kv_size,
+    const int out_head_offset,
+    const int q_head_offset,
+    const int kv_head_offset,
+    const float scale,
+    hipStream_t stream
+) {
+    if (n_verify <= 0) return hipErrorInvalidValue;
+    hipLaunchKernelGGL(flash_attn_verify_strided_kernel,
+        n_verify, 256, 256 * sizeof(float), stream,
+        d_out, d_q, d_k_cache, d_v_cache, n_verify, start_pos,
+        head_dim, out_stride, q_stride, kv_size,
+        out_head_offset, q_head_offset, kv_head_offset, scale);
     return hipGetLastError();
 }
 
