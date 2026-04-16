@@ -1268,6 +1268,73 @@ pub fn gemv_q4_0_f32_batched_on_stream(
     Ok(())
 }
 
+/// Tiled batched Q4_0 GEMV: single weight load, tiled input quantization.
+///
+/// For large input dimensions that exceed the LDS limit of the standard batched kernel.
+/// Tiles along the input (reduction) dimension in chunks of 1024 elements.
+/// Same interface as `gemv_q4_0_f32_batched_on_stream`.
+pub fn gemv_q4_0_f32_batched_tiled_on_stream(
+    weights_q4_0: *const u8,
+    input: *const f32,
+    output: *mut f32,
+    n_rows: usize,
+    ncols_dst: usize,
+    batch_size: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if n_rows == 0 || ncols_dst == 0 || batch_size == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_q4_0_f32_batched_tiled: dimensions cannot be zero".to_string(),
+        });
+    }
+    if batch_size > 8 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_q4_0_f32_batched_tiled: batch_size {} exceeds max 8",
+                batch_size
+            ),
+        });
+    }
+    if n_rows % 32 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_q4_0_f32_batched_tiled: n_rows must be multiple of 32, got {}",
+                n_rows
+            ),
+        });
+    }
+    if weights_q4_0.is_null() || input.is_null() || output.is_null() {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_q4_0_f32_batched_tiled: pointers must be non-null".to_string(),
+        });
+    }
+
+    let result = unsafe {
+        gemv_q4_0_f32_batched_tiled_launch(
+            weights_q4_0,
+            input,
+            output,
+            n_rows as c_int,
+            ncols_dst as c_int,
+            batch_size as c_int,
+            stream,
+        )
+    };
+
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!("gemv_q4_0_f32_batched_tiled kernel failed: {:?}", result),
+        });
+    }
+
+    Ok(())
+}
+
 // ── Q4_1 Safe Wrapper Functions ────────────────────────────────────────────────────────────
 
 /// Quantize f32 data to Q4_1 format.
@@ -1946,6 +2013,16 @@ unsafe extern "C" {
     ) -> hipError_t;
 
     fn gemv_q4_0_f32_batched_launch(
+        weights_q4_0: *const u8,
+        input: *const f32,
+        output: *mut f32,
+        n_rows: c_int,
+        ncols_dst: c_int,
+        batch_size: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    fn gemv_q4_0_f32_batched_tiled_launch(
         weights_q4_0: *const u8,
         input: *const f32,
         output: *mut f32,

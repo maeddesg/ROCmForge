@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Spec-Step Profiling + Tiled Batched GEMV
+
+- **Spec-step cost breakdown profiler** (`ROCMFORGE_PROFILE_SPEC_STEP=1`): HIP Event-based timing for 5 phases (draft_forward, target_verify, accept_reject, host_overhead, total). Prints table and JSON to stderr.
+- **Tiled batched GEMV kernel** (`ROCMFORGE_EXPERIMENTAL_TILED_GEMV=1`, default off): eliminates sequential GEMV fallback for FFN down-projections (in_dim=18944) that exceed the 32 KB LDS limit. Tiles input quantization in 1024-element chunks. Bit-identical to standard batched kernel.
+  - depth=1: ~1.5% verify reduction (~250 μs/step)
+  - depth=3: up to ~6.7% verify reduction (~1,450 μs/step) when adaptive depth uses batch=3-4
+- **Architecture insight**: RDNA 4 memory controller pipelines back-to-back GEMV launches effectively — sequential fallback wastes far less bandwidth than theoretical 2× prediction. Documented in `docs/batched_verify.md`.
+
 ### Speculative Decoding — Batched Verify + Adaptive Depth (PR #14)
 
 - **Batched verify forward**: Replace N+1 sequential target forwards with a single batched forward pass using a dedicated batched Q4_0 GEMV kernel (single weight load, N dot products) and an all-heads verify attention kernel (1 dispatch per layer instead of 784 for 7B).

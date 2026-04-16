@@ -8,7 +8,7 @@ use super::ffi::hip_stream_synchronize;
 use super::ffi::{hipStreamCaptureStatus, hipStream_t, hip_stream_is_capturing};
 use super::kernels::{
     add_on_stream, gemm_q4_0_f32, gemm_q4_1_f32, gemm_q4_k_f32, gemm_q5_k_f32, gemm_q8_0_f32,
-    gemv_q4_0_f32_batched_on_stream,
+    gemv_q4_0_f32_batched_on_stream, gemv_q4_0_f32_batched_tiled_on_stream,
     gemv_gate_up_q4_0_f32_on_stream, gemv_gate_up_q4_0_q8_0_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_on_stream,
@@ -1445,10 +1445,26 @@ pub fn gpu_dispatch_gemm(
     // For small batch sizes (2-8), use batched GEMV: single weight load, N dot products.
     // This reads quantized weights once from VRAM instead of N times, saving N× bandwidth.
     // LDS limit: batch_size × (in_dim / 32) × 34 bytes must fit in 32 KB.
+    const BATCHED_GEMV_LDS_LIMIT: usize = 32 * 1024;
+
     if seq_len <= 8 && meta.wtype == GgmlType::Q4_0 {
         let lds_bytes = seq_len * (in_dim / 32) * 34;
-        if lds_bytes <= 32 * 1024 {
+        if lds_bytes <= BATCHED_GEMV_LDS_LIMIT {
             return gemv_q4_0_f32_batched_on_stream(
+                weights.as_ptr() as *const u8,
+                input,
+                output,
+                in_dim,
+                out_dim,
+                seq_len,
+                hipStream_t::null(),
+            );
+        }
+        // Tiled batched GEMV: tiles along input dimension for large in_dim
+        // (e.g., FFN down-projection in_dim=18944). Preserves single weight load
+        // while fitting input quantization tiles into LDS.
+        if super::safety::experimental_tiled_gemv_enabled() {
+            return gemv_q4_0_f32_batched_tiled_on_stream(
                 weights.as_ptr() as *const u8,
                 input,
                 output,

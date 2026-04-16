@@ -78,3 +78,41 @@ Decision thresholds:
 Initial value: `spec_depth * 0.5` (mildly optimistic). The depth converges within 5-10 steps. For low-acceptance prompts (creative text), it quickly reaches depth=1, which minimizes draft overhead. For high-acceptance content (code, repetitive text), it stays at the configured maximum.
 
 Final depth shown in stats output when it differs from the initial setting.
+
+## GEMV Dispatch for Batched Verify
+
+Location: `src/gpu/ops.rs`, batched GEMV dispatch in `gpu_dispatch_gemm`.
+
+**Standard batched GEMV** (`q4_0_gemv_batched.hip`): caches all Q8-quantized inputs in LDS. LDS budget: `batch × (in_dim/32) × 34` bytes, max 32 KB. Works for all projections where in_dim ≤ ~3584 (QKV, O-proj, gate, up, LM head).
+
+**Tiled batched GEMV** (`q4_0_gemv_batched_tiled.hip`): tiles along the input dimension in chunks of 1024 elements when LDS limit is exceeded. Preserves single weight load. Gated behind `ROCMFORGE_EXPERIMENTAL_TILED_GEMV=1`.
+
+**Sequential fallback**: when neither batched kernel fits, loops over batch elements with single-row GEMV. This is the default for large in_dim.
+
+### Which projections overflow at each depth?
+
+For Qwen2.5-7B (hidden=3584, FFN intermediate=18944):
+
+| Depth | Batch | QKV/O (3584) | Gate/Up (3584→18944) | Down (18944→3584) |
+|-------|-------|-------------|---------------------|-------------------|
+| 1 | 2 | 7.6 KB ✓ | 7.6 KB ✓ | 40.3 KB ✗ |
+| 3 | 4 | 15.2 KB ✓ | 15.2 KB ✓ | 80.5 KB ✗ |
+| 5 | 6 | 22.8 KB ✓ | 22.8 KB ✓ | 120.8 KB ✗ |
+
+Only the **FFN down-projection** exceeds the 32 KB LDS limit. It is called 28 times per verify pass (once per layer).
+
+### Memory-Controller Pipelining (RDNA 4 Architecture Insight)
+
+Profiling on RX 9070 XT (gfx1201) showed that the sequential GEMV fallback for FFN-down is **not as expensive as predicted**. The theoretical cost model assumes N separate weight reads from VRAM (one per batch element), but the actual overhead is much smaller:
+
+- **Predicted**: 2× weight bandwidth at depth=1 → ~150 μs wasted per layer → ~4.2 ms over 28 layers
+- **Measured**: only ~250 μs total savings from tiled kernel at depth=1 (~9 μs/layer)
+
+The RDNA 4 memory controller pipelines back-to-back GEMV launches effectively. When sequential GEMV calls are dispatched without explicit synchronization between them, the GPU command processor overlaps the tail of one kernel with the head of the next. The weight data for kernel N+1 begins streaming while kernel N is still reducing its last warp — the memory controller maintains near-full bandwidth utilization across kernel boundaries.
+
+**Implication**: eliminating kernel launches (via fusion or batching) primarily saves **launch submission overhead** and **command processor scheduling latency**, not memory bandwidth. The sequential fallback "wastes" ~2× bandwidth in theory but achieves ~1.02× in practice because the pipeline keeps the memory bus saturated.
+
+This finding is critical for evaluating future optimizations:
+- **Fused FFN** (gate+up+SiLU+down in fewer launches): primary benefit is reduced launch overhead, not bandwidth savings
+- **WMMA GEMM**: benefit comes from compute efficiency (matrix cores), not from avoiding redundant weight reads
+- **Launch overhead profiling** should measure kernel submission + sync cost per verify step to quantify the actual launch overhead budget

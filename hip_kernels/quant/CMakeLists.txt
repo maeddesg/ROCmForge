@@ -199,6 +199,16 @@ set_target_properties(q4_0_gemv_batched PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
 
+# Q4_0 Tiled Batched GEMV kernel (for large in_dim that exceeds LDS limit)
+add_library(q4_0_gemv_batched_tiled STATIC
+    q4_0_gemv_batched_tiled.hip
+)
+target_link_libraries(q4_0_gemv_batched_tiled quant_common)
+set_target_properties(q4_0_gemv_batched_tiled PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+)
+
 # Q4_1 GEMV kernel (Q4_1 × f32 matrix-vector multiplication)
 add_library(q4_1_gemv STATIC
     q4_1_gemv.hip
