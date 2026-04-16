@@ -1,0 +1,1 @@
+Implement a simple HTTP server in Rust that responds to GET requests with a JSON payload containing the current timestamp.

@@ -1,0 +1,1 @@
+Write a SQL query that finds the top 5 customers by total purchase amount in the last 30 days, including their order count.
