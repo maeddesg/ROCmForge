@@ -197,3 +197,40 @@ The **~700 μs gap (13%) is much smaller** — attention has fewer lightweight l
 3. **The lm_head + final norm phase costs ~1,900 μs.** This is outside the layer loop and not captured by the per-layer breakdown. For spec-decode with depth=1, this runs once per step and is 10.5% of total verify time. At higher depths it would run N times (once per position for greedy argmax).
 
 4. **rocprofv3 sub-μs kernel times for add/mul are plausible.** These kernels operate on 3584-element vectors (~14 KB) — a single wavefront can process this in under 1 μs. The cost is entirely in dispatch.
+
+## Addendum: HIP Submission Latency Micro-Benchmark
+
+Kernel: `add(n=64)`, 10,000 iterations, default stream. (Git: d13246c)
+
+| Measurement | μs/Dispatch | What it measures |
+|-------------|-------------|------------------|
+| Host-side submission (pipelined) | **1.0** | CPU command-buffer fill rate |
+| GPU-side (batched HIP events) | **2.7** | GPU execution + scheduling gap (pipelined) |
+| Individual HIP event pairs | **7.7** (median) | Single dispatch + 2× event overhead |
+| Dispatch + hipStreamSynchronize | **18.6** | Full roundtrip (worst case) |
+
+**Key finding:** In pipelined operation (how verify works), the per-dispatch cost is **~2.7 μs GPU-side**. The 5-10 μs assumption in the original analysis was reasonable but slightly high for the pipelined case. For 448 dispatches per verify step, the **pure scheduling overhead is ~1,210 μs (6.7% of verify)**.
+
+The individual event pair measurement (7.7 μs) is inflated by the event create/record/sync overhead itself — not representative of pipelined operation.
+
+**Revised overhead estimate:** 448 dispatches × 2.7 μs = ~1,210 μs scheduling overhead. The remaining gap between Method 2 wall-clock and Method 1 GPU-execution (~4,000 μs in FFN) is primarily **intermediate memory traffic** (reading/writing intermediate buffers between separate kernels), not submission latency. This strengthens the case for FFN fusion: the win comes from eliminating buffer roundtrips, not just reducing dispatch count.
+
+## Addendum: lm_head Scaling at depth=3
+
+Measured on code_01 (acceptance=88.5%, final depth→3, batch≈4):
+
+| Metric | depth=1 (batch=2) | depth=3 (batch≈4) | Ratio |
+|--------|-------------------|-------------------|-------|
+| Verify total (SPEC_PROFILE) | 18,114 μs | 32,064 μs | 1.77× |
+| Layer total (BREAKDOWN) | 16,197 μs | 28,698 μs | 1.77× |
+| **Non-layer overhead** | **1,917 μs** | **3,366 μs** | **1.76×** |
+| FFN subtotal | 10,900 μs | 21,208 μs | 1.95× |
+| Attn subtotal | 5,297 μs | 7,490 μs | 1.41× |
+
+Non-layer overhead (embedding + final norm + lm_head + argmax) scales ~linearly with batch size:
+- depth=1: ~1,917 μs for 2 positions → **~900 μs/position**
+- depth=3: ~3,366 μs for 4 positions → **~817 μs/position**
+
+**Confirmed:** lm_head costs ~850-900 μs per position. At depth=3 this is 3,366 μs = **10.5% of verify**, a standalone optimization target. The lm_head currently runs sequentially (one position at a time with separate norm → GEMV → argmax). A batched lm_head dispatch would reduce this to a single pass.
+
+Note: attention subtotal scales only 1.41× (not 2×) because the verify attention kernel already processes all positions in one dispatch — the extra cost comes from longer KV sequences, not more dispatches.
