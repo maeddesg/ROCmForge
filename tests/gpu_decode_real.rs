@@ -672,6 +672,11 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|&value| value > 0)
         .unwrap_or(64);
+    let bench_context = std::env::var("ROCMFORGE_BENCH_CONTEXT")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|&value| value > 0)
+        .unwrap_or(0);
 
     let caps = gpu::detect().expect("GPU should be detected");
     let device = GpuDevice::init(caps.device_id).expect("GPU device should initialize");
@@ -688,8 +693,21 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
     let mut prefill_tok_s_samples = Vec::with_capacity(runs);
     let mut decode_tok_s_samples = Vec::with_capacity(runs);
 
+    let context_fill = if bench_context > prompt_tokens.len() {
+        bench_context - prompt_tokens.len()
+    } else {
+        0
+    };
+    if context_fill > 0 {
+        eprintln!(
+            "BENCH filling KV cache to context={} ({} warmup tokens before timed decode)",
+            bench_context, context_fill
+        );
+    }
+
     for run_idx in 0..(warmup_runs + runs) {
-        let mut kv = GpuKvCache::new(&config, prompt_tokens.len() + decode_tokens)
+        let total_seq = prompt_tokens.len() + context_fill + decode_tokens;
+        let mut kv = GpuKvCache::new(&config, total_seq)
             .expect("GPU KV should allocate");
         let mut gpu_scratch = GpuForwardScratch::new(&config).expect("GPU scratch should allocate");
         let mut host_scratch = CpuForwardScratch::new(&config);
@@ -727,10 +745,39 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
         let prefill_elapsed = prefill_start.elapsed();
 
         let mut token = next_token.expect("prompt decode should produce a greedy token");
+
+        // Fill KV cache to target context length (untimed)
+        for fill_step in 0..context_fill {
+            let abs_pos = prompt_tokens.len() + fill_step;
+            gpu::gpu_embed_token_hybrid(
+                &device,
+                token,
+                &gpu_weights,
+                &cpu_weights,
+                &mut gpu_scratch,
+                &mut host_scratch,
+                &config,
+            )
+            .expect("GPU embed should succeed");
+            token = gpu::gpu_full_forward_hybrid(
+                &device,
+                &gpu_weights,
+                &cpu_weights,
+                &mut kv,
+                &mut gpu_scratch,
+                &mut host_scratch,
+                abs_pos,
+                &config,
+                gpu::GpuLogitsMode::GreedyArgmax,
+            )
+            .expect("GPU context fill should succeed")
+            .expect("context fill should produce a token");
+        }
+
         if diag { eprintln!("[DIAG] prefill done, first token={}", token); }
         let decode_start = std::time::Instant::now();
         for step in 0..decode_tokens {
-            let abs_pos = prompt_tokens.len() + step;
+            let abs_pos = prompt_tokens.len() + context_fill + step;
             if diag { eprintln!("[DIAG] decode step={} pos={} token={}", step, abs_pos, token); }
             gpu::gpu_embed_token_hybrid(
                 &device,
@@ -796,10 +843,11 @@ fn test_gpu_greedy_decode_benchmark_real_model_multi_run() {
         .fold(f64::NEG_INFINITY, f64::max);
 
     eprintln!(
-        "BENCH gpu_greedy_decode_real_model summary runs={} warmup_runs={} prompt_tokens={} decode_tokens={} prefill_avg_tok_s={:.1} prefill_stddev={:.1} decode_avg_tok_s={:.1} decode_stddev={:.1} decode_min_tok_s={:.1} decode_max_tok_s={:.1}",
+        "BENCH gpu_greedy_decode_real_model summary runs={} warmup_runs={} prompt_tokens={} context={} decode_tokens={} prefill_avg_tok_s={:.1} prefill_stddev={:.1} decode_avg_tok_s={:.1} decode_stddev={:.1} decode_min_tok_s={:.1} decode_max_tok_s={:.1}",
         runs,
         warmup_runs,
         prompt_tokens.len(),
+        prompt_tokens.len() + context_fill,
         decode_tokens,
         prefill_avg,
         prefill_stddev,
