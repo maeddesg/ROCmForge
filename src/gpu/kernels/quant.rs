@@ -1199,6 +1199,75 @@ pub unsafe fn gemv_q4_0_f32_residual_on_stream_unchecked(
     Ok(())
 }
 
+/// Batched Q4_0 × f32 GEMV: single weight load, N dot products.
+///
+/// Reads Q4_0 weight blocks once from VRAM and computes `batch_size`
+/// independent matrix-vector products against `batch_size` f32 input vectors.
+/// Input/output are row-major: input[batch][n_rows], output[batch][ncols_dst].
+///
+/// Designed for speculative decode verify (N=2..8): saves N× weight bandwidth.
+pub fn gemv_q4_0_f32_batched_on_stream(
+    weights_q4_0: *const u8,
+    input: *const f32,
+    output: *mut f32,
+    n_rows: usize,
+    ncols_dst: usize,
+    batch_size: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if n_rows == 0 || ncols_dst == 0 || batch_size == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_q4_0_f32_batched: dimensions cannot be zero".to_string(),
+        });
+    }
+    if batch_size > 8 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_q4_0_f32_batched: batch_size {} exceeds max 8",
+                batch_size
+            ),
+        });
+    }
+    if n_rows % 32 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_q4_0_f32_batched: n_rows must be multiple of 32, got {}",
+                n_rows
+            ),
+        });
+    }
+    if weights_q4_0.is_null() || input.is_null() || output.is_null() {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_q4_0_f32_batched: pointers must be non-null".to_string(),
+        });
+    }
+
+    let result = unsafe {
+        gemv_q4_0_f32_batched_launch(
+            weights_q4_0,
+            input,
+            output,
+            n_rows as c_int,
+            ncols_dst as c_int,
+            batch_size as c_int,
+            stream,
+        )
+    };
+
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!("gemv_q4_0_f32_batched kernel failed: {:?}", result),
+        });
+    }
+
+    Ok(())
+}
+
 // ── Q4_1 Safe Wrapper Functions ────────────────────────────────────────────────────────────
 
 /// Quantize f32 data to Q4_1 format.
@@ -1873,6 +1942,16 @@ unsafe extern "C" {
         output: *mut f32,
         n_rows: c_int,
         ncols_dst: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    fn gemv_q4_0_f32_batched_launch(
+        weights_q4_0: *const u8,
+        input: *const f32,
+        output: *mut f32,
+        n_rows: c_int,
+        ncols_dst: c_int,
+        batch_size: c_int,
         stream: hipStream_t,
     ) -> hipError_t;
 

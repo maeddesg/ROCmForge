@@ -127,6 +127,20 @@ unsafe extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 
+    fn gpu_flash_attn_verify_all_heads(
+        d_out: *mut f32,
+        d_q: *const f32,
+        d_k_cache: *const u16,
+        d_v_cache: *const u16,
+        n_verify: c_int,
+        start_pos: c_int,
+        num_heads: c_int,
+        num_kv_heads: c_int,
+        head_dim: c_int,
+        scale: f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
     fn gpu_flash_attn_decode_gqa(
         d_out: *mut f32,
         d_q: *const f32,
@@ -673,6 +687,59 @@ pub fn flash_attn_verify_strided_on_stream(
         return Err(GpuError::HipApiError {
             code: result as i32,
             description: format!("flash_attn_verify_strided kernel failed: {:?}", result),
+        });
+    }
+
+    Ok(())
+}
+
+/// All-heads verify attention: single dispatch per layer for speculative decode.
+///
+/// Processes `n_verify` query positions × all heads in one kernel launch.
+/// Grid: (num_kv_heads, n_verify). Causal mask: query i sees 0..start_pos+i.
+///
+/// Q/Out layout: `[n_verify × num_heads × head_dim]`, contiguous.
+/// K/V cache: `[max_seq × num_kv_heads × head_dim]`, FP16.
+pub fn flash_attn_verify_all_heads_on_stream(
+    d_out: *mut f32,
+    d_q: *const f32,
+    d_k_cache: *const u16,
+    d_v_cache: *const u16,
+    n_verify: usize,
+    start_pos: usize,
+    num_heads: usize,
+    num_kv_heads: usize,
+    head_dim: usize,
+    scale: f32,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if n_verify == 0 || num_heads == 0 || num_kv_heads == 0 || head_dim == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "flash_attn_verify_all_heads: dimensions cannot be zero".to_string(),
+        });
+    }
+
+    let result = unsafe {
+        gpu_flash_attn_verify_all_heads(
+            d_out,
+            d_q,
+            d_k_cache,
+            d_v_cache,
+            n_verify as c_int,
+            start_pos as c_int,
+            num_heads as c_int,
+            num_kv_heads as c_int,
+            head_dim as c_int,
+            scale,
+            stream,
+        )
+    };
+
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!("flash_attn_verify_all_heads kernel failed: {:?}", result),
         });
     }
 

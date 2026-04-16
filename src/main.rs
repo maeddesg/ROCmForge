@@ -558,15 +558,18 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| format!("draft gpu weight load: {}", e))?;
         eprintln!("done in {:.1}s", t.elapsed().as_secs_f64());
 
-        let max_draft_seq = (config.max_seq_len).min(draft_config.max_seq_len);
+        // Limit draft KV cache to what we actually need (not the full context window).
+        // prompt_tokens isn't available yet, but max_tokens + spec overhead is a safe upper bound.
+        let draft_seq_budget = args.max_tokens + args.spec_depth * 2 + 1024; // 1024 prompt headroom
+        let max_draft_seq = draft_seq_budget.min(config.max_seq_len).min(draft_config.max_seq_len);
         let draft_kv = gpu::GpuKvCache::new(&draft_config, max_draft_seq)
             .map_err(|e| format!("draft gpu kv: {}", e))?;
         let draft_gpu_scratch = gpu::GpuForwardScratch::new(&draft_config)
             .map_err(|e| format!("draft gpu scratch: {}", e))?;
         let draft_host_scratch = CpuForwardScratch::new(&draft_config);
 
-        // Verify scratch for target model (sized for spec_depth tokens)
-        let verify_scratch = gpu::GpuPrefillScratch::new(&config, args.spec_depth)
+        // Verify scratch for target model (sized for spec_depth+1 tokens: input + N drafts)
+        let verify_scratch = gpu::GpuPrefillScratch::new(&config, args.spec_depth + 1)
             .map_err(|e| format!("verify prefill scratch: {}", e))?;
 
         eprintln!("[Draft] Speculative decoding ready (depth={})", args.spec_depth);
@@ -785,13 +788,18 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         let mut total_steps = 0usize;
         let eog_ids = tok.eog_ids();
 
+        // Adaptive speculation depth: EMA of accepted tokens per step
+        let mut adaptive_depth = args.spec_depth;
+        let mut ema_acceptance: f32 = args.spec_depth as f32 * 0.5; // optimistic start
+        let spec_debug = std::env::var_os("ROCMFORGE_SPEC_DEBUG").is_some();
+
         loop {
             if tok.is_eog(next_token) || n_generated >= args.max_tokens || pos >= max_seq {
                 break;
             }
 
             let remaining = args.max_tokens - n_generated;
-            let depth = args.spec_depth.min(remaining).min(max_seq - pos);
+            let depth = adaptive_depth.min(remaining).min(max_seq - pos);
             if depth == 0 {
                 break;
             }
@@ -811,6 +819,22 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
             total_drafted += result.n_drafted;
             total_accepted += result.n_draft_accepted;
             total_steps += 1;
+
+            // Adaptive depth: EMA of accepted tokens per step
+            let accepted_this_step = result.n_draft_accepted as f32;
+            ema_acceptance = 0.8 * ema_acceptance + 0.2 * accepted_this_step;
+            let prev_depth = adaptive_depth;
+            if ema_acceptance < 1.2 {
+                adaptive_depth = (adaptive_depth - 1).max(1);
+            } else if ema_acceptance > 2.5 && adaptive_depth < args.spec_depth {
+                adaptive_depth = (adaptive_depth + 1).min(args.spec_depth);
+            }
+            if spec_debug && adaptive_depth != prev_depth {
+                eprintln!(
+                    "[SPEC] adaptive depth {} → {} (ema={:.2})",
+                    prev_depth, adaptive_depth, ema_acceptance
+                );
+            }
 
             for &tok_id in &result.accepted_tokens {
                 if tok.is_eog(tok_id) {
@@ -844,13 +868,19 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 0.0
             };
+            let depth_info = if adaptive_depth != args.spec_depth {
+                format!(", depth={}", adaptive_depth)
+            } else {
+                String::new()
+            };
             eprintln!(
-                "\n{} tokens in {:.1}ms = {:.1} tok/s (speculative: {}/{} accepted = {:.1}%, avg {:.1}/step over {} steps)",
+                "\n{} tokens in {:.1}ms = {:.1} tok/s (speculative: {}/{} accepted = {:.1}%, avg {:.1}/step over {} steps{})",
                 n_generated, gen_ms,
                 n_generated as f64 / gen_ms * 1000.0,
                 total_accepted, total_drafted,
                 acceptance_rate * 100.0,
                 avg_accepted, total_steps,
+                depth_info,
             );
         } else {
             eprintln!("\n[EOS on first token]");

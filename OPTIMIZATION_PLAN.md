@@ -6,15 +6,15 @@
 **ROCm:** 7.2, LLVM 22 (AMD clang)
 **Modelle:** Qwen2.5-0.5B Q4_0, Qwen2.5-7B Q4_0
 
-### Aktuelle Performance (nach Bug-Fixes vom 2026-04-14)
+### Aktuelle Performance (2026-04-16, RX 9070 XT / gfx1201, ROCm 7.2.1)
 
-| Modell | Pfad | Prefill | Decode |
-|--------|------|---------|--------|
-| 0.5B Q4_0 | GPU + Graph | ~409 tok/s | ~527 tok/s |
-| 0.5B Q4_0 | GPU non-graph | — | ~514 tok/s |
-| 7B Q4_0 | GPU | ~32 tok/s | ~107 tok/s |
+| Modell | ROCmForge | llama.cpp ROCm | Ratio |
+|--------|-----------|----------------|-------|
+| 0.5B Q4_0 decode | 222 tok/s | 358 tok/s | 62% |
+| 7B Q4_0 decode | 82 tok/s | 117 tok/s | 70% |
+| 7B Q4_0 prefill (pp19) | 59 tok/s | 1,092 tok/s | 5% |
 
-**Referenz:** llama.cpp Vulkan auf gfx1100: ~619 tok/s (0.5B decode)
+**Hinweis:** Full-Decode HIP Graph auf RDNA4 deaktiviert (Device-Pointer Bug in komplexen Graphs). Mit Graph + Fusions war 0.5B bei 646 tok/s. Siehe `hip_graph_device_pointer_bug.md`.
 
 ### Hauptengpass
 
