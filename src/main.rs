@@ -35,6 +35,8 @@ struct Args {
     list_tensors: bool,
     debug: bool,
     gpu: bool,
+    draft_model: Option<String>,
+    spec_depth: usize,
 }
 
 fn usage() -> ! {
@@ -54,6 +56,8 @@ fn usage() -> ! {
     eprintln!("  --list-tensors         List tensors in model file and exit");
     eprintln!("  --debug                Show debug info (top logits, etc.)");
     eprintln!("  --gpu                  Use GPU backend (requires ROCm/HIP)");
+    eprintln!("  --draft-model <path>   Draft model for speculative decoding (GPU only)");
+    eprintln!("  --spec-depth N         Speculation depth [default: 5]");
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  rocmforge --model qwen2.5-7b.gguf --prompt \"Hello, world!\"");
@@ -72,6 +76,8 @@ fn parse_args() -> Args {
     let mut list_tensors = false;
     let mut debug = false;
     let mut gpu = false;
+    let mut draft_model = None;
+    let mut spec_depth = 5usize;
 
     while let Some(flag) = args.next() {
         match flag.as_str() {
@@ -102,6 +108,14 @@ fn parse_args() -> Args {
             "--list-tensors" => list_tensors = true,
             "--debug" => debug = true,
             "--gpu" => gpu = true,
+            "--draft-model" => draft_model = Some(args.next().unwrap_or_else(|| usage())),
+            "--spec-depth" => {
+                spec_depth = args
+                    .next()
+                    .unwrap_or_else(|| usage())
+                    .parse()
+                    .unwrap_or_else(|_| usage())
+            }
             "-h" | "--help" => usage(),
             other => {
                 eprintln!("Unknown flag: {}", other);
@@ -120,6 +134,8 @@ fn parse_args() -> Args {
         list_tensors,
         debug,
         gpu,
+        draft_model,
+        spec_depth,
     }
 }
 
@@ -511,6 +527,64 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("gpu weight load: {}", e))?;
     eprintln!("done in {:.1}s", t_gpu_load.elapsed().as_secs_f64());
 
+    // ── Draft model loading (speculative decoding) ─────────────────────────────
+    let draft_state = if let Some(ref draft_path) = args.draft_model {
+        eprintln!("\n--- Draft model (speculative decoding, depth={}) ---", args.spec_depth);
+        let draft_file = GgufFile::open(draft_path)?;
+        eprintln!("[Draft] model path: {}", draft_path);
+        let draft_config = ModelConfig::from_gguf(&draft_file)?;
+        eprintln!(
+            "[Draft] {} layers, {} vocab, {} hidden",
+            draft_config.num_layers, draft_config.vocab_size, draft_config.hidden_size
+        );
+
+        if draft_config.vocab_size != config.vocab_size {
+            eprintln!(
+                "[Draft] Warning: vocab size differs (target={} draft={}), using min={}",
+                config.vocab_size, draft_config.vocab_size,
+                config.vocab_size.min(draft_config.vocab_size)
+            );
+        }
+
+        eprint!("[Draft] Loading CPU weights... ");
+        let t = Instant::now();
+        let draft_cpu_weights = CpuModelWeights::load(&draft_file, &draft_config)
+            .map_err(|e| format!("draft cpu weight load: {}", e))?;
+        eprintln!("done in {:.1}s", t.elapsed().as_secs_f64());
+
+        eprint!("[Draft] Loading GPU weights... ");
+        let t = Instant::now();
+        let draft_gpu_weights = gpu::GpuModelWeights::load(&draft_file, &draft_config)
+            .map_err(|e| format!("draft gpu weight load: {}", e))?;
+        eprintln!("done in {:.1}s", t.elapsed().as_secs_f64());
+
+        let max_draft_seq = (config.max_seq_len).min(draft_config.max_seq_len);
+        let draft_kv = gpu::GpuKvCache::new(&draft_config, max_draft_seq)
+            .map_err(|e| format!("draft gpu kv: {}", e))?;
+        let draft_gpu_scratch = gpu::GpuForwardScratch::new(&draft_config)
+            .map_err(|e| format!("draft gpu scratch: {}", e))?;
+        let draft_host_scratch = CpuForwardScratch::new(&draft_config);
+
+        // Verify scratch for target model (sized for spec_depth tokens)
+        let verify_scratch = gpu::GpuPrefillScratch::new(&config, args.spec_depth)
+            .map_err(|e| format!("verify prefill scratch: {}", e))?;
+
+        eprintln!("[Draft] Speculative decoding ready (depth={})", args.spec_depth);
+        eprintln!("---\n");
+
+        Some((
+            draft_config,
+            draft_cpu_weights,
+            draft_gpu_weights,
+            draft_kv,
+            draft_gpu_scratch,
+            draft_host_scratch,
+            verify_scratch,
+        ))
+    } else {
+        None
+    };
+
     let template = if args.no_template {
         rocmforge::config::ChatTemplate::None
     } else {
@@ -664,92 +738,203 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
 
     print!("\n");
 
-    loop {
-        if tok.is_eog(next_token) || n_generated >= args.max_tokens || pos >= max_seq {
-            break;
-        }
-
-        let text = tok.decode_token(next_token);
-        if args.debug {
-            eprintln!("[Generated] token_id={} text={:?}", next_token, text);
-        }
-        print!("{}", text);
-        std::io::stdout().flush().ok();
-        n_generated += 1;
-
-        gpu::gpu_embed_token_hybrid(
-            &device,
-            next_token,
-            &gpu_weights,
-            &cpu_weights,
-            &mut gpu_scratch,
-            &mut host_scratch,
-            &config,
-        )
-        .map_err(|e| format!("gpu embed: {}", e))?;
-        let logits_mode = if use_gpu_greedy_fastpath {
-            gpu::GpuLogitsMode::GreedyArgmax
-        } else {
-            gpu::GpuLogitsMode::DownloadToHost
-        };
-        let decode_next_token = gpu::gpu_full_forward_hybrid(
-            &device,
-            &gpu_weights,
-            &cpu_weights,
-            &mut kv,
-            &mut gpu_scratch,
-            &mut host_scratch,
-            pos,
-            &config,
-            logits_mode,
-        )
-        .map_err(|e| format!("gpu decode: {}", e))?;
-        pos += 1;
-
-        if args.debug && n_generated <= 3 {
-            eprintln!("\n[Token {} logits]", n_generated);
-            print_top_k_tokens(&host_scratch.logits, &tok, 5);
-        }
-
-        next_token = if let Some(token) = decode_next_token {
-            token
-        } else {
-            // SYNC POINT: Wait for GPU to finish forward + argmax download (non-graph path)
-            device
-                .synchronize()
-                .map_err(|e| format!("gpu sync: {}", e))?;
-
-            if use_greedy {
-                if use_gpu_greedy_fastpath {
-                    let token = gpu_scratch.argmax_result_index.as_slice::<i32>()[0];
-                    if token < 0 || (token as usize) >= config.vocab_size {
-                        return Err(
-                            format!("gpu argmax returned out-of-range index {}", token).into()
-                        );
-                    }
-                    token as u32
-                } else {
-                    cpu_sample_greedy(&host_scratch.logits)
-                }
-            } else {
-                seed = seed.wrapping_add(1);
-                cpu_sample_top_p(&host_scratch.logits, args.temperature, args.top_p, seed)
+    if let Some((
+        draft_config,
+        draft_cpu_weights,
+        draft_gpu_weights,
+        mut draft_kv,
+        mut draft_gpu_scratch,
+        mut draft_host_scratch,
+        mut verify_scratch,
+    )) = draft_state
+    {
+        // ── Speculative Decode Loop ──────────────────────────────────────────
+        // Prefill draft model's KV cache with prompt tokens
+        eprint!("[Draft] Prefilling KV cache... ");
+        let t_draft_prefill = Instant::now();
+        match gpu::GpuPrefillScratch::new(&draft_config, prompt_tokens.len()) {
+            Ok(mut draft_prefill) => {
+                gpu::gpu_prefill_forward_hybrid(
+                    &device, &draft_gpu_weights, &draft_cpu_weights,
+                    &mut draft_kv, &mut draft_prefill, &mut draft_gpu_scratch,
+                    &mut draft_host_scratch, &prompt_tokens, 0, &draft_config,
+                    gpu::GpuLogitsMode::Skip,
+                ).map_err(|e| format!("draft batched prefill: {}", e))?;
             }
-        };
-    }
+            Err(_) => {
+                // Fallback to token-by-token prefill
+                for (dpos, &token_id) in prompt_tokens.iter().enumerate() {
+                    gpu::gpu_embed_token_hybrid(
+                        &device, token_id, &draft_gpu_weights, &draft_cpu_weights,
+                        &mut draft_gpu_scratch, &mut draft_host_scratch, &draft_config,
+                    ).map_err(|e| format!("draft prefill embed: {}", e))?;
+                    gpu::gpu_full_forward_hybrid(
+                        &device, &draft_gpu_weights, &draft_cpu_weights,
+                        &mut draft_kv, &mut draft_gpu_scratch, &mut draft_host_scratch,
+                        dpos, &draft_config, gpu::GpuLogitsMode::Skip,
+                    ).map_err(|e| format!("draft prefill forward: {}", e))?;
+                }
+            }
+        }
+        eprintln!("done in {:.1}ms", t_draft_prefill.elapsed().as_secs_f64() * 1000.0);
+        let mut draft_pos = prompt_tokens.len();
+        let mut total_drafted = 0usize;
+        let mut total_accepted = 0usize;
 
-    println!();
+        loop {
+            if tok.is_eog(next_token) || n_generated >= args.max_tokens || pos >= max_seq {
+                break;
+            }
 
-    if n_generated > 0 {
-        let gen_ms = t_gen.elapsed().as_secs_f64() * 1000.0;
-        eprintln!(
-            "\n{} tokens in {:.1}ms = {:.1} tok/s",
-            n_generated,
-            gen_ms,
-            n_generated as f64 / gen_ms * 1000.0
-        );
+            let remaining = args.max_tokens - n_generated;
+            let depth = args.spec_depth.min(remaining).min(max_seq - pos);
+            if depth == 0 {
+                break;
+            }
+
+            let result = gpu::gpu_speculative_decode_step(
+                &device,
+                &draft_gpu_weights, &draft_cpu_weights,
+                &mut draft_kv, &mut draft_gpu_scratch, &mut draft_host_scratch,
+                &draft_config,
+                &gpu_weights, &cpu_weights,
+                &mut kv, &mut verify_scratch, &mut gpu_scratch, &mut host_scratch,
+                &config,
+                next_token, draft_pos, pos, depth,
+            ).map_err(|e| format!("speculative decode: {}", e))?;
+
+            total_drafted += result.n_drafted;
+            total_accepted += result.n_draft_accepted;
+
+            for &tok_id in &result.accepted_tokens {
+                if tok.is_eog(tok_id) {
+                    break;
+                }
+                let text = tok.decode_token(tok_id);
+                print!("{}", text);
+                std::io::stdout().flush().ok();
+                n_generated += 1;
+                pos += 1;
+                draft_pos += 1;
+                next_token = tok_id;
+            }
+
+            // Check if last accepted token was EOS
+            if let Some(&last) = result.accepted_tokens.last() {
+                if tok.is_eog(last) {
+                    break;
+                }
+                next_token = last;
+            }
+        }
+
+        println!();
+
+        if n_generated > 0 {
+            let gen_ms = t_gen.elapsed().as_secs_f64() * 1000.0;
+            let acceptance_rate = if total_drafted > 0 {
+                total_accepted as f64 / total_drafted as f64
+            } else {
+                0.0
+            };
+            eprintln!(
+                "\n{} tokens in {:.1}ms = {:.1} tok/s (speculative: {}/{} accepted = {:.1}%)",
+                n_generated, gen_ms,
+                n_generated as f64 / gen_ms * 1000.0,
+                total_accepted, total_drafted,
+                acceptance_rate * 100.0,
+            );
+        } else {
+            eprintln!("\n[EOS on first token]");
+        }
     } else {
-        eprintln!("\n[EOS on first token]");
+        // ── Standard Decode Loop ─────────────────────────────────────────────
+        loop {
+            if tok.is_eog(next_token) || n_generated >= args.max_tokens || pos >= max_seq {
+                break;
+            }
+
+            let text = tok.decode_token(next_token);
+            if args.debug {
+                eprintln!("[Generated] token_id={} text={:?}", next_token, text);
+            }
+            print!("{}", text);
+            std::io::stdout().flush().ok();
+            n_generated += 1;
+
+            gpu::gpu_embed_token_hybrid(
+                &device,
+                next_token,
+                &gpu_weights,
+                &cpu_weights,
+                &mut gpu_scratch,
+                &mut host_scratch,
+                &config,
+            )
+            .map_err(|e| format!("gpu embed: {}", e))?;
+            let logits_mode = if use_gpu_greedy_fastpath {
+                gpu::GpuLogitsMode::GreedyArgmax
+            } else {
+                gpu::GpuLogitsMode::DownloadToHost
+            };
+            let decode_next_token = gpu::gpu_full_forward_hybrid(
+                &device,
+                &gpu_weights,
+                &cpu_weights,
+                &mut kv,
+                &mut gpu_scratch,
+                &mut host_scratch,
+                pos,
+                &config,
+                logits_mode,
+            )
+            .map_err(|e| format!("gpu decode: {}", e))?;
+            pos += 1;
+
+            if args.debug && n_generated <= 3 {
+                eprintln!("\n[Token {} logits]", n_generated);
+                print_top_k_tokens(&host_scratch.logits, &tok, 5);
+            }
+
+            next_token = if let Some(token) = decode_next_token {
+                token
+            } else {
+                device
+                    .synchronize()
+                    .map_err(|e| format!("gpu sync: {}", e))?;
+
+                if use_greedy {
+                    if use_gpu_greedy_fastpath {
+                        let token = gpu_scratch.argmax_result_index.as_slice::<i32>()[0];
+                        if token < 0 || (token as usize) >= config.vocab_size {
+                            return Err(
+                                format!("gpu argmax returned out-of-range index {}", token).into()
+                            );
+                        }
+                        token as u32
+                    } else {
+                        cpu_sample_greedy(&host_scratch.logits)
+                    }
+                } else {
+                    seed = seed.wrapping_add(1);
+                    cpu_sample_top_p(&host_scratch.logits, args.temperature, args.top_p, seed)
+                }
+            };
+        }
+
+        println!();
+
+        if n_generated > 0 {
+            let gen_ms = t_gen.elapsed().as_secs_f64() * 1000.0;
+            eprintln!(
+                "\n{} tokens in {:.1}ms = {:.1} tok/s",
+                n_generated,
+                gen_ms,
+                n_generated as f64 / gen_ms * 1000.0
+            );
+        } else {
+            eprintln!("\n[EOS on first token]");
+        }
     }
 
     Ok(())

@@ -1284,6 +1284,129 @@ pub fn gpu_verify_forward(
     Ok(result_tokens)
 }
 
+// ── Speculative Decoding: Draft→Verify→Accept ───────────────────────────────────
+
+/// Result of one speculative decode step.
+pub struct SpecDecodeResult {
+    /// Accepted tokens (1..=spec_depth+1). Always at least 1 (the bonus token).
+    pub accepted_tokens: Vec<u32>,
+    /// How many draft tokens were accepted (0..=spec_depth).
+    pub n_draft_accepted: usize,
+    /// Total draft tokens generated this step.
+    pub n_drafted: usize,
+}
+
+/// Run one speculative decode step: draft N tokens with draft model, verify with target.
+///
+/// Returns accepted tokens (greedy verification). The last token is always the target
+/// model's prediction (bonus token), guaranteeing output is identical to standard greedy decode.
+pub fn gpu_speculative_decode_step(
+    device: &GpuDevice,
+    // Draft model resources
+    draft_weights: &GpuModelWeights,
+    draft_cpu_weights: &CpuModelWeights,
+    draft_kv: &mut GpuKvCache,
+    draft_scratch: &mut GpuForwardScratch,
+    draft_host_scratch: &mut CpuForwardScratch,
+    draft_config: &ModelConfig,
+    // Target model resources
+    target_weights: &GpuModelWeights,
+    target_cpu_weights: &CpuModelWeights,
+    target_kv: &mut GpuKvCache,
+    verify_scratch: &mut GpuPrefillScratch,
+    target_scratch: &mut GpuForwardScratch,
+    target_host_scratch: &mut CpuForwardScratch,
+    target_config: &ModelConfig,
+    // Input
+    input_token: u32,
+    draft_pos: usize,
+    target_pos: usize,
+    spec_depth: usize,
+) -> GpuResult<SpecDecodeResult> {
+    // ── Step 1: Draft N tokens with the small model ─────────────────────────
+    let mut draft_tokens = Vec::with_capacity(spec_depth);
+    let mut token = input_token;
+
+    for step in 0..spec_depth {
+        let pos = draft_pos + step;
+        gpu_embed_token_hybrid(
+            device, token, draft_weights, draft_cpu_weights,
+            draft_scratch, draft_host_scratch, draft_config,
+        )?;
+        let next = gpu_full_forward_hybrid(
+            device, draft_weights, draft_cpu_weights,
+            draft_kv, draft_scratch, draft_host_scratch,
+            pos, draft_config, GpuLogitsMode::GreedyArgmax,
+        )?;
+        token = next.expect("draft decode should produce a token");
+        draft_tokens.push(token);
+    }
+
+    let n_drafted = draft_tokens.len();
+
+    // ── Step 2: Verify all draft tokens with the target model ───────────────
+    // Process token-by-token through target model WITHOUT HIP graph.
+    // Graph must be bypassed because draft and target may share the same
+    // graph singleton (same config) but use different KV caches.
+    let mut verify_tokens = Vec::with_capacity(spec_depth);
+    verify_tokens.push(input_token);
+    if spec_depth > 1 {
+        verify_tokens.extend_from_slice(&draft_tokens[..spec_depth - 1]);
+    }
+
+    let mut target_argmax = Vec::with_capacity(spec_depth);
+    for (i, &vtoken) in verify_tokens.iter().enumerate() {
+        let pos = target_pos + i;
+        gpu_embed_token_hybrid(
+            device, vtoken, target_weights, target_cpu_weights,
+            target_scratch, target_host_scratch, target_config,
+        )?;
+        let next = gpu_full_forward_hybrid(
+            device, target_weights, target_cpu_weights,
+            target_kv, target_scratch, target_host_scratch,
+            pos, target_config, GpuLogitsMode::GreedyArgmax,
+        )?;
+        target_argmax.push(next.expect("verify decode should produce a token"));
+    }
+
+    // ── Step 3: Accept/reject ───────────────────────────────────────────────
+    // target_argmax[i] is the target model's prediction for position target_pos+i+1.
+    // draft_tokens[i] is the draft model's prediction for position draft_pos+i+1.
+    // Compare: does target agree with draft?
+    if std::env::var_os("ROCMFORGE_SPEC_DEBUG").is_some() {
+        eprintln!(
+            "[SPEC] draft={:?} verify={:?} target={:?}",
+            draft_tokens, verify_tokens, target_argmax
+        );
+    }
+    let mut accepted = Vec::with_capacity(spec_depth + 1);
+    let mut n_accepted = 0usize;
+
+    for i in 0..spec_depth {
+        // target_argmax[i] = what target predicts for next token at position i
+        // draft_tokens[i] = what draft predicted for that same position
+        if target_argmax[i] == draft_tokens[i] {
+            accepted.push(draft_tokens[i]);
+            n_accepted += 1;
+        } else {
+            // Mismatch: accept target's token as bonus, stop
+            accepted.push(target_argmax[i]);
+            break;
+        }
+    }
+
+    // If all draft tokens matched, add target's prediction for the last position as bonus
+    if n_accepted == spec_depth {
+        accepted.push(target_argmax[spec_depth - 1]);
+    }
+
+    Ok(SpecDecodeResult {
+        accepted_tokens: accepted,
+        n_draft_accepted: n_accepted,
+        n_drafted,
+    })
+}
+
 fn gpu_layer_forward_from_state_on_stream(
     device: &GpuDevice,
     gpu_layer: &GpuLayerWeights,
