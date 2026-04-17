@@ -167,6 +167,13 @@ set_target_properties(wmma_gemm_tiled PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+# Phase 2b — WMMA GEMM with inline Q4_0 weight dequant.
+add_library(wmma_gemm_q4_0 STATIC ../wmma/wmma_gemm_q4_0.hip)
+set_target_properties(wmma_gemm_q4_0 PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    POSITION_INDEPENDENT_CODE ON
+)
+
 # Q4_1 quantization kernel
 add_library(q4_1_quantize STATIC q4_1_quantize.hip)
 target_link_libraries(q4_1_quantize quant_common)
