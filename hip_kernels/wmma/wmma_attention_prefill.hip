@@ -327,6 +327,318 @@ extern "C" hipError_t wmma_attention_prefill_64_launch(
     return hipGetLastError();
 }
 
+// ====================================================================
+// Phase 3b — online-softmax kernel.
+//
+// Same geometry as Step 2 (one workgroup per (head, 64-query-tile))
+// but the S matrix is no longer materialised across the whole key
+// sequence. KV is iterated in 64-wide tiles. Per KV tile:
+//
+//   1. WMMA: S_tile = Q_tile · K_tile^T   (64×64 FP32 in registers)
+//   2. scale + store S_tile to LDS (16 KB FP32)
+//   3. per-row softmax update (one thread per of the 64 rows):
+//        m_new = max(m_prev, rowmax(S_tile))
+//        alpha = exp(m_prev - m_new)
+//        row_sum_new = sum(exp(S_tile - m_new))  → written to lds_p FP16
+//        l_new = alpha · l_prev + row_sum_new
+//   4. rescale the persistent O accumulator: o_acc *= alpha
+//   5. WMMA: o_acc += P_tile · V_tile
+//
+// After the outer loop: o_acc /= l  per row, written to global.
+//
+// The O accumulator lives in registers across the KV-tile loop.
+// For head_dim=128 with 4 col-blocks covering 64 cols, we keep
+// 2 chunks × 4 col-blocks × 8 FP32 = 64 FP32 per lane. On gfx1201
+// (512 VGPRs/wave budget) that leaves plenty of headroom for the
+// WMMA A/B working set.
+//
+// Sequence length must currently be a multiple of 64 (= TILE_KV).
+// head_dim must equal 128. Arbitrary-length support and GQA land in
+// Phase 3c / 3d.
+// ====================================================================
+
+#define TILE_KV 64
+
+__global__ void wmma_attention_prefill_online_kernel(
+    const __half* __restrict__ Q,
+    const __half* __restrict__ K,
+    const __half* __restrict__ V,
+    float*        __restrict__ O,
+    int seq_len,
+    int row_stride,
+    float scale)
+{
+    const int head_idx    = blockIdx.x;
+    const int q_tile      = blockIdx.y;
+    const int q_row_base  = q_tile * TILE_M;
+    const int head_offset = head_idx * HEAD_DIM;
+
+    const int tid     = threadIdx.x;
+    const int wave_id = tid >> 5;
+    const int lane    = tid & 31;
+    const int lane_col_in_block = lane & 15;
+    const int lane_k_set        = (lane >> 4) * 4;
+    const int lane_row_start    = (lane >> 4) * 8;
+    const int wave_row_base     = wave_id * 16;
+
+    // LDS. Separate allocations to avoid the Step-2 lds_s/lds_p race.
+    __shared__ __half lds_q[TILE_M * TILE_K];            // 2 KB
+    __shared__ __half lds_k[TILE_K * TILE_KV];           // 2 KB
+    __shared__ float  lds_s[TILE_M * TILE_KV];           // 16 KB
+    __shared__ __half lds_p[TILE_M * TILE_KV];           // 8 KB
+    __shared__ __half lds_v[TILE_K * TILE_KV];           // 2 KB
+    __shared__ float  lds_m[TILE_M];                     // 256 B
+    __shared__ float  lds_l[TILE_M];                     // 256 B
+    __shared__ float  lds_alpha[TILE_M];                 // 256 B
+
+    // Persistent O accumulator. N_O_COL_CHUNKS = 2 (= head_dim / 64).
+    // COL_BLOCKS = 4 (= 64 / 16).
+    constexpr int N_O_COL_CHUNKS = HEAD_DIM / TILE_KV;   // 2
+    float8 acc_o[N_O_COL_CHUNKS][COL_BLOCKS];
+    #pragma unroll
+    for (int c = 0; c < N_O_COL_CHUNKS; ++c) {
+        #pragma unroll
+        for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+            acc_o[c][cb] = {0, 0, 0, 0, 0, 0, 0, 0};
+        }
+    }
+
+    // Initialise running max/sum.
+    if (tid < TILE_M) {
+        lds_m[tid] = -INFINITY;
+        lds_l[tid] = 0.0f;
+    }
+    __syncthreads();
+
+    const int num_kv_tiles  = seq_len / TILE_KV;
+    constexpr int N_K_TILES_Q = HEAD_DIM / TILE_K;        // 8
+    constexpr int N_K_TILES_V = TILE_KV / TILE_K;         // 4
+
+    for (int kv_tile = 0; kv_tile < num_kv_tiles; ++kv_tile) {
+        const int kv_row_base = kv_tile * TILE_KV;
+
+        // ----- GEMM #1: S_tile = Q_tile · K_tile^T -----
+        float8 acc_s[COL_BLOCKS];
+        #pragma unroll
+        for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+            acc_s[cb] = {0, 0, 0, 0, 0, 0, 0, 0};
+        }
+
+        for (int kt = 0; kt < N_K_TILES_Q; ++kt) {
+            const int k_start = kt * TILE_K;
+
+            // Q tile [64×16]
+            cooperative_load_rows_half(
+                lds_q, Q,
+                q_row_base, head_offset + k_start,
+                TILE_M, TILE_K,
+                row_stride,
+                tid, THREADS);
+
+            // K^T tile: lds_k[k_in_tile][j] = K[kv_row_base + j][head_offset + k_start + k_in_tile]
+            {
+                const int total = TILE_K * TILE_KV;
+                for (int flat = tid; flat < total; flat += THREADS) {
+                    const int k_in_tile = flat >> 6;
+                    const int j         = flat & 63;
+                    lds_k[k_in_tile * TILE_KV + j] =
+                        K[(kv_row_base + j) * row_stride +
+                          head_offset + k_start + k_in_tile];
+                }
+            }
+            __syncthreads();
+
+            const int a_row_in_tile = wave_row_base + (lane & 15);
+            half8 a_reg;
+            {
+                const int base = a_row_in_tile * TILE_K;
+                a_reg[0] = lds_q[base + lane_k_set + 0];
+                a_reg[1] = lds_q[base + lane_k_set + 1];
+                a_reg[2] = lds_q[base + lane_k_set + 2];
+                a_reg[3] = lds_q[base + lane_k_set + 3];
+                a_reg[4] = lds_q[base + lane_k_set + 8];
+                a_reg[5] = lds_q[base + lane_k_set + 9];
+                a_reg[6] = lds_q[base + lane_k_set + 10];
+                a_reg[7] = lds_q[base + lane_k_set + 11];
+            }
+
+            #pragma unroll
+            for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+                const int col_in_lds = cb * 16 + lane_col_in_block;
+                half8 b_reg;
+                b_reg[0] = lds_k[(lane_k_set + 0)  * TILE_KV + col_in_lds];
+                b_reg[1] = lds_k[(lane_k_set + 1)  * TILE_KV + col_in_lds];
+                b_reg[2] = lds_k[(lane_k_set + 2)  * TILE_KV + col_in_lds];
+                b_reg[3] = lds_k[(lane_k_set + 3)  * TILE_KV + col_in_lds];
+                b_reg[4] = lds_k[(lane_k_set + 8)  * TILE_KV + col_in_lds];
+                b_reg[5] = lds_k[(lane_k_set + 9)  * TILE_KV + col_in_lds];
+                b_reg[6] = lds_k[(lane_k_set + 10) * TILE_KV + col_in_lds];
+                b_reg[7] = lds_k[(lane_k_set + 11) * TILE_KV + col_in_lds];
+                acc_s[cb] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(
+                    a_reg, b_reg, acc_s[cb]);
+            }
+            __syncthreads();
+        }
+
+        // Store scaled S_tile to LDS.
+        #pragma unroll
+        for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+            const int col = cb * 16 + lane_col_in_block;
+            #pragma unroll
+            for (int v = 0; v < 8; ++v) {
+                const int row = wave_row_base + lane_row_start + v;
+                lds_s[row * TILE_KV + col] = acc_s[cb][v] * scale;
+            }
+        }
+        __syncthreads();
+
+        // ----- Online softmax update (one thread per row) -----
+        if (tid < TILE_M) {
+            const int row = tid;
+            float* s_row = &lds_s[row * TILE_KV];
+
+            // Row max of the new tile.
+            float tile_max = s_row[0];
+            #pragma unroll 1
+            for (int j = 1; j < TILE_KV; ++j) tile_max = fmaxf(tile_max, s_row[j]);
+
+            const float m_old = lds_m[row];
+            const float m_new = fmaxf(m_old, tile_max);
+            const float alpha = expf(m_old - m_new);
+            lds_alpha[row] = alpha;
+            lds_m[row]     = m_new;
+
+            // Write un-normalised P = exp(S - m_new) to lds_p; accumulate row sum.
+            __half* p_row = &lds_p[row * TILE_KV];
+            float row_sum = 0.0f;
+            #pragma unroll 1
+            for (int j = 0; j < TILE_KV; ++j) {
+                const float e = expf(s_row[j] - m_new);
+                p_row[j] = __float2half(e);
+                row_sum += e;
+            }
+            lds_l[row] = alpha * lds_l[row] + row_sum;
+        }
+        __syncthreads();
+
+        // ----- Rescale O accumulator per lane -----
+        #pragma unroll
+        for (int c = 0; c < N_O_COL_CHUNKS; ++c) {
+            #pragma unroll
+            for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+                #pragma unroll
+                for (int v = 0; v < 8; ++v) {
+                    const int row = wave_row_base + lane_row_start + v;
+                    const float alpha = lds_alpha[row];
+                    acc_o[c][cb][v] *= alpha;
+                }
+            }
+        }
+
+        // ----- GEMM #2: O_acc += P · V_tile, per col chunk -----
+        #pragma unroll 1
+        for (int c = 0; c < N_O_COL_CHUNKS; ++c) {
+            const int v_col_base = c * TILE_KV;
+
+            for (int kt = 0; kt < N_K_TILES_V; ++kt) {
+                const int k_start = kt * TILE_K;
+
+                // V tile [16 × 64]: rows (kv_row_base + k_start..) × cols (v_col_base..+64)
+                {
+                    const int total = TILE_K * TILE_KV;
+                    for (int flat = tid; flat < total; flat += THREADS) {
+                        const int k_in_tile = flat >> 6;
+                        const int j         = flat & 63;
+                        lds_v[k_in_tile * TILE_KV + j] =
+                            V[(kv_row_base + k_start + k_in_tile) * row_stride +
+                              head_offset + v_col_base + j];
+                    }
+                }
+                __syncthreads();
+
+                const int a_row_in_tile = wave_row_base + (lane & 15);
+                half8 a_reg;
+                {
+                    const int base = a_row_in_tile * TILE_KV + k_start;
+                    a_reg[0] = lds_p[base + lane_k_set + 0];
+                    a_reg[1] = lds_p[base + lane_k_set + 1];
+                    a_reg[2] = lds_p[base + lane_k_set + 2];
+                    a_reg[3] = lds_p[base + lane_k_set + 3];
+                    a_reg[4] = lds_p[base + lane_k_set + 8];
+                    a_reg[5] = lds_p[base + lane_k_set + 9];
+                    a_reg[6] = lds_p[base + lane_k_set + 10];
+                    a_reg[7] = lds_p[base + lane_k_set + 11];
+                }
+
+                #pragma unroll
+                for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+                    const int col_in_lds = cb * 16 + lane_col_in_block;
+                    half8 b_reg;
+                    b_reg[0] = lds_v[(lane_k_set + 0)  * TILE_KV + col_in_lds];
+                    b_reg[1] = lds_v[(lane_k_set + 1)  * TILE_KV + col_in_lds];
+                    b_reg[2] = lds_v[(lane_k_set + 2)  * TILE_KV + col_in_lds];
+                    b_reg[3] = lds_v[(lane_k_set + 3)  * TILE_KV + col_in_lds];
+                    b_reg[4] = lds_v[(lane_k_set + 8)  * TILE_KV + col_in_lds];
+                    b_reg[5] = lds_v[(lane_k_set + 9)  * TILE_KV + col_in_lds];
+                    b_reg[6] = lds_v[(lane_k_set + 10) * TILE_KV + col_in_lds];
+                    b_reg[7] = lds_v[(lane_k_set + 11) * TILE_KV + col_in_lds];
+                    acc_o[c][cb] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(
+                        a_reg, b_reg, acc_o[c][cb]);
+                }
+                __syncthreads();
+            }
+        }
+    }
+
+    // ----- Final normalisation and store -----
+    #pragma unroll
+    for (int c = 0; c < N_O_COL_CHUNKS; ++c) {
+        const int v_col_base = c * TILE_KV;
+        #pragma unroll
+        for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+            const int out_col = head_offset + v_col_base + cb * 16 + lane_col_in_block;
+            #pragma unroll
+            for (int v = 0; v < 8; ++v) {
+                const int row = wave_row_base + lane_row_start + v;
+                const int global_row = q_row_base + row;
+                const float inv_l = 1.0f / lds_l[row];
+                O[global_row * row_stride + out_col] = acc_o[c][cb][v] * inv_l;
+            }
+        }
+    }
+}
+
+extern "C" hipError_t wmma_attention_prefill_online_launch(
+    const void* Q,
+    const void* K,
+    const void* V,
+    float*      O,
+    int seq_len,
+    int num_heads,
+    int row_stride,
+    float scale,
+    hipStream_t stream)
+{
+    if (num_heads <= 0)            return hipErrorInvalidValue;
+    if (row_stride <= 0)           return hipErrorInvalidValue;
+    if (seq_len <= 0)              return hipErrorInvalidValue;
+    if ((seq_len % TILE_KV) != 0)  return hipErrorInvalidValue;
+    if ((seq_len % TILE_M)  != 0)  return hipErrorInvalidValue;
+
+    dim3 grid(num_heads, seq_len / TILE_M, 1);
+    dim3 block(THREADS, 1, 1);
+
+    hipLaunchKernelGGL(
+        wmma_attention_prefill_online_kernel,
+        grid, block, 0, stream,
+        reinterpret_cast<const __half*>(Q),
+        reinterpret_cast<const __half*>(K),
+        reinterpret_cast<const __half*>(V),
+        O,
+        seq_len, row_stride, scale);
+    return hipGetLastError();
+}
+
 // --------------------------------------------------------------------
 //   Step-2 multi-head launcher.
 //

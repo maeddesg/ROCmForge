@@ -60,6 +60,18 @@ unsafe extern "C" {
         scale: f32,
         stream: hipStream_t,
     ) -> hipError_t;
+
+    fn wmma_attention_prefill_online_launch(
+        q: *const c_void,
+        k: *const c_void,
+        v: *const c_void,
+        o: *mut f32,
+        seq_len: i32,
+        num_heads: i32,
+        row_stride: i32,
+        scale: f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
 }
 
 /// Launch the 16×16 WMMA kernel on the device's default stream.
@@ -176,6 +188,58 @@ pub fn launch_wmma_attention_prefill_multihead(
             code: code as i32,
             description: format!(
                 "wmma_attention_prefill_multihead_launch failed: {:?}",
+                code
+            ),
+        })
+    }
+}
+
+/// Launch the Phase 3b WMMA prefill attention with online softmax.
+///
+/// Arbitrary sequence length as long as `seq_len % 64 == 0` (KV is
+/// tiled in 64-wide chunks). Same strided Q/K/V/O layout as the
+/// existing `flash_attn_prefill_strided_kernel` and the Step 2
+/// multi-head launcher; `head_dim = 128` is baked in.
+pub fn launch_wmma_attention_prefill_online(
+    q: *const u16,
+    k: *const u16,
+    v: *const u16,
+    o: *mut f32,
+    seq_len: usize,
+    num_heads: usize,
+    row_stride: usize,
+    scale: f32,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if seq_len % 64 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "wmma_attention_prefill_online: seq_len {} must be a multiple of 64",
+                seq_len
+            ),
+        });
+    }
+    let code = unsafe {
+        wmma_attention_prefill_online_launch(
+            q as *const c_void,
+            k as *const c_void,
+            v as *const c_void,
+            o,
+            seq_len as i32,
+            num_heads as i32,
+            row_stride as i32,
+            scale,
+            stream,
+        )
+    };
+    if code == hipError_t::hipSuccess {
+        Ok(())
+    } else {
+        Err(GpuError::HipApiError {
+            code: code as i32,
+            description: format!(
+                "wmma_attention_prefill_online_launch failed: {:?}",
                 code
             ),
         })
