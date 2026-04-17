@@ -1,4 +1,4 @@
-[Draft] Prefilling KV cache... done in 112.0ms
+[Draft] Prefilling KV cache... done in 69.2ms
  The function should have a docstring explaining the parameters and return value. Use a for loop to iterate over the list and apply the binary search algorithm. Include a check function that tests the binary search function with various inputs, including edge cases.
 
 Here's a Python function that implements binary search on a sorted list:

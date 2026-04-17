@@ -42,7 +42,7 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 22 tokens
-Prefill: 363.6ms (60.5 tok/s)
+Prefill: 363.8ms (60.5 tok/s)
 
  When deciding between an electric car (EV) and a hybrid, it's important to consider several factors, including cost, range, charging infrastructure, environmental impact, and personal driving habits. Here’s a breakdown of the pros and cons for each:
 
@@ -53,4 +53,4 @@ Prefill: 363.6ms (60.5 tok/s)
 2. **Cost Savings:** Over time, EVs can be more cost-effective due to lower fuel costs and fewer maintenance needs (no oil changes, fewer moving parts).
 3. **Performance:** EVs often offer instant torque,
 
-128 tokens in 1251.2ms = 102.3 tok/s
+128 tokens in 1250.7ms = 102.3 tok/s

@@ -1,4 +1,4 @@
-[Draft] Prefilling KV cache... done in 108.3ms
+[Draft] Prefilling KV cache... done in 98.4ms
  The function should also handle cases where the key is not present in some of the objects in the input array.
 
 Example usage:
@@ -7,8 +7,8 @@ const input = [
   { id: 1, name: 'John' },
   { id: 2, name: 'Jane' },
   { id: 3, name: 'John' },
-  { id: 4, name: 'Bob' }
+  { id: 4, name: 'Doe' }
 ];
 
 console.log(groupBy(input, 'name'));
-// Output: { John: [{ id: 1, name: 'John' }, { id: 3, name: 'John' }], Jane: [{ id
+// Output: { John: [{ id: 1, name: 'John' }, { id: 3, name: 'John' }], Jane:

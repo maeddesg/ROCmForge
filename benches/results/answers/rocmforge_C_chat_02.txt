@@ -42,7 +42,7 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 24 tokens
-Prefill: 396.5ms (60.5 tok/s)
+Prefill: 396.8ms (60.5 tok/s)
 
  Learning a new programming language can be a challenging but rewarding experience. Here are some steps to help you learn Rust from scratch:
 
@@ -52,4 +52,4 @@ Prefill: 396.5ms (60.5 tok/s)
 
 3. Practice coding: Practice
 
-128 tokens in 1253.0ms = 102.2 tok/s
+128 tokens in 1251.9ms = 102.2 tok/s

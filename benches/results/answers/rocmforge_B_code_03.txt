@@ -10,7 +10,7 @@ Loading CPU weights... [cpu weights] layer 1/28 loaded
 [cpu weights] layer 16/28 loaded
 [cpu weights] layer 24/28 loaded
 [cpu weights] layer 28/28 loaded
-done in 1.4s
+done in 1.5s
 Loading GPU weights... [GPU weights] Loading layer 1/28
 [GPU weights] Loading layer 2/28
 [GPU weights] Loading layer 3/28
@@ -80,9 +80,9 @@ done in 0.0s
 
 Chat template: none (raw completion)
 Prompt: 41 tokens
-Prefill: 578.6ms (70.9 tok/s)
+Prefill: 87.6ms (468.1 tok/s)
 
-[Draft] Prefilling KV cache... done in 108.3ms
+[Draft] Prefilling KV cache... done in 98.4ms
  The function should also handle cases where the key is not present in some of the objects in the input array.
 
 Example usage:
@@ -91,10 +91,10 @@ const input = [
   { id: 1, name: 'John' },
   { id: 2, name: 'Jane' },
   { id: 3, name: 'John' },
-  { id: 4, name: 'Bob' }
+  { id: 4, name: 'Doe' }
 ];
 
 console.log(groupBy(input, 'name'));
-// Output: { John: [{ id: 1, name: 'John' }, { id: 3, name: 'John' }], Jane: [{ id
+// Output: { John: [{ id: 1, name: 'John' }, { id: 3, name: 'John' }], Jane:
 
-129 tokens in 1609.4ms = 80.2 tok/s (speculative: 56/72 accepted = 77.8%, avg 0.8/step over 72 steps)
+128 tokens in 3006.3ms = 42.6 tok/s (speculative: 54/73 accepted = 74.0%, avg 0.7/step over 73 steps)

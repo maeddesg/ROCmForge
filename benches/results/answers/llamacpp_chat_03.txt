@@ -578,7 +578,7 @@ sched_reserve:      ROCm0 compute buffer size =    13.06 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.62 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 5.24 ms, sched copies = 1
+sched_reserve: reserve took 5.27 ms, sched copies = 1
 I am deciding between buying an electric car or a hybrid. What are the pros and cons of each option? When deciding between an electric car (EV) and a hybrid, it's important to consider several factors such as cost, range, charging infrastructure, environmental impact, and personal driving habits. Here’s a breakdown of the pros and cons for each:
 
 ### Electric Cars (EVs)
@@ -587,13 +587,13 @@ I am deciding between buying an electric car or a hybrid. What are the pros and 
 1. **Environmental Impact:** EVs produce zero tailpipe emissions, which can significantly reduce your carbon footprint.
 2. **Cost Savings:** Over time, EVs can be cheaper to operate due to lower fuel costs and fewer moving parts.
 3. **Performance:** EVs often offer instant torque, providing a smooth and powerful driving experience.
-main: decoded 128 tokens in 1.11 s, speed: 115.49 t/s
+main: decoded 128 tokens in 1.11 s, speed: 115.34 t/s
 
-llama_perf_sampler_print:    samplers time =       7.30 ms /   128 runs
-llama_perf_context_print:        load time =     520.52 ms
-llama_perf_context_print: prompt eval time =      45.67 ms /    22 tokens (    2.08 ms per token,   481.73 tokens per second)
-llama_perf_context_print:        eval time =    1046.91 ms /   127 runs   (    8.24 ms per token,   121.31 tokens per second)
-llama_perf_context_print:       total time =    1583.20 ms /   149 tokens
+llama_perf_sampler_print:    samplers time =       7.38 ms /   128 runs
+llama_perf_context_print:        load time =     517.47 ms
+llama_perf_context_print: prompt eval time =      43.81 ms /    22 tokens (    1.99 ms per token,   502.13 tokens per second)
+llama_perf_context_print:        eval time =    1050.16 ms /   127 runs   (    8.27 ms per token,   120.93 tokens per second)
+llama_perf_context_print:       total time =    1583.47 ms /   149 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  13.0625 MiB, matches expectation of  13.0625 MiB

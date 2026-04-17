@@ -1,4 +1,4 @@
-[Draft] Prefilling KV cache... done in 123.5ms
+[Draft] Prefilling KV cache... done in 75.0ms
  Assume the database schema includes a `customers` table with columns `id` and `name`, and an `orders` table with columns `customer_id` and `amount`. The `customer_id` in the `orders` table references the `id` in the `customers` table.
 
 ### SQL Query

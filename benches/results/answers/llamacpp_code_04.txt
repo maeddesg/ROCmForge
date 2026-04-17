@@ -578,7 +578,7 @@ sched_reserve:      ROCm0 compute buffer size =    13.66 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.65 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 4.56 ms, sched copies = 1
+sched_reserve: reserve took 5.01 ms, sched copies = 1
 Implement a red-black tree in C++ with insert and search operations. Include the left and right rotation helper functions. ```cpp
 #include <iostream>
 #include <cassert>
@@ -606,13 +606,13 @@ public:
     void insert(int key);
     RBNode* search(int key);
     void left_rotate(RBNode* node);
-   main: decoded 128 tokens in 1.11 s, speed: 115.53 t/s
+   main: decoded 128 tokens in 1.11 s, speed: 115.32 t/s
 
-llama_perf_sampler_print:    samplers time =       7.28 ms /   128 runs
-llama_perf_context_print:        load time =     512.09 ms
-llama_perf_context_print: prompt eval time =      45.03 ms /    23 tokens (    1.96 ms per token,   510.74 tokens per second)
-llama_perf_context_print:        eval time =    1047.02 ms /   127 runs   (    8.24 ms per token,   121.30 tokens per second)
-llama_perf_context_print:       total time =    1575.05 ms /   150 tokens
+llama_perf_sampler_print:    samplers time =       7.40 ms /   128 runs
+llama_perf_context_print:        load time =     508.10 ms
+llama_perf_context_print: prompt eval time =      44.29 ms /    23 tokens (    1.93 ms per token,   519.33 tokens per second)
+llama_perf_context_print:        eval time =    1049.89 ms /   127 runs   (    8.27 ms per token,   120.96 tokens per second)
+llama_perf_context_print:       total time =    1573.77 ms /   150 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  13.6562 MiB, matches expectation of  13.6562 MiB

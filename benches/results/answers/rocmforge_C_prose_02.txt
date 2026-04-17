@@ -10,7 +10,7 @@ Loading CPU weights... [cpu weights] layer 1/28 loaded
 [cpu weights] layer 16/28 loaded
 [cpu weights] layer 24/28 loaded
 [cpu weights] layer 28/28 loaded
-done in 1.4s
+done in 1.5s
 Loading GPU weights... [GPU weights] Loading layer 1/28
 [GPU weights] Loading layer 2/28
 [GPU weights] Loading layer 3/28
@@ -42,7 +42,7 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 21 tokens
-Prefill: 347.8ms (60.4 tok/s)
+Prefill: 347.9ms (60.4 tok/s)
 
  Making traditional Japanese ramen from scratch is a labor-intensive process, but it's also incredibly rewarding. Here's a step-by-step guide to creating a delicious bowl of ramen:
 
@@ -58,4 +58,4 @@ Prefill: 347.8ms (60.4 tok/s)
   - 2 leeks, quartered
   - 10-12 garlic cloves,
 
-128 tokens in 1250.7ms = 102.3 tok/s
+128 tokens in 1250.0ms = 102.4 tok/s

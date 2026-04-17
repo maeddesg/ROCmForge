@@ -1,4 +1,4 @@
-[Draft] Prefilling KV cache... done in 96.3ms
+[Draft] Prefilling KV cache... done in 59.4ms
  The Silk Road was a network of trade routes that connected the East and West from the 2nd century BCE to the 15th century CE. It was named after the lucrative trade in silk, but it also facilitated the exchange of goods, ideas, and technologies between China, India, Persia, Arabia, and Europe.
 
-The Silk Road began in China and extended westward through Central Asia, the Middle East, and Europe. It was not a single road but a series of interconnected routes that allowed for the movement of goods, people, and ideas. The trade routes were established by the Han Dynasty in China and were later expanded by
+The Silk Road began in China and extended westward through Central Asia, the Middle East, and into Europe. It was not a single road but a series of interconnected routes that allowed for the movement of goods, people, and ideas over vast distances. The trade routes were established by the Han Dynasty in China and

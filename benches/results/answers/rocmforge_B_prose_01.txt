@@ -80,10 +80,10 @@ done in 0.0s
 
 Chat template: none (raw completion)
 Prompt: 23 tokens
-Prefill: 379.0ms (60.7 tok/s)
+Prefill: 66.1ms (347.8 tok/s)
 
-[Draft] Prefilling KV cache... done in 92.6ms
- The story should be written in third-person omniscient point of view and include descriptions of the cat's surroundings, the cat's thoughts and emotions, and the cat's interactions with the bookshop owner. The story should have a clear beginning, middle, and end, and should include a conflict and resolution. The story should be between 1,500 and 2,000 words.
-In the quaint coastal town of Seabrook, nestled between the rolling hills and the crashing waves, stood an old bookshop named "Whispers of the Past." The shop was a charming little building with a faded red door
+[Draft] Prefilling KV cache... done in 57.3ms
+ The story should be written in third-person omniscient point of view and include descriptions of the cat's surroundings, the cat's thoughts and emotions, and the interactions between the cat and the bookshop owner. The story should have a clear beginning, middle, and end, and should explore themes of discovery, curiosity, and the importance of taking risks. The story should be between 1,500 and 2,000 words.
+In the quaint coastal town of Seabrook, nestled between the rolling hills and the crashing waves, stood an old bookshop named "Whispers of the Past." Its weathered wooden
 
-128 tokens in 1880.0ms = 68.1 tok/s (speculative: 40/87 accepted = 46.0%, avg 0.5/step over 87 steps)
+129 tokens in 3442.5ms = 37.5 tok/s (speculative: 42/86 accepted = 48.8%, avg 0.5/step over 86 steps)

@@ -578,16 +578,16 @@ sched_reserve:      ROCm0 compute buffer size =    14.25 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.68 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 4.24 ms, sched copies = 1
+sched_reserve: reserve took 4.96 ms, sched copies = 1
 Write a brief history of the Silk Road and its impact on trade, culture, and technology exchange between East and West. The Silk Road was a network of trade routes that connected the East and West from the 2nd century BCE to the 15th century CE. It was named after the lucrative silk trade that was the primary commodity exchanged along the route. The Silk Road stretched from China to the Mediterranean Sea, passing through Central Asia, the Middle East, and Europe.
 
-The history of the Silk Road can be traced back to the Han Dynasty in China, which established trade relations with the Western Regions (Central Asia) in the 2nd century BCE. The Han Dynasty sent envoys and merchants to establish trade relations with the Western Regions, whichmain: decoded 128 tokens in 1.11 s, speed: 115.55 t/s
+The history of the Silk Road can be traced back to the Han Dynasty in China, which established trade relations with the Western Regions (Central Asia) in the 2nd century BCE. The Han Dynasty sent envoys and merchants to establish trade relations with the Western Regions, whichmain: decoded 128 tokens in 1.11 s, speed: 115.38 t/s
 
-llama_perf_sampler_print:    samplers time =       7.34 ms /   128 runs
-llama_perf_context_print:        load time =     513.77 ms
-llama_perf_context_print: prompt eval time =      45.45 ms /    24 tokens (    1.89 ms per token,   528.05 tokens per second)
-llama_perf_context_print:        eval time =    1046.35 ms /   127 runs   (    8.24 ms per token,   121.37 tokens per second)
-llama_perf_context_print:       total time =    1576.02 ms /   151 tokens
+llama_perf_sampler_print:    samplers time =       7.43 ms /   128 runs
+llama_perf_context_print:        load time =     514.48 ms
+llama_perf_context_print: prompt eval time =      44.14 ms /    24 tokens (    1.84 ms per token,   543.68 tokens per second)
+llama_perf_context_print:        eval time =    1049.38 ms /   127 runs   (    8.26 ms per token,   121.02 tokens per second)
+llama_perf_context_print:       total time =    1579.75 ms /   151 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  14.2500 MiB, matches expectation of  14.2500 MiB

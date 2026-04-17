@@ -10,7 +10,7 @@ Loading CPU weights... [cpu weights] layer 1/28 loaded
 [cpu weights] layer 16/28 loaded
 [cpu weights] layer 24/28 loaded
 [cpu weights] layer 28/28 loaded
-done in 1.4s
+done in 1.5s
 Loading GPU weights... [GPU weights] Loading layer 1/28
 [GPU weights] Loading layer 2/28
 [GPU weights] Loading layer 3/28
@@ -80,13 +80,13 @@ done in 0.0s
 
 Chat template: none (raw completion)
 Prompt: 24 tokens
-Prefill: 395.9ms (60.6 tok/s)
+Prefill: 67.2ms (357.4 tok/s)
 
-[Draft] Prefilling KV cache... done in 96.4ms
- There are several reasons why your sourdough bread might be turning out too dense. Here are some common issues and solutions:
+[Draft] Prefilling KV cache... done in 59.4ms
+ There are several reasons why your sourdough bread might be turning out too dense. Here are some common issues and potential solutions:
 
-1. **Over-kneading**: If you knead the dough too much, it can develop too much gluten, making the bread dense. Try to knead just until the dough comes together and is smooth, but not overly elastic.
+1. **Inadequate Proofing**: Sourdough bread needs time to rise, and if it's not given enough time, it can result in a dense texture. Ensure you allow the dough to proof (rise) both during the bulk fermentation and after shaping. Use a warm, draft-free area for proofing.
 
-2. **Not enough time for fermentation**: Sourdough bread relies heavily on fermentation. If the dough doesn't have enough time to rise, it won't develop the necessary air pockets, leading to a dense texture. Ensure you allow enough time for both the initial rise and the
+2. **Incorrect Water Content**: The hydration level of your dough can significantly affect the texture. If the dough is too dry, it can lead to a dense loaf. Conversely, if
 
-129 tokens in 1923.7ms = 67.1 tok/s (speculative: 39/89 accepted = 43.8%, avg 0.4/step over 89 steps)
+128 tokens in 3289.2ms = 38.9 tok/s (speculative: 45/82 accepted = 54.9%, avg 0.5/step over 82 steps)

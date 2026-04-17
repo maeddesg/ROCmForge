@@ -578,14 +578,14 @@ sched_reserve:      ROCm0 compute buffer size =    15.44 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.74 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 4.47 ms, sched copies = 1
-Describe a sunrise seen from the top of a lighthouse on a rocky coast, focusing on the colors, sounds, and atmosphere. The sun rises over the horizon, casting a warm golden hue across the sky. The lighthouse stands tall and proud, its white walls glowing in the early morning light. The sound of crashing waves can be heard in the distance, as the wind whips through the rocks and trees. The air is crisp and salty, carrying the scent of the ocean. As the sun continues to rise, the sky transforms into a vibrant array of oranges, pinks, and purples, creating a stunning display of colors. The lighthouse keeper watches in awe, feeling a sense of peace and tranquility in the moment. The atmosphere is serene andmain: decoded 128 tokens in 1.11 s, speed: 115.53 t/s
+sched_reserve: reserve took 4.72 ms, sched copies = 1
+Describe a sunrise seen from the top of a lighthouse on a rocky coast, focusing on the colors, sounds, and atmosphere. The sun rises over the horizon, casting a warm golden hue across the sky. The lighthouse stands tall and proud, its white walls glowing in the early morning light. The sound of crashing waves can be heard in the distance, as the wind whips through the rocks and trees. The air is crisp and salty, carrying the scent of the ocean. As the sun continues to rise, the sky transforms into a vibrant array of oranges, pinks, and purples, creating a stunning display of colors. The lighthouse keeper watches in awe, feeling a sense of peace and tranquility in the moment. The atmosphere is serene andmain: decoded 128 tokens in 1.11 s, speed: 115.57 t/s
 
-llama_perf_sampler_print:    samplers time =       7.30 ms /   128 runs
-llama_perf_context_print:        load time =     513.52 ms
-llama_perf_context_print: prompt eval time =      44.93 ms /    26 tokens (    1.73 ms per token,   578.73 tokens per second)
-llama_perf_context_print:        eval time =    1047.26 ms /   127 runs   (    8.25 ms per token,   121.27 tokens per second)
-llama_perf_context_print:       total time =    1576.52 ms /   153 tokens
+llama_perf_sampler_print:    samplers time =       7.36 ms /   128 runs
+llama_perf_context_print:        load time =     512.49 ms
+llama_perf_context_print: prompt eval time =      45.16 ms /    26 tokens (    1.74 ms per token,   575.78 tokens per second)
+llama_perf_context_print:        eval time =    1046.65 ms /   127 runs   (    8.24 ms per token,   121.34 tokens per second)
+llama_perf_context_print:       total time =    1574.87 ms /   153 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  15.4375 MiB, matches expectation of  15.4375 MiB

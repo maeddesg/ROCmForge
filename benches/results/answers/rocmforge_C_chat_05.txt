@@ -42,7 +42,7 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 24 tokens
-Prefill: 396.0ms (60.6 tok/s)
+Prefill: 396.1ms (60.6 tok/s)
 
  There are several reasons why your sourdough bread might be turning out too dense. Here are some common issues and solutions:
 
@@ -50,4 +50,4 @@ Prefill: 396.0ms (60.6 tok/s)
 
 2. **Incorrect Sourdough Starter Ratio**: If your sourdough starter is not active enough or you're using too much or too little starter, it can affect the rise and texture of the bread. Ensure your starter is at the right consistency (about 10
 
-128 tokens in 1251.4ms = 102.3 tok/s
+128 tokens in 1252.3ms = 102.2 tok/s

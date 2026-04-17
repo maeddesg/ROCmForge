@@ -578,7 +578,7 @@ sched_reserve:      ROCm0 compute buffer size =    14.25 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.68 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 4.82 ms, sched copies = 1
+sched_reserve: reserve took 5.03 ms, sched copies = 1
 Explain quantum computing to me in simple terms. I have a basic understanding of classical computers but nothing about quantum mechanics. Quantum computing is a fascinating and complex field that leverages the principles of quantum mechanics to perform computations. Let's break it down step by step:
 
 ### Classical Computers vs. Quantum Computers
@@ -588,13 +588,13 @@ Explain quantum computing to me in simple terms. I have a basic understanding of
    - **Operations:** Classical computers perform operations on bits using logic gates (AND, OR, NOT, etc.).
 
 2. **Quantum Computers:**
-   - **Qubits:** These are the basic units of information in quantum computers. Unlike classical bits, qubits can exist inmain: decoded 128 tokens in 1.11 s, speed: 115.61 t/s
+   - **Qubits:** These are the basic units of information in quantum computers. Unlike classical bits, qubits can exist inmain: decoded 128 tokens in 1.11 s, speed: 115.55 t/s
 
-llama_perf_sampler_print:    samplers time =       7.32 ms /   128 runs
-llama_perf_context_print:        load time =     523.65 ms
-llama_perf_context_print: prompt eval time =      44.71 ms /    24 tokens (    1.86 ms per token,   536.76 tokens per second)
-llama_perf_context_print:        eval time =    1046.67 ms /   127 runs   (    8.24 ms per token,   121.34 tokens per second)
-llama_perf_context_print:       total time =    1586.16 ms /   151 tokens
+llama_perf_sampler_print:    samplers time =       7.47 ms /   128 runs
+llama_perf_context_print:        load time =     515.95 ms
+llama_perf_context_print: prompt eval time =      45.11 ms /    24 tokens (    1.88 ms per token,   532.00 tokens per second)
+llama_perf_context_print:        eval time =    1046.73 ms /   127 runs   (    8.24 ms per token,   121.33 tokens per second)
+llama_perf_context_print:       total time =    1578.57 ms /   151 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  14.2500 MiB, matches expectation of  14.2500 MiB

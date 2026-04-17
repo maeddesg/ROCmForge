@@ -578,18 +578,18 @@ sched_reserve:      ROCm0 compute buffer size =    14.25 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.68 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 5.35 ms, sched copies = 1
+sched_reserve: reserve took 4.80 ms, sched copies = 1
 My sourdough bread keeps turning out too dense. What could I be doing wrong and how can I fix it? There are several reasons why your sourdough bread might be turning out too dense. Here are some common issues and potential solutions:
 
 1. **Over-kneading or Under-kneading**: Sourdough bread requires a good knead to develop the gluten structure. If you're not kneading enough, the dough won't rise properly, leading to a dense texture. Conversely, over-kneading can also cause the dough to become too elastic, which can also result in a dense loaf. Aim for a proper knead that develops the gluten without overworking the dough.
 
-2. **Incorrect Proofing Time**: Proper proofing (main: decoded 128 tokens in 1.11 s, speed: 115.51 t/s
+2. **Incorrect Proofing Time**: Proper proofing (main: decoded 128 tokens in 1.11 s, speed: 115.49 t/s
 
-llama_perf_sampler_print:    samplers time =       7.33 ms /   128 runs
-llama_perf_context_print:        load time =     514.71 ms
-llama_perf_context_print: prompt eval time =      45.60 ms /    24 tokens (    1.90 ms per token,   526.35 tokens per second)
-llama_perf_context_print:        eval time =    1046.75 ms /   127 runs   (    8.24 ms per token,   121.33 tokens per second)
-llama_perf_context_print:       total time =    1577.22 ms /   151 tokens
+llama_perf_sampler_print:    samplers time =       7.42 ms /   128 runs
+llama_perf_context_print:        load time =     514.49 ms
+llama_perf_context_print: prompt eval time =      44.22 ms /    24 tokens (    1.84 ms per token,   542.74 tokens per second)
+llama_perf_context_print:        eval time =    1048.05 ms /   127 runs   (    8.25 ms per token,   121.18 tokens per second)
+llama_perf_context_print:       total time =    1578.63 ms /   151 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  14.2500 MiB, matches expectation of  14.2500 MiB

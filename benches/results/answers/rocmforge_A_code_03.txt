@@ -42,7 +42,7 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 41 tokens
-Prefill: 578.5ms (70.9 tok/s)
+Prefill: 87.6ms (467.8 tok/s)
 
  The function should also handle cases where the key is not present in some of the objects in the input array.
 
@@ -52,10 +52,10 @@ const input = [
   { id: 1, name: 'John' },
   { id: 2, name: 'Jane' },
   { id: 3, name: 'John' },
-  { id: 4, name: 'Bob' }
+  { id: 4, name: 'Doe' }
 ];
 
 console.log(groupBy(input, 'name'));
-// Output: { John: [{ id: 1, name: 'John' }, { id: 3, name: 'John' }], Jane: [{
+// Output: { John: [{ id: 1, name: 'John' }, { id: 3, name: 'John' }], Jane:
 
-128 tokens in 1254.1ms = 102.1 tok/s
+128 tokens in 1258.1ms = 101.7 tok/s

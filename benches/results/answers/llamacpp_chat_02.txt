@@ -578,20 +578,20 @@ sched_reserve:      ROCm0 compute buffer size =    14.25 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.68 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 4.53 ms, sched copies = 1
+sched_reserve: reserve took 5.13 ms, sched copies = 1
 What is the best way to learn a new programming language from scratch? I already know Python and want to learn Rust. Learning a new programming language can be a challenging but rewarding experience. Here are some steps to help you learn Rust from scratch:
 
 1. Start with the basics: Begin by learning the syntax and basic concepts of Rust. Rust has a unique syntax and some features that are different from other languages, so it's important to understand the basics before moving on to more advanced topics.
 
 2. Read the official documentation: Rust has an extensive and well-written official documentation that covers everything from the basics to advanced topics. Start by reading the "Rust by Example" section, which provides examples of common Rust code.
 
-3. Practice coding: Practice is keymain: decoded 128 tokens in 1.11 s, speed: 115.55 t/s
+3. Practice coding: Practice is keymain: decoded 128 tokens in 1.11 s, speed: 115.42 t/s
 
-llama_perf_sampler_print:    samplers time =       7.34 ms /   128 runs
-llama_perf_context_print:        load time =     514.82 ms
-llama_perf_context_print: prompt eval time =      45.54 ms /    24 tokens (    1.90 ms per token,   527.00 tokens per second)
-llama_perf_context_print:        eval time =    1046.40 ms /   127 runs   (    8.24 ms per token,   121.37 tokens per second)
-llama_perf_context_print:       total time =    1577.01 ms /   151 tokens
+llama_perf_sampler_print:    samplers time =       7.37 ms /   128 runs
+llama_perf_context_print:        load time =     529.90 ms
+llama_perf_context_print: prompt eval time =      46.41 ms /    24 tokens (    1.93 ms per token,   517.15 tokens per second)
+llama_perf_context_print:        eval time =    1046.55 ms /   127 runs   (    8.24 ms per token,   121.35 tokens per second)
+llama_perf_context_print:       total time =    1592.48 ms /   151 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  14.2500 MiB, matches expectation of  14.2500 MiB

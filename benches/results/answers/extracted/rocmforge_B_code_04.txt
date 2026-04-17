@@ -1,4 +1,4 @@
-[Draft] Prefilling KV cache... done in 92.1ms
+[Draft] Prefilling KV cache... done in 57.3ms
  ```cpp
 #include <iostream>
 #include <cassert>

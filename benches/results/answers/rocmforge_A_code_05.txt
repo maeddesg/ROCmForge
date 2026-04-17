@@ -42,7 +42,7 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 31 tokens
-Prefill: 504.7ms (61.4 tok/s)
+Prefill: 75.9ms (408.6 tok/s)
 
  Assume the database schema includes a `customers` table with columns `id` and `name`, and an `orders` table with columns `customer_id` and `amount`. The `customer_id` in the `orders` table references the `id` in the `customers` table.
 
@@ -67,4 +67,4 @@ LIMIT 5;
 
 
 
-128 tokens in 1252.8ms = 102.2 tok/s
+128 tokens in 1256.4ms = 101.9 tok/s

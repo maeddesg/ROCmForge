@@ -42,20 +42,20 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 21 tokens
-Prefill: 348.2ms (60.3 tok/s)
+Prefill: 64.2ms (327.2 tok/s)
 
- Making traditional Japanese ramen from scratch is a labor-intensive process, but it's also incredibly rewarding. Here's a step-by-step guide to creating a delicious bowl of ramen:
+ Making traditional Japanese ramen from scratch is a labor-intensive process, but it's also incredibly rewarding. Here's a step-by-step guide to help you create a delicious bowl of ramen:
 
 ### Ingredients and Equipment
 
 #### Broth:
 - **Base Ingredients:**
-  - 2 lbs (1 kg) dried pork bones
-  - 1 lb (500g) chicken bones
+  - 2 lbs (1 kg) pork bones (chicken bones can be used as a vegetarian alternative)
   - 1 onion, quartered
   - 2 carrots, quartered
   - 2 celery stalks, quartered
-  - 2 leeks, quartered
-  - 10-12 garlic cloves,
+  - 2 garlic cloves, smashed
+  - 10 cups (2.5 liters) water
 
-128 tokens in 1251.5ms = 102.3 tok/s
+
+128 tokens in 1252.9ms = 102.2 tok/s

@@ -80,9 +80,9 @@ done in 0.0s
 
 Chat template: none (raw completion)
 Prompt: 31 tokens
-Prefill: 505.3ms (61.4 tok/s)
+Prefill: 75.6ms (410.1 tok/s)
 
-[Draft] Prefilling KV cache... done in 123.5ms
+[Draft] Prefilling KV cache... done in 75.0ms
  Assume the database schema includes a `customers` table with columns `id` and `name`, and an `orders` table with columns `customer_id` and `amount`. The `customer_id` in the `orders` table references the `id` in the `customers` table.
 
 ### SQL Query
@@ -106,4 +106,4 @@ LIMIT 5;
 
 
 
-128 tokens in 1668.4ms = 76.7 tok/s (speculative: 52/75 accepted = 69.3%, avg 0.7/step over 75 steps)
+128 tokens in 3122.0ms = 41.0 tok/s (speculative: 50/77 accepted = 64.9%, avg 0.6/step over 77 steps)

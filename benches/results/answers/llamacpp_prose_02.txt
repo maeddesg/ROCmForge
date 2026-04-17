@@ -578,7 +578,7 @@ sched_reserve:      ROCm0 compute buffer size =    12.47 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.60 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 4.40 ms, sched copies = 1
+sched_reserve: reserve took 4.97 ms, sched copies = 1
 Explain how to make traditional Japanese ramen from scratch, including the broth, noodles, and toppings. Making traditional Japanese ramen from scratch is a labor-intensive process, but it's also incredibly rewarding. Here's a basic guide to help you create a delicious bowl of ramen:
 
 ### Ingredients and Equipment
@@ -590,13 +590,13 @@ Explain how to make traditional Japanese ramen from scratch, including the broth
   - 2 lbs (1 kg) pork bones
   - 1 large onion, quartered
   - 2 carrots, quartered
-  - 2 celery stalksmain: decoded 128 tokens in 1.11 s, speed: 115.52 t/s
+  - 2 celery stalksmain: decoded 128 tokens in 1.11 s, speed: 115.50 t/s
 
-llama_perf_sampler_print:    samplers time =       7.34 ms /   128 runs
-llama_perf_context_print:        load time =     511.95 ms
-llama_perf_context_print: prompt eval time =      45.17 ms /    21 tokens (    2.15 ms per token,   464.95 tokens per second)
-llama_perf_context_print:        eval time =    1046.97 ms /   127 runs   (    8.24 ms per token,   121.30 tokens per second)
-llama_perf_context_print:       total time =    1574.83 ms /   148 tokens
+llama_perf_sampler_print:    samplers time =       7.36 ms /   128 runs
+llama_perf_context_print:        load time =     511.44 ms
+llama_perf_context_print: prompt eval time =      43.56 ms /    21 tokens (    2.07 ms per token,   482.08 tokens per second)
+llama_perf_context_print:        eval time =    1048.87 ms /   127 runs   (    8.26 ms per token,   121.08 tokens per second)
+llama_perf_context_print:       total time =    1576.06 ms /   148 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  12.4688 MiB, matches expectation of  12.4688 MiB

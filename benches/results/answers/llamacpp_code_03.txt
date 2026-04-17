@@ -578,7 +578,7 @@ sched_reserve:      ROCm0 compute buffer size =    24.34 MiB
 sched_reserve:  ROCm_Host compute buffer size =     1.16 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 4.78 ms, sched copies = 1
+sched_reserve: reserve took 4.35 ms, sched copies = 1
 Write a JavaScript function called groupBy that takes an array of objects and a key name, and returns an object where the keys are the unique values of that property and the values are arrays of matching objects. The function should also handle cases where the key is not present in some of the objects in the input array.
 
 Example usage:
@@ -591,13 +591,13 @@ const input = [
 ];
 
 console.log(groupBy(input, 'name'));
-// Output: { John: [{ id: 1, name: 'John' }, { id: 3, name: 'John' }], Jane:main: decoded 128 tokens in 1.11 s, speed: 115.67 t/s
+// Output: { John: [{ id: 1, name: 'John' }, { id: 3, name: 'John' }], Jane:main: decoded 128 tokens in 1.11 s, speed: 115.19 t/s
 
-llama_perf_sampler_print:    samplers time =       7.17 ms /   128 runs
-llama_perf_context_print:        load time =     516.45 ms
-llama_perf_context_print: prompt eval time =      46.02 ms /    41 tokens (    1.12 ms per token,   890.82 tokens per second)
-llama_perf_context_print:        eval time =    1045.10 ms /   127 runs   (    8.23 ms per token,   121.52 tokens per second)
-llama_perf_context_print:       total time =    1577.00 ms /   168 tokens
+llama_perf_sampler_print:    samplers time =       7.40 ms /   128 runs
+llama_perf_context_print:        load time =     517.37 ms
+llama_perf_context_print: prompt eval time =      45.76 ms /    41 tokens (    1.12 ms per token,   896.00 tokens per second)
+llama_perf_context_print:        eval time =    1049.77 ms /   127 runs   (    8.27 ms per token,   120.98 tokens per second)
+llama_perf_context_print:       total time =    1582.79 ms /   168 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  24.3438 MiB, matches expectation of  24.3438 MiB

@@ -578,16 +578,16 @@ sched_reserve:      ROCm0 compute buffer size =    11.28 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.54 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 4.46 ms, sched copies = 1
+sched_reserve: reserve took 4.73 ms, sched copies = 1
 Explain the difference between classical conditioning and operant conditioning in psychology, with examples of each. Classical conditioning and operant conditioning are two fundamental concepts in the field of psychology that describe different types of learning processes.
 
-Classical conditioning, also known as Pavlovian conditioning, is a type of learning in which a neutral stimulus becomes associated with a meaningful stimulus, leading to a conditioned response. This process was first described by Ivan Pavlov, a Russian physiologist, in his experiments with dogs. In his experiment, Pavlov paired the presentation of food (unconditioned stimulus) with the sound of a bell (neutral stimulus). After several pairings, the dogs began to salivate (conditioned response) at the sound of themain: decoded 128 tokens in 1.11 s, speed: 115.44 t/s
+Classical conditioning, also known as Pavlovian conditioning, is a type of learning in which a neutral stimulus becomes associated with a meaningful stimulus, leading to a conditioned response. This process was first described by Ivan Pavlov, a Russian physiologist, in his experiments with dogs. In his experiment, Pavlov paired the presentation of food (unconditioned stimulus) with the sound of a bell (neutral stimulus). After several pairings, the dogs began to salivate (conditioned response) at the sound of themain: decoded 128 tokens in 1.11 s, speed: 115.45 t/s
 
-llama_perf_sampler_print:    samplers time =       7.33 ms /   128 runs
-llama_perf_context_print:        load time =     516.26 ms
-llama_perf_context_print: prompt eval time =      45.62 ms /    19 tokens (    2.40 ms per token,   416.46 tokens per second)
-llama_perf_context_print:        eval time =    1047.37 ms /   127 runs   (    8.25 ms per token,   121.26 tokens per second)
-llama_perf_context_print:       total time =    1579.41 ms /   146 tokens
+llama_perf_sampler_print:    samplers time =       7.44 ms /   128 runs
+llama_perf_context_print:        load time =     515.99 ms
+llama_perf_context_print: prompt eval time =      44.92 ms /    19 tokens (    2.36 ms per token,   422.96 tokens per second)
+llama_perf_context_print:        eval time =    1047.68 ms /   127 runs   (    8.25 ms per token,   121.22 tokens per second)
+llama_perf_context_print:       total time =    1579.79 ms /   146 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  11.2812 MiB, matches expectation of  11.2812 MiB

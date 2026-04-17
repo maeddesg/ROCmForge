@@ -42,7 +42,7 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 23 tokens
-Prefill: 379.4ms (60.6 tok/s)
+Prefill: 66.1ms (348.0 tok/s)
 
  ```cpp
 #include <iostream>
@@ -73,4 +73,4 @@ private:
     void fixInsert(Node* node);
     void fixDelete(Node
 
-128 tokens in 1252.2ms = 102.2 tok/s
+128 tokens in 1254.2ms = 102.1 tok/s

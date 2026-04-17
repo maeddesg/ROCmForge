@@ -74,17 +74,17 @@ done in 0.1s
 [GPU weights] Loading layer 22/24
 [GPU weights] Loading layer 23/24
 [GPU weights] Loading layer 24/24
-done in 0.0s
+done in 0.1s
 [Draft] Speculative decoding ready (depth=1)
 ---
 
 Chat template: none (raw completion)
 Prompt: 24 tokens
-Prefill: 396.1ms (60.6 tok/s)
+Prefill: 67.3ms (356.5 tok/s)
 
-[Draft] Prefilling KV cache... done in 96.3ms
+[Draft] Prefilling KV cache... done in 59.4ms
  The Silk Road was a network of trade routes that connected the East and West from the 2nd century BCE to the 15th century CE. It was named after the lucrative trade in silk, but it also facilitated the exchange of goods, ideas, and technologies between China, India, Persia, Arabia, and Europe.
 
-The Silk Road began in China and extended westward through Central Asia, the Middle East, and Europe. It was not a single road but a series of interconnected routes that allowed for the movement of goods, people, and ideas. The trade routes were established by the Han Dynasty in China and were later expanded by
+The Silk Road began in China and extended westward through Central Asia, the Middle East, and into Europe. It was not a single road but a series of interconnected routes that allowed for the movement of goods, people, and ideas over vast distances. The trade routes were established by the Han Dynasty in China and
 
-129 tokens in 1825.5ms = 70.7 tok/s (speculative: 44/84 accepted = 52.4%, avg 0.5/step over 84 steps)
+129 tokens in 3447.5ms = 37.4 tok/s (speculative: 42/86 accepted = 48.8%, avg 0.5/step over 86 steps)

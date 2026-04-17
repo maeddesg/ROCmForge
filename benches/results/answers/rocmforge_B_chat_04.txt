@@ -80,17 +80,18 @@ done in 0.0s
 
 Chat template: none (raw completion)
 Prompt: 24 tokens
-Prefill: 396.1ms (60.6 tok/s)
+Prefill: 67.4ms (356.2 tok/s)
 
-[Draft] Prefilling KV cache... done in 96.5ms
- Quantum computing is a fascinating and complex field, but I'll try to explain it in simple terms.
+[Draft] Prefilling KV cache... done in 59.4ms
+ Quantum computing is a fascinating and complex field that leverages the principles of quantum mechanics to perform computations. Let's break it down into simpler terms:
 
-**Classical Computers vs. Quantum Computers**
+### Classical Computers vs. Quantum Computers
 
-In classical computing, we use bits (0s and 1s) to represent and process information. Quantum computers, on the other hand, use quantum bits or qubits. Qubits can exist in multiple states simultaneously, thanks to a principle called superposition.
+**Classical Computers:**
+- **Bits:** These are the basic units of information in classical computers. They can be either 0 or 1.
+- **Operations:** Classical computers perform operations on bits using logic gates (AND, OR, NOT, etc.) to process information.
 
-**Superposition**
+**Quantum Computers:**
+- **Qubits:** These are the basic units of information in quantum computers. Unlike classical bits, qubits can exist in multiple states simultaneously
 
-Imagine you have a coin that can be either heads or tails. In classical computing, the coin is either heads or tails, but not both at the same time. However, in quantum computing, a qubit
-
-128 tokens in 1797.9ms = 71.2 tok/s (speculative: 44/83 accepted = 53.0%, avg 0.5/step over 83 steps)
+128 tokens in 2982.7ms = 42.9 tok/s (speculative: 53/74 accepted = 71.6%, avg 0.7/step over 74 steps)

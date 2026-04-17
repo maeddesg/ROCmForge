@@ -39,7 +39,7 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 [GPU weights] Loading layer 26/28
 [GPU weights] Loading layer 27/28
 [GPU weights] Loading layer 28/28
-done in 1.6s
+done in 1.7s
 
 --- Draft model (speculative decoding, depth=1) ---
 [Draft] model path: /home/maeddes/models/qwen2.5-0.5b-instruct-q4_0.gguf
@@ -80,20 +80,18 @@ done in 0.0s
 
 Chat template: none (raw completion)
 Prompt: 22 tokens
-Prefill: 363.6ms (60.5 tok/s)
+Prefill: 65.0ms (338.5 tok/s)
 
-[Draft] Prefilling KV cache... done in 88.3ms
+[Draft] Prefilling KV cache... done in 54.3ms
  I have a budget of $500 for the entire trip. Here's a breakdown of my expenses:
 
 - Round-trip flight: $200
-- Accommodation: $150
+- Accommodation: $100
 - Transportation: $50
 - Food and drink: $100
+- Activities and attractions: $50
+- Miscellaneous: $50
 
-I want to visit the Old Town, the English Garden, and the Viktualienmarkt. Can you suggest some affordable activities and places to visit in Munich that fit within my budget? Sure, I'd be happy to help you plan your weekend trip to Munich! Here's a suggested itinerary that fits within your budget:
+I want to make the most of my time in Munich and explore the city's history, culture, and cuisine. Can you suggest some must-see attractions, restaurants, and neighborhoods to visit? Also, what are some free activities I can do in Munich? Here
 
-Day 1:
-
-
-
-128 tokens in 1689.0ms = 75.8 tok/s (speculative: 49/78 accepted = 62.8%, avg 0.6/step over 78 steps)
+128 tokens in 3243.6ms = 39.5 tok/s (speculative: 46/81 accepted = 56.8%, avg 0.6/step over 81 steps)

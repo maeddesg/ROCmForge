@@ -10,7 +10,7 @@ Loading CPU weights... [cpu weights] layer 1/28 loaded
 [cpu weights] layer 16/28 loaded
 [cpu weights] layer 24/28 loaded
 [cpu weights] layer 28/28 loaded
-done in 1.5s
+done in 1.4s
 Loading GPU weights... [GPU weights] Loading layer 1/28
 [GPU weights] Loading layer 2/28
 [GPU weights] Loading layer 3/28
@@ -74,15 +74,15 @@ done in 0.1s
 [GPU weights] Loading layer 22/24
 [GPU weights] Loading layer 23/24
 [GPU weights] Loading layer 24/24
-done in 0.0s
+done in 0.1s
 [Draft] Speculative decoding ready (depth=1)
 ---
 
 Chat template: none (raw completion)
 Prompt: 28 tokens
-Prefill: 458.1ms (61.1 tok/s)
+Prefill: 72.1ms (388.4 tok/s)
 
-[Draft] Prefilling KV cache... done in 111.7ms
+[Draft] Prefilling KV cache... done in 69.6ms
  Additionally, implement a POST endpoint that accepts a JSON payload with a "message" field and returns a JSON response with the received message and the current timestamp.
 To create a Rust HTTP server that listens on port 8080 and responds to GET and POST requests, you can use the `hyper` crate. First, add the `hyper` crate to your `Cargo.toml` file:
 
@@ -95,4 +95,4 @@ serde_json = "1.0"
 
 Next, create a new Rust file
 
-128 tokens in 1716.1ms = 74.6 tok/s (speculative: 49/78 accepted = 62.8%, avg 0.6/step over 78 steps)
+128 tokens in 3156.3ms = 40.6 tok/s (speculative: 49/78 accepted = 62.8%, avg 0.6/step over 78 steps)

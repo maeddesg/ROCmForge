@@ -10,7 +10,7 @@ Loading CPU weights... [cpu weights] layer 1/28 loaded
 [cpu weights] layer 16/28 loaded
 [cpu weights] layer 24/28 loaded
 [cpu weights] layer 28/28 loaded
-done in 1.5s
+done in 1.4s
 Loading GPU weights... [GPU weights] Loading layer 1/28
 [GPU weights] Loading layer 2/28
 [GPU weights] Loading layer 3/28
@@ -42,10 +42,10 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 19 tokens
-Prefill: 316.1ms (60.1 tok/s)
+Prefill: 61.3ms (310.1 tok/s)
 
  Classical conditioning and operant conditioning are two fundamental concepts in the field of psychology that describe different types of learning processes.
 
-Classical conditioning, also known as respondent conditioning, is a type of learning in which a neutral stimulus becomes associated with an automatic (unconditioned) response through repeated pairing with a stimulus that naturally produces the response. The process was first described by Ivan Pavlov in his experiments with dogs. In Pavlov's experiment, he paired the sound of a bell (neutral stimulus) with the presentation of food (unconditioned stimulus), which naturally caused the dogs to salivate (unconditioned response). After repeated pairings,
+Classical conditioning, also known as respondent conditioning, is a type of learning in which a neutral stimulus becomes associated with an automatic (unconditioned) response through repeated pairing with a stimulus that naturally produces the response. The process was first described by Ivan Pavlov in his experiments with dogs. In Pavlov's experiment, he paired the sound of a bell (neutral stimulus) with the presentation of food (unconditioned stimulus), which naturally caused the dogs to salivate (unconditioned response). After several pairings,
 
-128 tokens in 1251.8ms = 102.3 tok/s
+128 tokens in 1254.2ms = 102.1 tok/s

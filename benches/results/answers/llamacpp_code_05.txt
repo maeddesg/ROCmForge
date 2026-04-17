@@ -578,7 +578,7 @@ sched_reserve:      ROCm0 compute buffer size =    18.41 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.88 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 4.84 ms, sched copies = 1
+sched_reserve: reserve took 4.53 ms, sched copies = 1
 Write a SQL query that finds the top 5 customers by total order amount from a database with customers and orders tables, including their name and total spent. Assume the database schema includes a `customers` table with columns `id` and `name`, and an `orders` table with columns `id`, `customer_id`, and `amount`. The `customer_id` in the `orders` table references the `id` in the `customers` table.
 
 ### SQL Query
@@ -598,13 +598,13 @@ ORDER BY
 LIMIT 5;
 ```
 
-main: decoded 128 tokens in 1.11 s, speed: 115.47 t/s
+main: decoded 128 tokens in 1.11 s, speed: 115.19 t/s
 
-llama_perf_sampler_print:    samplers time =       7.39 ms /   128 runs
-llama_perf_context_print:        load time =     513.13 ms
-llama_perf_context_print: prompt eval time =      45.81 ms /    31 tokens (    1.48 ms per token,   676.75 tokens per second)
-llama_perf_context_print:        eval time =    1046.64 ms /   127 runs   (    8.24 ms per token,   121.34 tokens per second)
-llama_perf_context_print:       total time =    1575.85 ms /   158 tokens
+llama_perf_sampler_print:    samplers time =       7.36 ms /   128 runs
+llama_perf_context_print:        load time =     518.06 ms
+llama_perf_context_print: prompt eval time =      45.93 ms /    31 tokens (    1.48 ms per token,   674.88 tokens per second)
+llama_perf_context_print:        eval time =    1049.42 ms /   127 runs   (    8.26 ms per token,   121.02 tokens per second)
+llama_perf_context_print:       total time =    1583.30 ms /   158 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  18.4062 MiB, matches expectation of  18.4062 MiB

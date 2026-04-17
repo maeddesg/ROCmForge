@@ -10,7 +10,7 @@ Loading CPU weights... [cpu weights] layer 1/28 loaded
 [cpu weights] layer 16/28 loaded
 [cpu weights] layer 24/28 loaded
 [cpu weights] layer 28/28 loaded
-done in 1.4s
+done in 1.5s
 Loading GPU weights... [GPU weights] Loading layer 1/28
 [GPU weights] Loading layer 2/28
 [GPU weights] Loading layer 3/28
@@ -42,15 +42,15 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 22 tokens
-Prefill: 363.5ms (60.5 tok/s)
+Prefill: 64.9ms (339.2 tok/s)
 
- When deciding between an electric car (EV) and a hybrid, it's important to consider several factors, including cost, range, charging infrastructure, environmental impact, and personal driving habits. Here’s a breakdown of the pros and cons for each:
+ When deciding between an electric car (EV) and a hybrid, it's important to consider several factors such as cost, range, charging infrastructure, environmental impact, and personal driving habits. Here’s a breakdown of the pros and cons for each:
 
 ### Electric Cars (EVs)
 
 **Pros:**
 1. **Environmental Impact:** EVs produce zero tailpipe emissions, which can significantly reduce your carbon footprint.
-2. **Cost Savings:** Over time, EVs can be more cost-effective due to lower fuel costs and fewer maintenance needs (no oil changes, fewer moving parts).
-3. **Performance:** EVs often offer instant torque,
+2. **Cost Savings:** Over time, EVs can be cheaper to own and operate due to lower fuel costs, fewer moving parts, and lower maintenance requirements.
+3. **Performance:** EVs often offer instant torque, providing
 
-128 tokens in 1252.1ms = 102.2 tok/s
+128 tokens in 1252.2ms = 102.2 tok/s

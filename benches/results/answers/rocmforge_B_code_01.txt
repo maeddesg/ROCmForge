@@ -80,9 +80,9 @@ done in 0.0s
 
 Chat template: none (raw completion)
 Prompt: 28 tokens
-Prefill: 458.2ms (61.1 tok/s)
+Prefill: 72.0ms (389.1 tok/s)
 
-[Draft] Prefilling KV cache... done in 112.0ms
+[Draft] Prefilling KV cache... done in 69.2ms
  The function should have a docstring explaining the parameters and return value. Use a for loop to iterate over the list and apply the binary search algorithm. Include a check function that tests the binary search function with various inputs, including edge cases.
 
 Here's a Python function that implements binary search on a sorted list:
@@ -99,4 +99,4 @@ def binary_search(arr, target):
     Returns:
     int: The index of the target element in the list, or
 
-128 tokens in 1617.6ms = 79.1 tok/s (speculative: 54/73 accepted = 74.0%, avg 0.7/step over 73 steps)
+128 tokens in 2961.0ms = 43.2 tok/s (speculative: 54/73 accepted = 74.0%, avg 0.7/step over 73 steps)

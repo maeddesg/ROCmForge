@@ -1,6 +1,6 @@
 ggml_cuda_init: found 1 ROCm devices (Total VRAM: 16304 MiB):
   Device 0: AMD Radeon RX 9070 XT, gfx1201 (0x1201), VMM: no, Wave Size: 32, VRAM: 16304 MiB
-llama_model_load_from_file_impl: using device ROCm0 (AMD Radeon RX 9070 XT) (0000:03:00.0) - 16208 MiB free
+llama_model_load_from_file_impl: using device ROCm0 (AMD Radeon RX 9070 XT) (0000:03:00.0) - 16222 MiB free
 llama_model_loader: loaded meta data with 38 key-value pairs and 339 tensors from /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf (version GGUF V3 (latest))
 llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
 llama_model_loader: - kv   0:                       general.architecture str              = qwen2
@@ -578,20 +578,20 @@ sched_reserve:      ROCm0 compute buffer size =    13.06 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.62 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 5.12 ms, sched copies = 1
+sched_reserve: reserve took 4.39 ms, sched copies = 1
 Help me plan a weekend trip to Munich. I like history, good food, and walking around interesting neighborhoods. I have 2 days and 3 nights to explore the city. Here's a suggested itinerary for your weekend trip to Munich:
 
 **Day 1:**
 
 - **Morning:**
   - Start your day with a visit to the **New Town Hall (Neues Rathaus)**. This impressive Gothic-style building is a must-see and offers a great view of the city from its observation deck.
-  - Walk down to the **Marienplatz** and explore the surrounding area. Don't miss the **Old Town Hall (Altes Rathaus)**, the **Cathedral of Our Lady (Frauenkirche)**,main: decoded 128 tokens in 1.11 s, speed: 115.51 t/s
+  - Walk down to the **Marienplatz** and explore the surrounding area. Don't miss the **Old Town Hall (Altes Rathaus)**, the **Cathedral of Our Lady (Frauenkirche)**,main: decoded 128 tokens in 1.11 s, speed: 115.35 t/s
 
-llama_perf_sampler_print:    samplers time =       7.30 ms /   128 runs
-llama_perf_context_print:        load time =     520.21 ms
-llama_perf_context_print: prompt eval time =      45.12 ms /    22 tokens (    2.05 ms per token,   487.61 tokens per second)
-llama_perf_context_print:        eval time =    1047.06 ms /   127 runs   (    8.24 ms per token,   121.29 tokens per second)
-llama_perf_context_print:       total time =    1583.24 ms /   149 tokens
+llama_perf_sampler_print:    samplers time =       7.35 ms /   128 runs
+llama_perf_context_print:        load time =     510.48 ms
+llama_perf_context_print: prompt eval time =      44.55 ms /    22 tokens (    2.02 ms per token,   493.86 tokens per second)
+llama_perf_context_print:        eval time =    1049.44 ms /   127 runs   (    8.26 ms per token,   121.02 tokens per second)
+llama_perf_context_print:       total time =    1575.65 ms /   149 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  13.0625 MiB, matches expectation of  13.0625 MiB

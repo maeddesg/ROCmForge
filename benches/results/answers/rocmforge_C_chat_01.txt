@@ -42,7 +42,7 @@ Loading GPU weights... [GPU weights] Loading layer 1/28
 done in 1.6s
 Chat template: none (raw completion)
 Prompt: 22 tokens
-Prefill: 363.6ms (60.5 tok/s)
+Prefill: 364.0ms (60.4 tok/s)
 
  I have 2 days and 3 nights to explore. Here's a rough outline of what I'd like to do:
 
@@ -63,4 +63,4 @@ Day 2:
 Day 3:
 - Visit
 
-128 tokens in 1251.6ms = 102.3 tok/s
+128 tokens in 1252.0ms = 102.2 tok/s

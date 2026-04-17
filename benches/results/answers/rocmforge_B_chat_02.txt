@@ -80,15 +80,15 @@ done in 0.0s
 
 Chat template: none (raw completion)
 Prompt: 24 tokens
-Prefill: 395.9ms (60.6 tok/s)
+Prefill: 67.4ms (356.2 tok/s)
 
-[Draft] Prefilling KV cache... done in 96.2ms
+[Draft] Prefilling KV cache... done in 59.5ms
  Learning a new programming language can be a challenging but rewarding experience. Here are some steps to help you learn Rust from scratch:
 
 1. Start with the basics: Begin by learning the syntax and basic concepts of Rust. Rust has a unique syntax and some features that are different from other languages, so it's important to understand the basics before moving on to more advanced topics.
 
-2. Read the official documentation: Rust has an extensive and well-written official documentation that covers everything from the basics to advanced topics. Start by reading the official Rust book, which is a comprehensive guide to the language.
+2. Read the official documentation: Rust has an extensive and well-written official documentation that covers everything from the basics to advanced topics. Start by reading the "Rust by Example" section, which provides practical examples of how to use Rust.
 
-3. Practice coding: Practice is essential to learning any
+3. Practice coding: Practice
 
-128 tokens in 1721.6ms = 74.4 tok/s (speculative: 48/79 accepted = 60.8%, avg 0.6/step over 79 steps)
+128 tokens in 3218.6ms = 39.8 tok/s (speculative: 47/80 accepted = 58.8%, avg 0.6/step over 80 steps)

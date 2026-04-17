@@ -1,6 +1,6 @@
 ggml_cuda_init: found 1 ROCm devices (Total VRAM: 16304 MiB):
   Device 0: AMD Radeon RX 9070 XT, gfx1201 (0x1201), VMM: no, Wave Size: 32, VRAM: 16304 MiB
-llama_model_load_from_file_impl: using device ROCm0 (AMD Radeon RX 9070 XT) (0000:03:00.0) - 16208 MiB free
+llama_model_load_from_file_impl: using device ROCm0 (AMD Radeon RX 9070 XT) (0000:03:00.0) - 16222 MiB free
 llama_model_loader: loaded meta data with 38 key-value pairs and 339 tensors from /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf (version GGUF V3 (latest))
 llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
 llama_model_loader: - kv   0:                       general.architecture str              = qwen2
@@ -578,15 +578,15 @@ sched_reserve:      ROCm0 compute buffer size =    16.62 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.79 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 5.01 ms, sched copies = 1
+sched_reserve: reserve took 5.27 ms, sched copies = 1
 Write a Rust HTTP server that listens on port 8080 and responds to GET requests with a JSON object containing the current timestamp. Additionally, the server should support a POST request to '/upload' endpoint which accepts a file and saves it to the server's file system. The server should also log all incoming requests to a file named 'requests.log'.
-To create a Rust HTTP server that listens on port 8080, responds to GET requests with a JSON object containing the current timestamp, and supports a POST request to '/upload' endpoint which accepts a file and saves it to the server's file system, you can use the `hyper` crate for HTTP handling and `tokio` for asynchronous operations. Additionally, you can use the `log` crate formain: decoded 128 tokens in 1.11 s, speed: 115.60 t/s
+To create a Rust HTTP server that listens on port 8080, responds to GET requests with a JSON object containing the current timestamp, and supports a POST request to '/upload' endpoint which accepts a file and saves it to the server's file system, you can use the `hyper` crate for HTTP handling and `tokio` for asynchronous operations. Additionally, you can use the `log` crate formain: decoded 128 tokens in 1.11 s, speed: 115.17 t/s
 
-llama_perf_sampler_print:    samplers time =       7.31 ms /   128 runs
-llama_perf_context_print:        load time =     513.76 ms
-llama_perf_context_print: prompt eval time =      45.07 ms /    28 tokens (    1.61 ms per token,   621.26 tokens per second)
-llama_perf_context_print:        eval time =    1046.48 ms /   127 runs   (    8.24 ms per token,   121.36 tokens per second)
-llama_perf_context_print:       total time =    1575.97 ms /   155 tokens
+llama_perf_sampler_print:    samplers time =       7.39 ms /   128 runs
+llama_perf_context_print:        load time =     515.47 ms
+llama_perf_context_print: prompt eval time =      45.00 ms /    28 tokens (    1.61 ms per token,   622.18 tokens per second)
+llama_perf_context_print:        eval time =    1050.28 ms /   127 runs   (    8.27 ms per token,   120.92 tokens per second)
+llama_perf_context_print:       total time =    1581.86 ms /   155 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  16.6250 MiB, matches expectation of  16.6250 MiB

@@ -1,4 +1,4 @@
-[Draft] Prefilling KV cache... done in 111.7ms
+[Draft] Prefilling KV cache... done in 69.6ms
  Additionally, implement a POST endpoint that accepts a JSON payload with a "message" field and returns a JSON response with the received message and the current timestamp.
 To create a Rust HTTP server that listens on port 8080 and responds to GET and POST requests, you can use the `hyper` crate. First, add the `hyper` crate to your `Cargo.toml` file:
 

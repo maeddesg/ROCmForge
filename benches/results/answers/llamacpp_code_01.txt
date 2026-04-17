@@ -1,6 +1,6 @@
 ggml_cuda_init: found 1 ROCm devices (Total VRAM: 16304 MiB):
   Device 0: AMD Radeon RX 9070 XT, gfx1201 (0x1201), VMM: no, Wave Size: 32, VRAM: 16304 MiB
-llama_model_load_from_file_impl: using device ROCm0 (AMD Radeon RX 9070 XT) (0000:03:00.0) - 16208 MiB free
+llama_model_load_from_file_impl: using device ROCm0 (AMD Radeon RX 9070 XT) (0000:03:00.0) - 16222 MiB free
 llama_model_loader: loaded meta data with 38 key-value pairs and 339 tensors from /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf (version GGUF V3 (latest))
 llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
 llama_model_loader: - kv   0:                       general.architecture str              = qwen2
@@ -578,7 +578,7 @@ sched_reserve:      ROCm0 compute buffer size =    16.62 MiB
 sched_reserve:  ROCm_Host compute buffer size =     0.79 MiB
 sched_reserve: graph nodes  = 959
 sched_reserve: graph splits = 2
-sched_reserve: reserve took 4.55 ms, sched copies = 1
+sched_reserve: reserve took 5.04 ms, sched copies = 1
 Write a Python function that implements binary search on a sorted list and returns the index of the target element, or -1 if not found. The function should have a docstring explaining the parameters and return value. Use a for loop to iterate over the list and apply the binary search algorithm. Include a check function that tests the binary search function with various inputs, including edge cases.
 
 Here's a Python function that implements binary search on a sorted list:
@@ -593,13 +593,13 @@ def binary_search(arr, target):
     target: The element to search for.
 
     Returns:
-    int: The index of the target element in the list, ormain: decoded 128 tokens in 1.11 s, speed: 115.61 t/s
+    int: The index of the target element in the list, ormain: decoded 128 tokens in 1.11 s, speed: 115.11 t/s
 
-llama_perf_sampler_print:    samplers time =       7.32 ms /   128 runs
-llama_perf_context_print:        load time =     516.45 ms
-llama_perf_context_print: prompt eval time =      44.62 ms /    28 tokens (    1.59 ms per token,   627.55 tokens per second)
-llama_perf_context_print:        eval time =    1047.00 ms /   127 runs   (    8.24 ms per token,   121.30 tokens per second)
-llama_perf_context_print:       total time =    1579.02 ms /   155 tokens
+llama_perf_sampler_print:    samplers time =       7.37 ms /   128 runs
+llama_perf_context_print:        load time =     512.61 ms
+llama_perf_context_print: prompt eval time =      46.40 ms /    28 tokens (    1.66 ms per token,   603.50 tokens per second)
+llama_perf_context_print:        eval time =    1049.81 ms /   127 runs   (    8.27 ms per token,   120.97 tokens per second)
+llama_perf_context_print:       total time =    1578.17 ms /   155 tokens
 llama_perf_context_print:    graphs reused =        126
 
 ~llama_context:      ROCm0 compute buffer size is  16.6250 MiB, matches expectation of  16.6250 MiB
