@@ -1427,6 +1427,11 @@ pub fn gpu_dispatch_fused_gate_up(
     )
 }
 
+/// Minimum `seq_len` (= WMMA M dimension) at which the WMMA Q4_0 prefill
+/// kernel takes over. The kernel requires 64-aligned M; below this the
+/// hipBLAS path or the batched-GEMV path handles it.
+const WMMA_PREFILL_MIN_M: usize = 64;
+
 /// Dispatch a GPU GEMM for GGUF weights.
 pub fn gpu_dispatch_gemm(
     device: &GpuDevice,
@@ -1440,6 +1445,40 @@ pub fn gpu_dispatch_gemm(
 ) -> GpuResult<()> {
     if seq_len == 1 && supports_gemv_type(meta.wtype) {
         return gpu_dispatch_gemv(device, weights, meta, input, output, out_dim, in_dim);
+    }
+
+    // Phase 2d — preferred prefill path for Q4_0: hand-written WMMA kernel
+    // with inline Q4_0 dequant. Kernel requires M (=seq_len) ≥ 64 and both
+    // N (out_dim) and K (in_dim) multiples of 64 / 32 respectively.
+    //
+    // Ordering: WMMA → hipBLAS → custom GEMM → batched/tiled GEMV. Each
+    // step has its own opt-out env flag.
+    if seq_len >= WMMA_PREFILL_MIN_M
+        && (seq_len % 64) == 0
+        && meta.wtype == GgmlType::Q4_0
+        && !meta.needs_transpose
+        && (out_dim % 64) == 0
+        && (in_dim % 32) == 0
+        && super::safety::wmma_prefill_enabled()
+    {
+        match super::kernels::wmma::launch_wmma_gemm_q4_0(
+            input,
+            weights.as_ptr() as *const u8,
+            output,
+            seq_len,
+            out_dim,
+            in_dim,
+            super::ffi::hipStream_t::null(),
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                eprintln!(
+                    "[rocmforge] WMMA Q4_0 prefill path failed ({}), falling back to hipBLAS/GEMV",
+                    err
+                );
+                // fall through to the hipBLAS path
+            }
+        }
     }
 
     // hipBLAS prefill path: dequantise the Q4_0 weight tensor to FP16,
