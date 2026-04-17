@@ -68,7 +68,7 @@ CPU path is functional and has an AVX-512 VNNI Q4_0 GEMV kernel on Zen4+, but is
 ### Known issues
 
 - **Full-decode HIP graph disabled on RDNA4**: Graph replay of kernels reading device pointers returns stale values in complex graphs (~200+ nodes). See `hip_graph_device_pointer_bug.md`. Tail-only graph (lm_head + argmax) still active.
-- **Prefill seq_len alignment**: The WMMA prefill GEMM requires seq_len divisible by 64; the WMMA attention kernel additionally requires `head_dim == 128`. Unaligned prompts fall back to hipBLAS/scalar kernels and lose most of the gain. Kernel variants for arbitrary seq_len are planned.
+- **Prefill `head_dim` constraint**: The WMMA prefill attention kernel bakes in `head_dim == 128` (matches Qwen2.5, LLaMA-2 style). Architectures with other head dimensions fall back to the scalar kernel. Arbitrary `seq_len ≥ 64` is supported via zero-padding in `GpuPrefillScratch`.
 
 ## Requirements
 

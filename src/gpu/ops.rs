@@ -1447,25 +1447,29 @@ pub fn gpu_dispatch_gemm(
         return gpu_dispatch_gemv(device, weights, meta, input, output, out_dim, in_dim);
     }
 
-    // Phase 2d — preferred prefill path for Q4_0: hand-written WMMA kernel
-    // with inline Q4_0 dequant. Kernel requires M (=seq_len) ≥ 64 and both
-    // N (out_dim) and K (in_dim) multiples of 64 / 32 respectively.
+    // Phase 2d/3.1 — preferred prefill path for Q4_0: hand-written WMMA
+    // kernel with inline Q4_0 dequant. Kernel requires M ≥ 64 and out_dim /
+    // in_dim multiples of 64 / 32 respectively. When `seq_len` is not
+    // 64-aligned the kernel is dispatched at `padded_M = round_up_64(seq_len)`;
+    // the only caller at seq_len ≥ 64 is the prefill path, whose
+    // `GpuPrefillScratch` buffers are oversized to `buffer_seq_len` and
+    // zero-initialised so the trailing rows are safe to read and write.
     //
     // Ordering: WMMA → hipBLAS → custom GEMM → batched/tiled GEMV. Each
     // step has its own opt-out env flag.
     if seq_len >= WMMA_PREFILL_MIN_M
-        && (seq_len % 64) == 0
         && meta.wtype == GgmlType::Q4_0
         && !meta.needs_transpose
         && (out_dim % 64) == 0
         && (in_dim % 32) == 0
         && super::safety::wmma_prefill_enabled()
     {
+        let padded_m = seq_len.div_ceil(64) * 64;
         match super::kernels::wmma::launch_wmma_gemm_q4_0(
             input,
             weights.as_ptr() as *const u8,
             output,
-            seq_len,
+            padded_m,
             out_dim,
             in_dim,
             super::ffi::hipStream_t::null(),

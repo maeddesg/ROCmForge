@@ -664,11 +664,11 @@ fn gpu_attention_prefill(
     let kv_size = config.num_kv_heads * config.head_dim;
     let scale = 1.0f32 / (config.head_dim as f32).sqrt();
 
-    // Phase 3d: WMMA GQA + causal attention. Requires seq_len % 64 == 0 and
-    // head_dim == 128 (baked into the kernel). One dispatch replaces the
+    // Phase 3d/3.1: WMMA GQA + causal attention. Requires head_dim == 128
+    // (baked into the kernel); seq_len is zero-padded up to a multiple of 64
+    // via the oversized GpuPrefillScratch buffers. One dispatch replaces the
     // per-head scalar loop; 300-500× faster at Qwen2.5-7B shapes.
     if seq_len >= 64
-        && seq_len % 64 == 0
         && config.head_dim == 128
         && config.num_heads % config.num_kv_heads == 0
         && super::safety::wmma_attention_enabled()
@@ -720,6 +720,8 @@ fn gpu_attention_prefill_wmma(
     use super::kernels::wmma::launch_wmma_attention_prefill_gqa_causal;
     use super::prefill_gemm::convert_f32_to_f16_on_stream;
 
+    // Convert only the real rows; the trailing padding rows of the FP16
+    // staging buffers stay zero from allocation-time zero-init.
     let q_elems = seq_len * config.num_heads * config.head_dim;
     let kv_elems = seq_len * config.num_kv_heads * config.head_dim;
 
@@ -728,6 +730,7 @@ fn gpu_attention_prefill_wmma(
         config.num_kv_heads,
         config.head_dim,
     )?;
+    let padded_seq_len = scratch.buffer_seq_len;
     let q_f16 = scratch.q_f16.as_ref().unwrap().as_ptr() as *mut u8;
     let k_f16 = scratch.k_f16.as_ref().unwrap().as_ptr() as *mut u8;
     let v_f16 = scratch.v_f16.as_ref().unwrap().as_ptr() as *mut u8;
@@ -757,7 +760,7 @@ fn gpu_attention_prefill_wmma(
         k_f16 as *const u16,
         v_f16 as *const u16,
         scratch.attn_out.as_ptr() as *mut f32,
-        seq_len,
+        padded_seq_len,
         config.num_heads,
         config.num_kv_heads,
         true,

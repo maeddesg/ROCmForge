@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### WMMA prefill path accepts arbitrary `seq_len ≥ 64` (Phase 3.1)
+
+- `GpuPrefillScratch` oversizes all activation buffers to the next
+  multiple of 64 rows and zero-initialises them once at allocation.
+  Downstream ops keep iterating over the logical `seq_len`; the WMMA
+  GEMM and attention kernels dispatch at the padded row count. The
+  padding rows stay zero throughout the forward pass, so trailing
+  outputs are zero (harmless) and the causal mask filters padding
+  key positions from real queries automatically.
+- `gpu_dispatch_gemm` and `gpu_attention_prefill` drop the
+  `seq_len % 64 == 0` gate — the WMMA path now engages for every
+  `seq_len ≥ 64`.
+- Measured throughput on Qwen2.5-7B Q4_0, RX 9070 XT (median of 3,
+  `--max-tokens 1`):
+
+  | pp  | Phase 3d (aligned only) | **Phase 3.1 (padded)** | vs scalar fallback |
+  |----:|-----------------------:|-----------------------:|-------------------:|
+  |  65 |                     88 |                **469** |               5.3× |
+  | 100 |                     88 |                **558** |               6.3× |
+  | 200 |                     88 |                **588** |               6.7× |
+  | 300 |                     88 |                **615** |               7.0× |
+
+  (The Phase 3d column shows the scalar-fallback throughput that
+  unaligned prompts received before this phase.)
+- One-time zero-init via `hipMemsetAsync` for ~30 MB of activation
+  scratch takes ~150 µs on RDNA 4 — amortised over 28 layers of
+  prefill, well under 1 % of total time.
+- Test: `tests/wmma_padding_correctness.rs` — 6 scenarios
+  (unaligned 65/100/200/300, aligned 64/128 no-op), first decoded
+  token identical to the scalar fallback.
+
 ### WMMA FlashAttention Prefill (Phases 3a–3d)
 
 - **WMMA prefill attention kernel**
