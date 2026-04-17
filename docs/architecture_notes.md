@@ -8,25 +8,46 @@ Empirische Befunde zur GPU-Mikroarchitektur, die projektübergreifend relevant s
 
 Auf RX 9070 XT (gfx1201, RDNA 4) pipelined der Memory-Controller sequentielle GEMV-Dispatches auf dieselbe Gewichtsmatrix so effizient, dass batched Dispatches keinen messbaren Bandbreitenvorteil bringen.
 
-Bestätigt durch zwei unabhängige Experimente:
+Bestätigt durch drei unabhängige Experimente:
 
 1. **Tiled GEMV FFN-Down** (~1.5% Throughput-Gewinn statt erwarteter ~15%): Die FFN-Down-Projektion (18944→3584, ~135 MB Q4_0) lädt die Gewichtsmatrix bei sequentiellem Fallback N-mal. Der Tiled-Kernel lädt sie 1×. Erwartet wurde ein Gewinn proportional zur eingesparten Bandbreite — gemessen wurden nur ~9 μs/Layer statt ~150 μs/Layer. Dokumentiert in `docs/batched_verify.md` (Abschnitt "Memory-Controller Pipelining").
 
 2. **Batched lm_head** (~0.4% Verify-Overhead-Reduktion statt erwarteter ~8%): Die lm_head-Projektion (3584→152064, ~307 MB Q4_0) wurde von N sequentiellen Dispatches auf 1 batched Dispatch umgestellt. Non-layer-overhead sank um ~114 μs/Step statt der vorhergesagten ~2.500 μs. Dokumentiert in `benches/results/batched_lm_head_analysis.md`.
 
+3. **Buffer-Traffic-Validierung (Fused FFN)** (~1.2% Verify-Overhead-Reduktion statt erwarteter 8–14%): Micro-Benchmark simulierte die FFN-Kette in drei Varianten — separate Kernels mit VRAM-Zwischenpuffern, single Dispatch mit VRAM-Roundtrips, und tiled Fusion mit Registern/LDS. Maximaler erreichbarer Gewinn: ~224 µs/Step. Die intermediate-Buffer-Traffic (~150 KB/Layer) wird vom Gewichtsmatrix-Traffic (~150 MB/Layer) um Faktor 500 überdeckt. Dokumentiert in `profiling/results/BUFFER_TRAFFIC_ANALYSIS.md`.
+
 ### Mechanismus
 
 Der GPU Command Processor überlappt den Tail eines GEMV-Kernels mit dem Head des nächsten, wenn beide auf dieselbe Adressbereiche zugreifen und keine explizite Synchronisation dazwischen liegt. Der Memory-Controller hält dabei nahezu volle Bandbreitenauslastung über Kernel-Grenzen hinweg aufrecht. Das "Load once instead of N times"-Modell überschätzt den Gewinn um Faktor ~20×.
 
+### Konsistentes Überschätzungsmuster bei Bandbreiten-Modellierung
+
+Die drei Experimente zeigen dasselbe Muster: naive Bandbreiten-Rechnungen überschätzen den Gewinn auf RDNA 4 konsistent um eine Grössenordnung.
+
+| Experiment                    | Erwarteter Gewinn | Gemessener Gewinn | Überschätzungsfaktor |
+|-------------------------------|------------------:|------------------:|---------------------:|
+| Tiled GEMV FFN-Down           |    ~4.200 µs/Step |      ~250 µs/Step |                 ~17× |
+| Batched lm_head               |    ~2.500 µs/Step |      ~114 µs/Step |                 ~22× |
+| Buffer-Traffic-Validierung    | ~1.500–2.500 µs/Step |   ~200 µs/Step |                 ~10× |
+
+Das ist kein Messfehler, sondern eine stabile Eigenschaft der Memory-Pipeline auf dieser Architektur. Das naive Modell behandelt Memory-Traffic wie einen seriellen Kostenblock, der proportional zur Anzahl Dispatches skaliert. Tatsächlich pipelined der Memory-Controller die Zugriffe so, dass der zweite, dritte, … N-te Zugriff auf dieselben Adressen nahezu kostenlos wird (L2/L3-Hits, überlappendes Streaming, keine erneute Memory-Request-Latenz).
+
+Konsequenz: **"Load N times" ist auf RDNA 4 fast gleich teuer wie "Load once", solange die Zugriffe auf dieselben Adressbereiche ohne explizite Synchronisation erfolgen.** Optimierungen, die ausschliesslich N-fache Lasten auf 1× reduzieren, bringen keinen messbaren Gewinn.
+
 ### Konsequenz für Optimierungen
 
-Der Optimierungshebel auf dieser Architektur liegt bei der **Elimination von intermediate Buffer Traffic zwischen Kernels mit unterschiedlichen Zugriffsmustern**, nicht bei Dispatch-Batching für bandbreitenlimitierte Kernels.
+Der Optimierungshebel auf dieser Architektur liegt bei **Algorithmuswechseln** und bei **Compute-Patterns mit nicht-vorhersagbaren Zugriffsmustern** — nicht bei Dispatch-Batching oder Buffer-Traffic-Elimination für bandbreitenlimitierte Kernels.
 
 Konkret:
-- **Fused FFN** (gate+up+SiLU+mul+down+residual → weniger Kernels): Der Hauptgewinn kommt nicht aus weniger Dispatches, sondern aus dem Wegfall der Zwischenpuffer-Roundtrips (gate→mul→down liest/schreibt je ~75 KB intermediate data pro Layer).
-- **Batching** bandwidth-bound Operationen (GEMV, Attention mit langem KV-Cache) bringt nur marginale Dispatch-Overhead-Einsparung (~2.7 μs/Dispatch + Sync-Elimination).
-- **Kernel-Fusion** ist nur dann lohnend, wenn sie *unterschiedliche* Speicherzugriffsmuster zusammenführt (z.B. elementwise + GEMV eliminiert einen Store/Load-Zyklus), nicht wenn sie identische Zugriffsmuster batcht.
 
-### Offene Frage
+- **Fused FFN wurde durch Micro-Benchmark als nicht wirtschaftlich bestätigt** (~200 µs realistischer Gewinn, Schwellenwert war 1.500 µs). Nicht implementieren. Die dominante FFN-Kostenposition ist der Gewichtsmatrix-Traffic, der durch Fusion nicht eliminiert wird.
+- **Spec-Decode-Verify-Optimierung hat das Plateau erreicht.** Target-Verify ist zu ~88% GEMV-Execution gegen die Gewichtsmatrix — bandbreitenlimitiert, nicht durch Dispatch-Overhead oder Buffer-Traffic. Weitere Micro-Optimierungen innerhalb des GEMV-Paradigmas bringen < 2%.
+- **Batching bandwidth-bound Operationen** (GEMV, Attention mit langem KV-Cache) bringt nur marginale Dispatch-Overhead-Einsparung (~2.7 µs/Dispatch + Sync-Elimination). Stream-Pipelining deckt die Sync-Elimination bereits ab.
+- **Kernel-Fusion** ist nur dann lohnend, wenn sie *unterschiedliche* Speicherzugriffsmuster zusammenführt (z.B. elementwise + GEMV eliminiert einen Store/Load-Zyklus für nicht-gecachte Adressen), nicht wenn sie identische Zugriffsmuster batcht oder Zwischenpuffer eliminiert, die bereits in L2 passen.
+- **Optimierungshebel liegen bei Algorithmuswechseln** (GEMV → GEMM für Prefill) und bei **Compute-Patterns mit nicht-vorhersagbaren Zugriffsmustern** (Attention-Tiling bei langem Kontext, wo der KV-Cache aus L2 fällt). Diese unterscheiden sich qualitativ von den bisherigen Experimenten, weil sie andere Memory-Access-Patterns haben, bei denen das Memory-Controller-Pipelining weniger greift.
 
-Ob dieser Pipelining-Effekt auch auf RDNA 3 (gfx1100, RX 7900 XT) in gleichem Maße auftritt, ist nicht gemessen. Die Memory-Controller-Architektur unterscheidet sich (Infinity Cache vs. kein Infinity Cache auf RDNA 4). Ein Vergleichsexperiment auf gfx1100 wäre aufschlussreich.
+### Offene Fragen
+
+- Ob dieser Pipelining-Effekt auch auf RDNA 3 (gfx1100, RX 7900 XT) in gleichem Maße auftritt, ist nicht gemessen. Die Memory-Controller-Architektur unterscheidet sich (Infinity Cache vs. kein Infinity Cache auf RDNA 4). Ein Vergleichsexperiment auf gfx1100 wäre aufschlussreich.
+- Ob das Überschätzungsmuster auch bei **nicht-elementwise** Fusionen auftritt (z.B. Attention + FFN in einem Kernel). Hypothese: ja, solange die dominante Kostenposition bandbreitenlimitierte GEMV bleibt — sobald die Kostenposition kippt (Compute-bound, irreguläre Zugriffe), ändert sich das Bild.
+- Ob **WMMA/Matrix-Instruktionen** auf RDNA 4 das Bild ändern. Diese nutzen eine andere Execution-Pipeline (Matrix-Cores) und könnten andere Pipelining-Charakteristika haben — insbesondere wenn der Matrix-Core-Scheduler anders mit dem Memory-Controller interagiert als der Vector-ALU-Scheduler.

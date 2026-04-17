@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "git_sha": "f360a32",
+    "timestamp": 1776346172,
+    "date": "(date -Iseconds)",
+    "spec_depth": 1,
+    "max_tokens": 128,
+    "target_model": "/home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf",
+    "draft_model": "/home/maeddes/models/qwen2.5-0.5b-instruct-q4_0.gguf"
+  },
+  "profiles": [{"prompt":"code_01","tok_s":60.2 84.1,"n_steps":67,"avg_draft_us":1991.6,"avg_verify_us":17237.2,"avg_accept_us":234.3,"avg_overhead_us":0.0,"avg_total_us":19463.1},{"prompt":"chat_01","tok_s":60.5 67.1,"n_steps":86,"avg_draft_us":1978.0,"avg_verify_us":17230.3,"avg_accept_us":235.5,"avg_overhead_us":0.0,"avg_total_us":19443.8},{"prompt":"prose_03","tok_s":60.2 70.1,"n_steps":82,"avg_draft_us":1983.2,"avg_verify_us":17227.8,"avg_accept_us":232.9,"avg_overhead_us":0.0,"avg_total_us":19443.9}]
+}

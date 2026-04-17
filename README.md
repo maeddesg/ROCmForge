@@ -28,18 +28,22 @@ Prefill is significantly slower because ROCmForge uses custom GEMV kernels while
 
 ### Speculative decoding (0.5B draft + 7B target)
 
-Currently slower than baseline due to token-by-token verification (N+1 sequential target forwards instead of one batched forward). Batched verify is the next optimization target.
+Speculative decoding is profitable for high-acceptance workloads (code generation, α ≥ 73%). For mixed prompts, baseline decode is faster. Batched verify (PR #14), tiled GEMV, batched lm_head and adaptive depth are implemented; further verify-path micro-optimizations have reached a plateau (see `docs/spec_decode_milestone_summary.md`).
 
-| Depth | tok/s | Acceptance rate |
-|-------|-------|-----------------|
+| Depth | tok/s (median) | Acceptance rate |
+|-------|---------------:|-----------------|
 | Baseline (no spec) | 82 | — |
-| depth=1 | 57 | 44.7% |
-| depth=3 | 33 | 20.6% |
+| depth=1 (median) | 69 | ~50% |
+| depth=1 (code, best) | **86** | 91% |
+| depth=3 | 66 | ~46% |
+| depth=5 | 57 | ~35% |
+
+Break-even α ≈ 41%. Below that, baseline decode is faster. Adaptive depth (EMA-based) automatically converges to the profitable tier per prompt.
 
 ### Known issues
 
 - **Full-decode HIP graph disabled on RDNA4**: Graph replay of kernels reading device pointers returns stale values in complex graphs (~200+ nodes). See `hip_graph_device_pointer_bug.md`. Tail-only graph (lm_head + argmax) still active.
-- Shared memory bug in v2 attention kernel fixed (was causing 7B decode to produce NaN)
+- **Prefill throughput is the largest gap vs. llama.cpp** (5% of their pp19 baseline). Custom GEMV kernels instead of GEMM (hipBLAS/WMMA). Next optimization target.
 
 ## Requirements
 
@@ -111,10 +115,16 @@ CPU fallback:
 | `ROCMFORGE_ENABLE_EXPERIMENTAL_Q8_ACTIVATION_FASTPATH=1` | Specialized Q8 decode activation path |
 | `ROCMFORGE_ENABLE_EXPERIMENTAL_FFN_FASTPATH=1` | Fused FFN kernels |
 | `ROCMFORGE_SPEC_DEBUG=1` | Print speculative decode draft/target token comparison |
+| `ROCMFORGE_PROFILE_SPEC_STEP=1` | HIP Event timing for spec-step cost breakdown (5 phases) |
+| `ROCMFORGE_PROFILE_VERIFY_BREAKDOWN=1` | Sub-phase timing within verify layers (requires PROFILE_SPEC_STEP) |
+| `ROCMFORGE_DISABLE_TILED_GEMV=1` | Disable tiled batched GEMV for large FFN projections (default on) |
+| `ROCMFORGE_DISABLE_BATCHED_LM_HEAD=1` | Disable batched verify lm_head, fall back to sequential per-position dispatch |
 
 ## Documentation
 
 - Manual: [MANUAL.md](MANUAL.md)
+- Speculative decoding milestone summary: [docs/spec_decode_milestone_summary.md](docs/spec_decode_milestone_summary.md)
+- Architecture notes (RDNA 4 memory-pipelining findings): [docs/architecture_notes.md](docs/architecture_notes.md)
 - Benchmark progression: [profiling/benchmark_progression.md](profiling/benchmark_progression.md)
 - HIP graph bug report: [hip_graph_device_pointer_bug.md](hip_graph_device_pointer_bug.md)
 
