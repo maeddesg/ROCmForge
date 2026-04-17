@@ -48,6 +48,11 @@ path = "src/main.rs"
 name = "bench_gemv"
 path = "src/bench_gemv.rs"
 
+[[bin]]
+name = "bench_wmma_tiled"
+path = "profiling/wmma_poc/bench_wmma_tiled.rs"
+required-features = ["gpu"]
+
 [[bench]]
 name = "kernels"
 harness = false
