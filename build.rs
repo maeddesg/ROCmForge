@@ -209,6 +209,7 @@ mod gpu_build {
                             ("libq4_0_quantize.a", "q4_0_quantize"),
                             ("libq4_0_dequantize.a", "q4_0_dequantize"),
                             ("libdequant_q4_0_to_f16.a", "dequant_q4_0_to_f16"),
+                            ("libwmma_gemm_16x16.a", "wmma_gemm_16x16"),
                             ("libq4_0_verify.a", "q4_0_verify"),
                             ("libq4_0_gemv.a", "q4_0_gemv"),
                             ("libq4_0_gemv_batched.a", "q4_0_gemv_batched"),

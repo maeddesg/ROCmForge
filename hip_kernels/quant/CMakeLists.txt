@@ -152,6 +152,14 @@ set_target_properties(dequant_q4_0_to_f16 PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
 
+# Phase 2a — WMMA proof-of-concept kernel. Lives outside hip_kernels/quant
+# but is built as part of the same CMake invocation for convenience.
+add_library(wmma_gemm_16x16 STATIC ../wmma/wmma_gemm_16x16.hip)
+set_target_properties(wmma_gemm_16x16 PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    POSITION_INDEPENDENT_CODE ON
+)
+
 # Q4_1 quantization kernel
 add_library(q4_1_quantize STATIC q4_1_quantize.hip)
 target_link_libraries(q4_1_quantize quant_common)
