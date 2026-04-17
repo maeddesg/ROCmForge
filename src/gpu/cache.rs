@@ -509,8 +509,14 @@ impl GpuForwardScratch {
             })?;
         retire_count.copy_from_host(&[0u8; 4])?;
 
+        // Oversize to at least 64 rows so the WMMA prefill GEMM can safely
+        // dispatch at padded_M = 64 when verify calls gpu_dispatch_gemm
+        // with n ≤ MAX_VERIFY_BATCH rows (Phase 3.2). Only the first n rows
+        // are ever read; the trailing rows are WMMA output of zero-padded
+        // inputs (i.e. zero) and harmless.
+        let logits_batch_rows = MAX_VERIFY_BATCH.max(64);
         let logits_batch =
-            GpuBuffer::alloc(MAX_VERIFY_BATCH * v * std::mem::size_of::<f32>()).map_err(|e| {
+            GpuBuffer::alloc(logits_batch_rows * v * std::mem::size_of::<f32>()).map_err(|e| {
                 GpuError::CacheAllocationFailed {
                     reason: format!("logits_batch allocation failed: {}", e),
                 }
@@ -817,15 +823,13 @@ impl GpuPrefillScratch {
         let kv = config.num_kv_heads * config.head_dim;
         let ff = config.intermediate_size;
 
-        // Phase 3.1: oversize activation buffers to the next multiple of 64
-        // so the WMMA prefill path can dispatch at `buffer_seq_len` while
-        // downstream ops keep running on the logical `seq_len`. Below the
-        // WMMA threshold (seq_len < 64) we stay at the exact seq_len.
-        let buffer_seq_len = if seq_len >= 64 {
-            seq_len.div_ceil(64) * 64
-        } else {
-            seq_len
-        };
+        // Phase 3.1/3.2: oversize activation buffers to the next multiple
+        // of 64 (minimum 64 rows) so the WMMA prefill path can dispatch at
+        // `buffer_seq_len` while downstream ops keep running on the logical
+        // `seq_len`. The WMMA kernels require M ≥ 64, so even short prompts
+        // pad up to 64 — this is what brings the typical 20–40-token real
+        // prompt into the WMMA path.
+        let buffer_seq_len = seq_len.max(1).div_ceil(64).max(1) * 64;
 
         let hidden = GpuBuffer::alloc(buffer_seq_len * h * std::mem::size_of::<f32>()).map_err(
             |e| GpuError::CacheAllocationFailed {
@@ -883,8 +887,9 @@ impl GpuPrefillScratch {
         // Zero-initialise all activation buffers. The padding rows
         // [seq_len..buffer_seq_len] stay zero for the entire forward pass
         // because every op below the WMMA dispatch iterates only over
-        // `seq_len` rows.
-        if buffer_seq_len > seq_len {
+        // `seq_len` rows. `buffer_seq_len` is always at least 64 now, so
+        // this runs unconditionally.
+        {
             use super::ffi::{hip_memset_async, hip_stream_synchronize, hipStream_t};
             let stream = hipStream_t::null();
             for buf in [&hidden, &normed, &q_buf, &k_buf, &v_buf, &attn_out, &layer_out, &gate, &swiglu] {

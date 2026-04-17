@@ -1430,7 +1430,7 @@ pub fn gpu_dispatch_fused_gate_up(
 /// Minimum `seq_len` (= WMMA M dimension) at which the WMMA Q4_0 prefill
 /// kernel takes over. The kernel requires 64-aligned M; below this the
 /// hipBLAS path or the batched-GEMV path handles it.
-const WMMA_PREFILL_MIN_M: usize = 64;
+const WMMA_PREFILL_MIN_M: usize = 1;
 
 /// Dispatch a GPU GEMM for GGUF weights.
 pub fn gpu_dispatch_gemm(

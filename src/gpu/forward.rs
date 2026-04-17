@@ -664,11 +664,12 @@ fn gpu_attention_prefill(
     let kv_size = config.num_kv_heads * config.head_dim;
     let scale = 1.0f32 / (config.head_dim as f32).sqrt();
 
-    // Phase 3d/3.1: WMMA GQA + causal attention. Requires head_dim == 128
+    // Phase 3d/3.1/3.2: WMMA GQA + causal attention. Requires head_dim == 128
     // (baked into the kernel); seq_len is zero-padded up to a multiple of 64
-    // via the oversized GpuPrefillScratch buffers. One dispatch replaces the
-    // per-head scalar loop; 300-500× faster at Qwen2.5-7B shapes.
-    if seq_len >= 64
+    // via the oversized GpuPrefillScratch buffers (min 64 rows). One
+    // dispatch replaces the per-head scalar loop; 300-500× faster at
+    // Qwen2.5-7B shapes.
+    if seq_len >= 1
         && config.head_dim == 128
         && config.num_heads % config.num_kv_heads == 0
         && super::safety::wmma_attention_enabled()
