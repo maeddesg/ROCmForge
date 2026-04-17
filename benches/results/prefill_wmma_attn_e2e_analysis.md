@@ -76,12 +76,55 @@ FP32↔FP16 shuttling ≈ 40 ms, kernel launch overhead ≈ 25 ms.
 Fusing norm + QKV + RoPE into a single dispatch on the prefill path
 (the decode path already has this) is the highest-leverage next step.
 
+## llama.cpp head-to-head
+
+Both tools ran on the same host (RX 9070 XT, gfx1201, ROCm 7.2.1) on
+`Qwen2.5-7B-Instruct-Q4_0.gguf`. llama.cpp `build: 408225b (1)`
+invoked via `llama-bench -p <N> -n 0 -r 3` (prefill) and
+`-p 0 -n 128 -r 3` (decode). ROCmForge numbers are the Phase 3d
+median-of-3 figures from the table above.
+
+### Prefill (tok/s)
+
+| pp  | ROCmForge custom | ROCmForge hipBLAS | ROCmForge WMMA GEMM | **ROCmForge WMMA GEMM+Attn** | **llama.cpp ROCm** | Gap |
+|----:|-----------------:|------------------:|--------------------:|-----------------------------:|-------------------:|----:|
+|  64 |             61.8 |              76.7 |                88.7 |                    **560.1** |       **2,912**    | 5.2× |
+| 128 |             63.1 |              81.7 |                90.3 |                    **602.5** |       **3,966**    | 6.6× |
+| 256 |             63.6 |              85.8 |                92.3 |                    **622.5** |       **4,951**    | 8.0× |
+| 512 |             50.2 |              63.1 |                67.2 |                    **628.6** |       **5,158**    | 8.2× |
+
+llama.cpp's pp=512 figure is **5,158 tok/s**, about 8.2× ROCmForge
+after Phase 3d. The absolute gap widens with seq_len (5.2× → 8.2×):
+llama.cpp's throughput scales almost linearly out to pp=512 while
+ROCmForge plateaus around 620–630 tok/s. That is consistent with
+ROCmForge being dominated by a seq_len-independent overhead stack —
+per-layer dispatch latency, norm/RoPE/residual kernels that have not
+been fused on the prefill path, and FP32↔FP16 shuttling. llama.cpp
+presumably batches more of this into fewer dispatches and/or keeps
+the activation path in FP16 end-to-end.
+
+### Decode (tok/s)
+
+| Test            | ROCmForge | llama.cpp ROCm | Gap  |
+|-----------------|----------:|---------------:|-----:|
+| tg128 (greedy)  |       102 |            117 | 1.15× |
+
+Decode matches the expected ~70 % ratio from the earlier CLAUDE.md
+baseline (ROCmForge 102 vs. llama.cpp 117 tok/s), so the WMMA
+prefill-attention integration did not regress the decode path.
+
+### Interpretation
+
+Phase 3d closed a big fraction of the absolute prefill gap (60× at
+pp=256 on the original scalar-attention baseline → 8× now), but the
+remaining gap is structural, not an attention problem. The next
+optimization surface is the residual ~295 ms at pp=256 — prefill-path
+kernel fusion (norm + QKV + RoPE, norm + gate/up + SiLU) plus holding
+activations in FP16 between projections. No further attention tuning
+is likely to move the number.
+
 ## Not included
 
-- **llama.cpp head-to-head at pp = 256.** llama.cpp is not installed on
-  the test host. Their published pp = 19 figure (1,092 tok/s) is not
-  directly comparable. Re-running both at pp = 256 on the same machine
-  is a next-round question.
 - **Non-64-aligned prompts.** The WMMA attention kernel requires
   `seq_len % 64 == 0` and `head_dim == 128`; anything else falls back
   to the scalar kernel. A padded-mask variant or per-element bounds
