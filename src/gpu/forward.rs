@@ -662,9 +662,30 @@ fn gpu_attention_prefill(
 ) -> GpuResult<()> {
     let q_size = config.num_heads * config.head_dim;
     let kv_size = config.num_kv_heads * config.head_dim;
-    let kv_group = config.num_heads / config.num_kv_heads;
     let scale = 1.0f32 / (config.head_dim as f32).sqrt();
 
+    // Phase 3d: WMMA GQA + causal attention. Requires seq_len % 64 == 0 and
+    // head_dim == 128 (baked into the kernel). One dispatch replaces the
+    // per-head scalar loop; 300-500× faster at Qwen2.5-7B shapes.
+    if seq_len >= 64
+        && seq_len % 64 == 0
+        && config.head_dim == 128
+        && config.num_heads % config.num_kv_heads == 0
+        && super::safety::wmma_attention_enabled()
+    {
+        match gpu_attention_prefill_wmma(scratch, seq_len, config, scale) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                eprintln!(
+                    "[rocmforge] WMMA prefill attention failed ({}), falling back to scalar kernel",
+                    err
+                );
+                // fall through
+            }
+        }
+    }
+
+    let kv_group = config.num_heads / config.num_kv_heads;
     for head in 0..config.num_heads {
         let kv_head = head / kv_group;
         let q_offset = head * config.head_dim;
@@ -688,6 +709,61 @@ fn gpu_attention_prefill(
     }
 
     Ok(())
+}
+
+fn gpu_attention_prefill_wmma(
+    scratch: &mut GpuPrefillScratch,
+    seq_len: usize,
+    config: &ModelConfig,
+    scale: f32,
+) -> GpuResult<()> {
+    use super::kernels::wmma::launch_wmma_attention_prefill_gqa_causal;
+    use super::prefill_gemm::convert_f32_to_f16_on_stream;
+
+    let q_elems = seq_len * config.num_heads * config.head_dim;
+    let kv_elems = seq_len * config.num_kv_heads * config.head_dim;
+
+    scratch.ensure_attention_f16_buffers(
+        config.num_heads,
+        config.num_kv_heads,
+        config.head_dim,
+    )?;
+    let q_f16 = scratch.q_f16.as_ref().unwrap().as_ptr() as *mut u8;
+    let k_f16 = scratch.k_f16.as_ref().unwrap().as_ptr() as *mut u8;
+    let v_f16 = scratch.v_f16.as_ref().unwrap().as_ptr() as *mut u8;
+
+    let stream = ffi::hipStream_t::null();
+    convert_f32_to_f16_on_stream(
+        scratch.q.as_ptr() as *const f32,
+        q_f16,
+        q_elems,
+        stream,
+    )?;
+    convert_f32_to_f16_on_stream(
+        scratch.k.as_ptr() as *const f32,
+        k_f16,
+        kv_elems,
+        stream,
+    )?;
+    convert_f32_to_f16_on_stream(
+        scratch.v.as_ptr() as *const f32,
+        v_f16,
+        kv_elems,
+        stream,
+    )?;
+
+    launch_wmma_attention_prefill_gqa_causal(
+        q_f16 as *const u16,
+        k_f16 as *const u16,
+        v_f16 as *const u16,
+        scratch.attn_out.as_ptr() as *mut f32,
+        seq_len,
+        config.num_heads,
+        config.num_kv_heads,
+        true,
+        scale,
+        stream,
+    )
 }
 
 fn gpu_embed_tokens_hybrid(

@@ -783,6 +783,12 @@ pub struct GpuPrefillScratch {
     pub gate: GpuBuffer,
     pub swiglu: GpuBuffer,
     pub token_ids: GpuBuffer,
+    /// FP16 staging buffers for the WMMA prefill attention kernel. The kernel
+    /// expects FP16 Q/K/V; the activation path produces FP32, so we convert
+    /// per layer before dispatch. Lazily allocated on first use.
+    pub q_f16: Option<GpuBuffer>,
+    pub k_f16: Option<GpuBuffer>,
+    pub v_f16: Option<GpuBuffer>,
 }
 
 impl GpuPrefillScratch {
@@ -862,7 +868,45 @@ impl GpuPrefillScratch {
             gate,
             swiglu,
             token_ids,
+            q_f16: None,
+            k_f16: None,
+            v_f16: None,
         })
+    }
+
+    /// Ensure the FP16 Q/K/V staging buffers used by the WMMA prefill
+    /// attention kernel are allocated. Lazy — callers that stay on the scalar
+    /// attention path pay no VRAM cost.
+    pub fn ensure_attention_f16_buffers(
+        &mut self,
+        num_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+    ) -> GpuResult<()> {
+        let q_bytes = self.seq_len * num_heads * head_dim * std::mem::size_of::<u16>();
+        let kv_bytes = self.seq_len * num_kv_heads * head_dim * std::mem::size_of::<u16>();
+        if self.q_f16.is_none() {
+            self.q_f16 = Some(GpuBuffer::alloc(q_bytes).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("prefill q_f16 allocation failed: {}", e),
+                }
+            })?);
+        }
+        if self.k_f16.is_none() {
+            self.k_f16 = Some(GpuBuffer::alloc(kv_bytes).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("prefill k_f16 allocation failed: {}", e),
+                }
+            })?);
+        }
+        if self.v_f16.is_none() {
+            self.v_f16 = Some(GpuBuffer::alloc(kv_bytes).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("prefill v_f16 allocation failed: {}", e),
+                }
+            })?);
+        }
+        Ok(())
     }
 
     pub fn hidden_row_ptr(&self, row: usize, hidden_size: usize) -> *const f32 {

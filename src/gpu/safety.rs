@@ -25,6 +25,7 @@ pub const DISABLE_TILED_GEMV_ENV: &str = "ROCMFORGE_DISABLE_TILED_GEMV";
 pub const DISABLE_BATCHED_LM_HEAD_ENV: &str = "ROCMFORGE_DISABLE_BATCHED_LM_HEAD";
 pub const DISABLE_HIPBLAS_PREFILL_ENV: &str = "ROCMFORGE_DISABLE_HIPBLAS_PREFILL";
 pub const DISABLE_WMMA_PREFILL_ENV: &str = "ROCMFORGE_DISABLE_WMMA_PREFILL";
+pub const DISABLE_WMMA_ATTENTION_ENV: &str = "ROCMFORGE_DISABLE_WMMA_ATTENTION";
 
 const ENV_UNKNOWN: u8 = 0;
 const ENV_DISABLED: u8 = 1;
@@ -94,6 +95,10 @@ static DISABLE_HIPBLAS_PREFILL_FLAG: CachedEnvFlag =
 // Default false = WMMA Q4_0 prefill path enabled (preferred over hipBLAS).
 static DISABLE_WMMA_PREFILL_FLAG: CachedEnvFlag =
     CachedEnvFlag::new(DISABLE_WMMA_PREFILL_ENV, false);
+// Default false = WMMA prefill attention (GQA + causal) enabled when seq_len
+// is a multiple of 64. 300-500× faster than the scalar per-head kernel.
+static DISABLE_WMMA_ATTENTION_FLAG: CachedEnvFlag =
+    CachedEnvFlag::new(DISABLE_WMMA_ATTENTION_ENV, false);
 static DECODE_GRAPH_RUNTIME_DISABLED: AtomicBool = AtomicBool::new(false);
 static Q8_ACTIVATION_FASTPATH_RUNTIME_DISABLED: AtomicBool = AtomicBool::new(false);
 static DECODE_GRAPH_RUNTIME_DISABLE_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -127,6 +132,7 @@ pub fn refresh_runtime_env_flags() {
     DISABLE_BATCHED_LM_HEAD_FLAG.reset();
     DISABLE_HIPBLAS_PREFILL_FLAG.reset();
     DISABLE_WMMA_PREFILL_FLAG.reset();
+    DISABLE_WMMA_ATTENTION_FLAG.reset();
     DECODE_GRAPH_RUNTIME_DISABLED.store(false, Ordering::Relaxed);
     Q8_ACTIVATION_FASTPATH_RUNTIME_DISABLED.store(false, Ordering::Relaxed);
     DECODE_GRAPH_RUNTIME_DISABLE_LOGGED.store(false, Ordering::Relaxed);
@@ -204,6 +210,10 @@ pub fn hipblas_prefill_enabled() -> bool {
 
 pub fn wmma_prefill_enabled() -> bool {
     !gpu_safe_mode_enabled() && !DISABLE_WMMA_PREFILL_FLAG.enabled()
+}
+
+pub fn wmma_attention_enabled() -> bool {
+    !gpu_safe_mode_enabled() && !DISABLE_WMMA_ATTENTION_FLAG.enabled()
 }
 
 pub fn decode_graph_runtime_disabled() -> bool {
