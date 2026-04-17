@@ -19,6 +19,16 @@ unsafe extern "C" {
         d: *mut f32,
         stream: hipStream_t,
     ) -> hipError_t;
+
+    fn wmma_gemm_tiled_launch(
+        a: *const c_void,
+        b: *const c_void,
+        d: *mut f32,
+        m: i32,
+        n: i32,
+        k: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
 }
 
 /// Launch the 16×16 WMMA kernel on the device's default stream.
@@ -45,6 +55,53 @@ pub fn launch_wmma_gemm_16x16(
         Err(GpuError::HipApiError {
             code: code as i32,
             description: format!("wmma_gemm_16x16_launch failed: {:?}", code),
+        })
+    }
+}
+
+/// Launch the tiled 64×64 WMMA GEMM kernel.
+///
+/// Computes `D[M×N] = A[M×K] × B[K×N]` in FP16 × FP16 → FP32. All three
+/// tensors are row-major. `M` and `N` must be multiples of 64, `K` must
+/// be a multiple of 16 — padding for arbitrary shapes lands in Phase 2c.
+///
+/// Safety: `a`, `b`, `d` must be valid device pointers with at least
+/// `M*K*2`, `K*N*2`, `M*N*4` bytes respectively.
+pub fn launch_wmma_gemm_tiled(
+    a: *const u16,
+    b: *const u16,
+    d: *mut f32,
+    m: usize,
+    n: usize,
+    k: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if m % 64 != 0 || n % 64 != 0 || k % 16 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "wmma_gemm_tiled: M={} N={} K={} must be multiples of 64/64/16",
+                m, n, k
+            ),
+        });
+    }
+    let code = unsafe {
+        wmma_gemm_tiled_launch(
+            a as *const c_void,
+            b as *const c_void,
+            d,
+            m as i32,
+            n as i32,
+            k as i32,
+            stream,
+        )
+    };
+    if code == hipError_t::hipSuccess {
+        Ok(())
+    } else {
+        Err(GpuError::HipApiError {
+            code: code as i32,
+            description: format!("wmma_gemm_tiled_launch failed: {:?}", code),
         })
     }
 }

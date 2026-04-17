@@ -160,6 +160,13 @@ set_target_properties(wmma_gemm_16x16 PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+# Phase 2a Step 2 — Tiled 64×64 WMMA GEMM.
+add_library(wmma_gemm_tiled STATIC ../wmma/wmma_gemm_tiled.hip)
+set_target_properties(wmma_gemm_tiled PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    POSITION_INDEPENDENT_CODE ON
+)
+
 # Q4_1 quantization kernel
 add_library(q4_1_quantize STATIC q4_1_quantize.hip)
 target_link_libraries(q4_1_quantize quant_common)
