@@ -3,8 +3,6 @@
 //! Supports Qwen2.5 family models via GGUF format.
 //! CPU execution path (GPU via HIP coming later).
 
-mod cli;
-
 use std::io::Write;
 use std::time::Instant;
 
@@ -1005,7 +1003,7 @@ fn main() {
     // path. Anything else preserves the legacy single-shot CLI exactly.
     let raw: Vec<String> = std::env::args().collect();
     if raw.get(1).map(|s| s.as_str()) == Some("chat") {
-        if let Err(e) = cli::chat::run(&raw[2..]) {
+        if let Err(e) = rocmforge::cli::chat::run(&raw[2..]) {
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }

@@ -1,39 +1,64 @@
 //! Interactive chat driver.
 //!
-//! Phase 5 Step 2: single-turn inference with token-level streaming.
-//! The user's line is wrapped in the Qwen2.5 ChatML template, tokenised
-//! (the tokenizer recognises the literal `<|im_start|>` / `<|im_end|>`
-//! markers as special tokens), fed through the same `gpu_prefill_forward_hybrid`
-//! + `gpu_full_forward_hybrid` pair that the legacy `--prompt` path uses,
-//! and the sampled tokens stream to stdout one at a time with `print!` +
-//! `flush`. Each turn is independent — the KV cache is reused but
-//! rewritten from position 0 (multi-turn history lands in Step 3).
+//! Phase 5 Step 3: multi-turn conversation, `/clear` `/stats` `/system`
+//! commands, and Ctrl+C interrupt handling that aborts the in-flight
+//! generation but keeps the REPL open. Use `/quit` to leave.
 
 use std::io::{self, BufRead, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
-use rocmforge::config::ModelConfig;
-use rocmforge::loader::GgufFile;
-use rocmforge::tokenizer::BpeTokenizer;
+use crate::config::ModelConfig;
+use crate::loader::GgufFile;
+use crate::tokenizer::BpeTokenizer;
 
 #[cfg(feature = "gpu")]
-use rocmforge::cpu::cache::CpuForwardScratch;
+use crate::cpu::cache::CpuForwardScratch;
 #[cfg(feature = "gpu")]
-use rocmforge::cpu::sampler::cpu_sample_top_p;
+use crate::cpu::sampler::cpu_sample_top_p;
 #[cfg(feature = "gpu")]
-use rocmforge::cpu::weights::CpuModelWeights;
+use crate::cpu::weights::CpuModelWeights;
 #[cfg(feature = "gpu")]
-use rocmforge::gpu;
+use crate::gpu;
 
-use super::template::{self, ChatContext, STOP_MARKERS};
+use super::context::{ChatContext, Role, SessionStats};
+use super::template::{self, STOP_MARKERS};
 use super::validate;
 
-/// Cap on the KV-cache size we allocate for single-turn chat. Keeps VRAM
-/// overhead modest (~230 MB at 7B / 4096 positions / FP16 KV) while
-/// comfortably covering prompt + reply for the Step 2 scope.
+/// KV-cache budget per session; also the truncation threshold for the
+/// formatted prompt. Comfortably covers multi-turn conversations without
+/// overflowing the 7B VRAM envelope.
 const CHAT_MAX_SEQ: usize = 4096;
 
-/// Chat-specific CLI args parsed from the raw argv tail.
+/// Reserve this many tokens in the context window for the assistant's
+/// response when deciding whether to truncate the history.
+const RESPONSE_HEADROOM: usize = 512;
+
+/// Global Ctrl+C flag. Set by the signal handler, polled by the decode
+/// loop. An `OnceLock`-style init keeps us safe against `set_handler`
+/// panicking on a second registration if `run()` is ever re-invoked.
+static INTERRUPT: once_cell::sync::Lazy<Arc<AtomicBool>> =
+    once_cell::sync::Lazy::new(|| Arc::new(AtomicBool::new(false)));
+static INTERRUPT_INSTALLED: AtomicBool = AtomicBool::new(false);
+
+fn install_interrupt_handler() {
+    if INTERRUPT_INSTALLED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let flag = Arc::clone(&INTERRUPT);
+    // Ignore an error here — worst case Ctrl+C falls through to the
+    // default handler and kills the process, which is still acceptable
+    // behavior for an interactive CLI.
+    let _ = ctrlc::set_handler(move || {
+        flag.store(true, Ordering::SeqCst);
+    });
+}
+
+fn interrupt_flag() -> Arc<AtomicBool> {
+    Arc::clone(&INTERRUPT)
+}
+
 pub struct ChatArgs {
     pub model: String,
     pub system: String,
@@ -57,7 +82,7 @@ fn usage() -> ! {
     eprintln!("  --max-tokens N         Max tokens per reply [default: 512]");
     eprintln!("  --temperature F        Sampling temperature [default: 0.0]");
     eprintln!("  --top-p F              Nucleus sampling threshold [default: 1.0]");
-    eprintln!("  --draft-model <path>   Draft model for speculative decoding [recognised but ignored in Step 2]");
+    eprintln!("  --draft-model <path>   Draft model for speculative decoding [recognised but ignored]");
     eprintln!("  --spec-depth N         Speculation depth [default: 5]");
     std::process::exit(1);
 }
@@ -143,13 +168,16 @@ pub struct ChatSession {
     pub gpu_scratch: gpu::GpuForwardScratch,
     pub host_scratch: CpuForwardScratch,
     pub max_seq: usize,
+    pub ctx: ChatContext,
+    pub stats: SessionStats,
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
+    install_interrupt_handler();
     let args = parse_chat_args(args);
 
     if args.draft_model.is_some() || args.spec_depth != 5 {
-        eprintln!("  [note] Speculative decoding will be available in a future update; --draft-model / --spec-depth are ignored in Step 2.");
+        eprintln!("  [note] Speculative decoding will be available in a future update; --draft-model / --spec-depth are ignored.");
     }
     if !(0.0..=2.0).contains(&args.temperature) {
         return Err(format!(
@@ -194,6 +222,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         validate::refresh_vram_usage(&mut info);
         validate::print_banner(&info);
 
+        let chat_ctx = ChatContext::new(args.system.clone());
         let mut session = ChatSession {
             args,
             file,
@@ -206,6 +235,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
             gpu_scratch,
             host_scratch,
             max_seq,
+            ctx: chat_ctx,
+            stats: SessionStats::new(),
         };
         return input_loop(&mut session);
     }
@@ -219,11 +250,100 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 }
 
+fn print_help() {
+    println!("  Commands:");
+    println!("    /clear            Clear conversation history");
+    println!("    /stats            Show session statistics");
+    println!("    /system <text>    Change system prompt (clears history)");
+    println!("    /quit, /exit      Exit the chat");
+    println!("    /help             Show this help");
+    println!();
+}
+
+#[cfg(feature = "gpu")]
+fn print_stats(stats: &SessionStats) {
+    let dur = stats.session_duration();
+    let total_s = dur.as_secs();
+    let minutes = total_s / 60;
+    let seconds = total_s % 60;
+    println!();
+    println!("  Session Statistics");
+    println!("  ─────────────────────────────────");
+    println!("  Turns:          {}", stats.turn_count);
+    println!(
+        "  Total tokens:   {} prompt + {} generated",
+        stats.total_prompt_tokens, stats.total_generated_tokens
+    );
+    println!("  Avg TTFT:       {:.0} ms", stats.avg_ttft_ms());
+    println!("  Avg decode:     {:.1} tok/s", stats.avg_decode_tps());
+    println!("  Session time:   {}m {:02}s", minutes, seconds);
+    println!("  ─────────────────────────────────");
+    println!();
+}
+
+#[cfg(feature = "gpu")]
+enum SlashOutcome {
+    Continue,
+    Quit,
+    NotACommand,
+}
+
+#[cfg(feature = "gpu")]
+fn handle_slash_command(input: &str, session: &mut ChatSession) -> SlashOutcome {
+    if !input.starts_with('/') {
+        return SlashOutcome::NotACommand;
+    }
+    let mut parts = input.splitn(2, char::is_whitespace);
+    let cmd = parts.next().unwrap_or("");
+    let rest = parts.next().map(|s| s.trim()).unwrap_or("");
+
+    match cmd {
+        "/quit" | "/exit" => {
+            println!("  Goodbye.");
+            SlashOutcome::Quit
+        }
+        "/help" => {
+            print_help();
+            SlashOutcome::Continue
+        }
+        "/clear" => {
+            session.ctx.clear_history();
+            println!("  [history cleared]");
+            println!();
+            SlashOutcome::Continue
+        }
+        "/stats" => {
+            print_stats(&session.stats);
+            SlashOutcome::Continue
+        }
+        "/system" => {
+            if rest.is_empty() {
+                println!("  Usage: /system <new system prompt>");
+                println!();
+            } else {
+                session.ctx.set_system_prompt(rest.to_string());
+                session.args.system = rest.to_string();
+                println!("  [system prompt updated — history cleared to apply new system prompt]");
+                println!();
+            }
+            SlashOutcome::Continue
+        }
+        _ => {
+            println!("  Unknown command: {}. Type /help for the list.", cmd);
+            println!();
+            SlashOutcome::Continue
+        }
+    }
+}
+
 #[cfg(feature = "gpu")]
 fn input_loop(session: &mut ChatSession) -> Result<(), String> {
     let stdin = io::stdin();
     let mut handle = stdin.lock();
     loop {
+        // Clear any stale interrupt from a previous turn.
+        interrupt_flag().store(false, Ordering::SeqCst);
+
         print!("  > ");
         io::stdout().flush().ok();
 
@@ -242,22 +362,14 @@ fn input_loop(session: &mut ChatSession) -> Result<(), String> {
             continue;
         }
 
-        match input {
-            "/quit" | "/exit" => {
-                println!("  Goodbye.");
-                return Ok(());
-            }
-            "/help" => {
-                println!("  Commands:");
-                println!("    /quit, /exit  — leave the chat");
-                println!("    /help         — show this help");
-                println!();
-            }
-            _ => {
-                if let Err(e) = run_turn(session, input) {
-                    eprintln!("  [error] {}", e);
-                }
-            }
+        match handle_slash_command(input, session) {
+            SlashOutcome::Quit => return Ok(()),
+            SlashOutcome::Continue => continue,
+            SlashOutcome::NotACommand => {}
+        }
+
+        if let Err(e) = run_turn(session, input) {
+            eprintln!("  [error] {}", e);
         }
     }
 }
@@ -290,7 +402,7 @@ fn cpu_only_loop() -> Result<(), String> {
                 return Ok(());
             }
             "/help" => {
-                println!("  Commands: /quit, /exit, /help");
+                println!("  Commands: /quit, /exit, /help (GPU feature required for full command set)");
             }
             _ => {
                 println!("  [GPU feature required for inference]");
@@ -299,19 +411,36 @@ fn cpu_only_loop() -> Result<(), String> {
     }
 }
 
-/// Run one chat turn: template → tokenise → prefill → streaming decode.
-/// Public for integration tests; the input loop calls it per line.
+/// One chat turn: truncate history if needed, format, tokenise, run
+/// prefill + streaming decode, append to history, record stats.
 #[cfg(feature = "gpu")]
 pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutcome, String> {
-    let ctx = ChatContext {
-        system_prompt: session.args.system.clone(),
-        user_input: user_input.to_string(),
-    };
-    let prompt = template::format_single_turn(&ctx);
+    session.ctx.user_input = user_input.to_string();
 
-    // `false` for add_special: the template already emits the special tokens
-    // as literal strings, which the BPE tokenizer resolves to their IDs via
-    // split_by_special_tokens.
+    // Truncate to fit the formatted prompt + response headroom inside
+    // the KV cache.
+    let budget = session.max_seq.saturating_sub(RESPONSE_HEADROOM).max(512);
+    let dropped = {
+        let tok = &session.tokenizer;
+        super::context::truncate_if_needed(
+            &mut session.ctx,
+            budget,
+            |c| template::format_multi_turn(c),
+            |s| tok.encode(s, false).len(),
+        )
+    };
+    if dropped > 0 {
+        let remaining = session.ctx.conversation_history.len() / 2;
+        println!(
+            "  [context truncated: dropped {} oldest turn{}, {} turn{} remaining]",
+            dropped,
+            if dropped == 1 { "" } else { "s" },
+            remaining,
+            if remaining == 1 { "" } else { "s" },
+        );
+    }
+
+    let prompt = template::format_multi_turn(&session.ctx);
     let prompt_tokens = session.tokenizer.encode(&prompt, false);
     if prompt_tokens.is_empty() {
         return Err("prompt tokenised to zero tokens".to_string());
@@ -330,6 +459,9 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
     } else {
         gpu::GpuLogitsMode::DownloadToHost
     };
+
+    let int_flag = interrupt_flag();
+    int_flag.store(false, Ordering::SeqCst);
 
     let prefill_start = Instant::now();
     let mut prefill_scratch = gpu::GpuPrefillScratch::new(&session.config, prompt_tokens.len())
@@ -377,6 +509,10 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
     io::stdout().flush().ok();
 
     loop {
+        if int_flag.load(Ordering::SeqCst) {
+            stopped_by = StopReason::Interrupted;
+            break;
+        }
         if session.tokenizer.is_eog(next_token) {
             stopped_by = StopReason::EogToken;
             break;
@@ -396,6 +532,14 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
             io::stdout().flush().ok();
             accumulated.push_str(&text);
             if STOP_MARKERS.iter().any(|m| accumulated.ends_with(m)) {
+                // Strip the stop marker from the visible reply.
+                for m in STOP_MARKERS {
+                    if accumulated.ends_with(m) {
+                        let cut = accumulated.len() - m.len();
+                        accumulated.truncate(cut);
+                        break;
+                    }
+                }
                 stopped_by = StopReason::StopMarker;
                 break;
             }
@@ -439,10 +583,17 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
         )?;
     }
 
-    println!();
+    if stopped_by == StopReason::Interrupted {
+        println!();
+        println!("  [interrupted]");
+    } else {
+        println!();
+    }
+
     let decode_time = decode_start.elapsed();
-    let tps = if decode_time.as_secs_f64() > 0.0 {
-        generated as f64 / decode_time.as_secs_f64()
+    let decode_s = decode_time.as_secs_f64();
+    let tps = if decode_s > 0.0 {
+        generated as f64 / decode_s
     } else {
         0.0
     };
@@ -455,6 +606,23 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
     );
     println!();
 
+    // Record history: append the user turn plus whatever the assistant
+    // produced (even if interrupted — partial output is still relevant
+    // context).
+    session
+        .ctx
+        .push_turn(Role::User, user_input.to_string());
+    session
+        .ctx
+        .push_turn(Role::Assistant, accumulated.clone());
+
+    session.stats.record(
+        prompt_tokens.len(),
+        generated,
+        ttft.as_secs_f64() * 1000.0,
+        decode_s,
+    );
+
     Ok(TurnOutcome {
         prompt_tokens: prompt_tokens.len(),
         generated_tokens: generated,
@@ -462,6 +630,7 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
         decode_tps: tps,
         stopped_by,
         response: accumulated,
+        dropped_history_pairs: dropped,
     })
 }
 
@@ -507,6 +676,7 @@ pub enum StopReason {
     StopMarker,
     MaxTokens,
     ContextFull,
+    Interrupted,
 }
 
 impl StopReason {
@@ -516,6 +686,7 @@ impl StopReason {
             StopReason::StopMarker => "stop",
             StopReason::MaxTokens => "max tokens",
             StopReason::ContextFull => "ctx full",
+            StopReason::Interrupted => "interrupted",
         }
     }
 }
@@ -528,4 +699,5 @@ pub struct TurnOutcome {
     pub decode_tps: f64,
     pub stopped_by: StopReason,
     pub response: String,
+    pub dropped_history_pairs: usize,
 }

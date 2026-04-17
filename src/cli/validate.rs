@@ -7,11 +7,11 @@
 
 use std::path::Path;
 
-use rocmforge::config::ModelConfig;
-use rocmforge::loader::{GgmlType, GgufFile};
+use crate::config::ModelConfig;
+use crate::loader::GgufFile;
 
 #[cfg(feature = "gpu")]
-use rocmforge::gpu;
+use crate::gpu;
 
 /// Ask `rocminfo` for the first `gfx*` target. The HIP FFI currently
 /// returns a placeholder `arch_name`, so we fall back to this external
