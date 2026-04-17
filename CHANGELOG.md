@@ -2,6 +2,51 @@
 
 ## [Unreleased]
 
+### hipBLAS Prefill GEMM (Phase 1 — north-star)
+
+- **hipBLAS-backed prefill path** for Q4_0 tensors with `seq_len >= 32`.
+  Per projection: Q4_0 → FP16 dequant into a device-owned scratch,
+  FP32 → FP16 input conversion, `hipblasHgemm`, FP16 → FP32 output
+  conversion. Row-major activations are consumed via the standard
+  "compute `C^T` by swapping operands" trick (no transpose kernel).
+- **FFI layer** (`src/gpu/hipblas_ffi.rs`): `hipblasCreate` / `Destroy`
+  / `SetStream` / `Hgemm`, RAII-wrapped handle, linked via `hipblas` in
+  `build.rs`.
+- **Dequant + FP-conversion kernels**
+  (`hip_kernels/quant/dequant_q4_0_to_f16.hip`): coalesced writes,
+  shared per-block FP16 scale table, one thread per output element.
+- **Device-owned FP16 scratch** (`GpuDevice::prefill_f16_*`): lazy,
+  grows on demand, single allocation per size class. Working set
+  ~150 MB on Qwen2.5-7B.
+- **Dispatch hook** in `gpu_dispatch_gemm`: picks hipBLAS for
+  `seq_len >= PREFILL_GEMM_THRESHOLD` on Q4_0 tensors without
+  `needs_transpose`, opt-out via `ROCMFORGE_DISABLE_HIPBLAS_PREFILL=1`.
+  Falls back to the existing `gemm_q4_0_f32` kernel on any error.
+- **Correctness test**
+  (`tests/prefill_hipblas_matches_gemv.rs`): asserts the first decoded
+  token matches between hipBLAS and the GEMV reference on a 44-token
+  prompt. FP16 accumulation inside hipBLAS can drift later tokens, so
+  full-string equality is not required.
+- **Sweep script** `benches/bench_prefill_hipblas.fish` (pp 19/64/128/
+  256/512 × GEMV vs hipBLAS × 3 runs).
+- **Measured** (Qwen2.5-7B Q4_0, median of 3):
+
+  | pp  | GEMV  | hipBLAS | Speedup |
+  |----:|------:|--------:|--------:|
+  |  19 |  59.9 |    52.9 |   −12 % |
+  |  64 |  62.4 |    77.8 |   +25 % |
+  | 128 |  63.6 |    82.4 |   +30 % |
+  | 256 |  63.8 |    86.0 |   +35 % |
+  | 512 |  50.3 |    63.1 |   +25 % |
+
+- **Verdict:** 86 tok/s peak sits below the 200 tok/s threshold that
+  the fail-fast framework set for "hardware can trivially do it with
+  hipBLAS". The GEMV→GEMM switch is real but not a step change — the
+  next investigation is whether `hipblasHgemm` on gfx1201 actually
+  uses matrix cores, before deciding if Phase 2 (custom WMMA with
+  inline dequant) will pay off. Full analysis in
+  `benches/results/prefill_hipblas_analysis.md`.
+
 ### AVX-512 VNNI Q4_0 GEMV Kernel (CPU Fallback Path)
 
 - **AVX-512 VNNI dot-product kernel** for Q4_0 × Q8_0 GEMV on Zen4+

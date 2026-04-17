@@ -1,0 +1,66 @@
+{
+  "git_sha": "b00acbf",
+  "timestamp": 1776410991,
+  "model": "Qwen2.5-7B-Instruct-Q4_0",
+  "runs": [
+    {"target_len": 19, "mode": "hipblas", "run": 1, "ms": 341.4, "tps": 52.7}
+    ,
+    {"target_len": 19, "mode": "hipblas", "run": 2, "ms": 340.4, "tps": 52.9}
+    ,
+    {"target_len": 19, "mode": "hipblas", "run": 3, "ms": 340.6, "tps": 52.9}
+    ,
+    {"target_len": 19, "mode": "gemv", "run": 1, "ms": 300.4, "tps": 59.9}
+    ,
+    {"target_len": 19, "mode": "gemv", "run": 2, "ms": 300.5, "tps": 59.9}
+    ,
+    {"target_len": 19, "mode": "gemv", "run": 3, "ms": 300.6, "tps": 59.9}
+    ,
+    {"target_len": 64, "mode": "hipblas", "run": 1, "ms": 809.3, "tps": 77.8}
+    ,
+    {"target_len": 64, "mode": "hipblas", "run": 2, "ms": 809.9, "tps": 77.8}
+    ,
+    {"target_len": 64, "mode": "hipblas", "run": 3, "ms": 812.0, "tps": 77.6}
+    ,
+    {"target_len": 64, "mode": "gemv", "run": 1, "ms": 1007.7, "tps": 62.5}
+    ,
+    {"target_len": 64, "mode": "gemv", "run": 2, "ms": 1011.6, "tps": 62.3}
+    ,
+    {"target_len": 64, "mode": "gemv", "run": 3, "ms": 1011.2, "tps": 62.3}
+    ,
+    {"target_len": 128, "mode": "hipblas", "run": 1, "ms": 1542.7, "tps": 82.3}
+    ,
+    {"target_len": 128, "mode": "hipblas", "run": 2, "ms": 1542.0, "tps": 82.4}
+    ,
+    {"target_len": 128, "mode": "hipblas", "run": 3, "ms": 1541.7, "tps": 82.4}
+    ,
+    {"target_len": 128, "mode": "gemv", "run": 1, "ms": 1996.1, "tps": 63.6}
+    ,
+    {"target_len": 128, "mode": "gemv", "run": 2, "ms": 1995.2, "tps": 63.7}
+    ,
+    {"target_len": 128, "mode": "gemv", "run": 3, "ms": 1995.8, "tps": 63.6}
+    ,
+    {"target_len": 256, "mode": "hipblas", "run": 1, "ms": 2961.9, "tps": 86.1}
+    ,
+    {"target_len": 256, "mode": "hipblas", "run": 2, "ms": 2965.0, "tps": 86.0}
+    ,
+    {"target_len": 256, "mode": "hipblas", "run": 3, "ms": 2964.9, "tps": 86.0}
+    ,
+    {"target_len": 256, "mode": "gemv", "run": 1, "ms": 3999.5, "tps": 63.8}
+    ,
+    {"target_len": 256, "mode": "gemv", "run": 2, "ms": 3997.8, "tps": 63.8}
+    ,
+    {"target_len": 256, "mode": "gemv", "run": 3, "ms": 3999.2, "tps": 63.8}
+    ,
+    {"target_len": 512, "mode": "hipblas", "run": 1, "ms": 8101.0, "tps": 63.1}
+    ,
+    {"target_len": 512, "mode": "hipblas", "run": 2, "ms": 8113.3, "tps": 63.0}
+    ,
+    {"target_len": 512, "mode": "hipblas", "run": 3, "ms": 8098.4, "tps": 63.1}
+    ,
+    {"target_len": 512, "mode": "gemv", "run": 1, "ms": 10161.3, "tps": 50.3}
+    ,
+    {"target_len": 512, "mode": "gemv", "run": 2, "ms": 10160.7, "tps": 50.3}
+    ,
+    {"target_len": 512, "mode": "gemv", "run": 3, "ms": 10167.6, "tps": 50.3}
+  ]
+}
