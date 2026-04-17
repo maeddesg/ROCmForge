@@ -68,6 +68,11 @@ name = "bench_wmma_attention_online"
 path = "profiling/wmma_poc/bench_wmma_attention_online.rs"
 required-features = ["gpu"]
 
+[[bin]]
+name = "bench_wmma_attention_gqa_causal"
+path = "profiling/wmma_poc/bench_wmma_attention_gqa_causal.rs"
+required-features = ["gpu"]
+
 [[bench]]
 name = "kernels"
 harness = false

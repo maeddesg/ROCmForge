@@ -1,0 +1,43 @@
+{
+  "estimated_pp256_prefill_ms": 446.37176382541656,
+  "estimated_pp256_tokens_per_s": 573.5129789708784,
+  "hardware": "RX 9070 XT (gfx1201, RDNA 4)",
+  "num_kv_heads": 4,
+  "num_q_heads": 28,
+  "pp256_28layer_attention_estimate_ms": 6.371763825416565,
+  "shapes": [
+    {
+      "existing_us_median": 21709.09309387207,
+      "phase3b_us_median": 66.48100167512894,
+      "phase3c_us_median": 71.04100286960602,
+      "seq_len": 64,
+      "speedup_vs_existing": 305.5853974037862,
+      "speedup_vs_phase3b": 0.9358117001410179
+    },
+    {
+      "existing_us_median": 39117.85888671875,
+      "phase3b_us_median": 121.56099826097488,
+      "phase3c_us_median": 129.80100512504578,
+      "seq_len": 128,
+      "speedup_vs_existing": 301.3679196785415,
+      "speedup_vs_phase3b": 0.9365181582674744
+    },
+    {
+      "existing_us_median": 77755.8364868164,
+      "phase3b_us_median": 236.28200590610504,
+      "phase3c_us_median": 227.56299376487732,
+      "seq_len": 256,
+      "speedup_vs_existing": 341.6892843620932,
+      "speedup_vs_phase3b": 1.0383147189135522
+    },
+    {
+      "existing_us_median": 235956.9549560547,
+      "phase3b_us_median": 839.1680121421814,
+      "phase3c_us_median": 481.564998626709,
+      "seq_len": 512,
+      "speedup_vs_existing": 489.97945371640185,
+      "speedup_vs_phase3b": 1.7425851433041395
+    }
+  ],
+  "ts": 1776425867
+}
