@@ -66,3 +66,26 @@ Optimierungsansätze:
 - **Heterogenes Spec-Decode:** Draft-Modell (0.5B) auf CPU, Target (7B) auf GPU, parallel. Eliminiert die ~10 % Draft-GPU-Overhead aus der Spec-Step-Kostenanalyse. Voraussetzung: CPU-Pfad muss schnell genug sein, um die GPU nicht zu blockieren.
 
 Das Memory-Controller-Pipelining-Muster (RDNA-4-Abschnitt oben) gilt nicht 1:1 für CPU-DRAM. Zen4 hat eigene Prefetcher und eine andere Memory-Hierarchie (L1/L2 pro Core, L3 shared, DDR5-Controller) — Optimierungsheuristiken müssen empirisch validiert werden, bevor die RDNA-4-Erkenntnisse übertragen werden.
+
+### Orchestration-Falle bei kleinen Modellen (CPU)
+
+Bei Qwen2.5-0.5B (hidden_size=896) ist die GEMV-Rechenzeit pro Aufruf so kurz (~150 µs inkl. Rayon-Dispatch), dass der Orchestrierungs-Overhead dominiert. Gemessen: 80 ms/Token bei einem theoretischen Bandbreiten-Limit von ~3.4 ms (260 MB Weight-Read / 77 GB/s DDR5) — **Faktor 24× über dem Speicherbandbreiten-Maximum**.
+
+Ursachen:
+
+- Rayon Fork-Join-Overhead pro GEMV-Aufruf (~192 Aufrufe/Token, jede `par_iter_mut` wartet auf Sync-Barrier).
+- Skalare Attention (`flash_attn_decode`), RMSNorm, RoPE, SiLU — keine SIMD-Vektorisierung jenseits der Auto-Vektorisierung.
+- Skalare Q8-Input-Quantisierung (`quantize_q8_0_single` — Byte-weise Schleife).
+
+Konsequenz empirisch bestätigt durch das AVX-512-VNNI-Experiment (commit `d0e4f07`, Bench-Ergebnis in `benches/results/cpu_avx512_analysis.md`): **16–19 % Kernel-Speedup auf 7B-Shapes, aber 0 % End-to-End auf 0.5B**, weil der Kernel nicht der Engpass ist. Heterogenes Spec-Decode (Draft auf CPU) erfordert einen fundamentalen CPU-Pipeline-Rewrite, nicht bessere GEMV-Kernels.
+
+### CPU-Performance-Lücke zu llama.cpp
+
+ROCmForge CPU-Pfad auf Ryzen 9 7945HX vs. llama.cpp auf demselben System:
+
+| Modell       | ROCmForge  | llama.cpp (geschätzt) | Faktor |
+|--------------|-----------:|----------------------:|-------:|
+| 0.5B Q4_0    | 12.1 tok/s |      ~50–80 tok/s     |   ~5×  |
+| 7B Q4_0      |  0.7 tok/s |       ~6–8 tok/s      |  ~10×  |
+
+Die Lücke ist **nicht SIMD-bedingt** (AVX-512 VNNI ist implementiert und isoliert 16–19 % schneller als AVX2 auf 7B-Shapes). Sie liegt in der gesamten CPU-Forward-Pipeline: Rayon-Overhead pro GEMV-Aufruf, skalare Nicht-GEMV-Operationen, fehlende Kernel-Fusion, scheinbar doppelte Memory-Traversals (Input-Quantisierung + GEMV). Ein wettbewerbsfähiger CPU-Pfad wäre ein eigenständiges Grossprojekt — kein Nebenprodukt der GPU-Optimierungsarbeit.

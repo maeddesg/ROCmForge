@@ -40,6 +40,15 @@ Speculative decoding is profitable for high-acceptance workloads (code generatio
 
 Break-even α ≈ 41%. Below that, baseline decode is faster. Adaptive depth (EMA-based) automatically converges to the profitable tier per prompt.
 
+### CPU decode throughput (Ryzen 9 7945HX, AVX-512 VNNI)
+
+| Model             | tok/s |
+|-------------------|------:|
+| Qwen2.5-0.5B Q4_0 |  12.1 |
+| Qwen2.5-7B Q4_0   |   0.7 |
+
+CPU path is functional and has an AVX-512 VNNI Q4_0 GEMV kernel on Zen4+, but is not otherwise optimized — Rayon fork-join overhead per GEMV call and scalar attention/norm/SiLU dominate the 0.5B forward pass. For production inference, use `--gpu`. See [docs/architecture_notes.md](docs/architecture_notes.md) ("Orchestration-Falle bei kleinen Modellen") for the empirical breakdown.
+
 ### Known issues
 
 - **Full-decode HIP graph disabled on RDNA4**: Graph replay of kernels reading device pointers returns stale values in complex graphs (~200+ nodes). See `hip_graph_device_pointer_bug.md`. Tail-only graph (lm_head + argmax) still active.
