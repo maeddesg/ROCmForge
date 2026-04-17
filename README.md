@@ -20,13 +20,27 @@ rocmforge - LLM inference on AMD GPUs (HIP) with a CPU fallback path.
 
 ### Prefill throughput (tok/s)
 
-| Model | ROCmForge WMMA (pp256) | ROCmForge hipBLAS (pp256) | ROCmForge baseline (pp19) | llama.cpp ROCm (pp19) |
-|-------|-----------------------:|--------------------------:|--------------------------:|----------------------:|
-| Qwen2.5-7B Q4_0 | 92.4 | 86.0 | 59 | 1,092 |
+| Model (pp256) | ROCmForge WMMA GEMM+Attn | ROCmForge WMMA GEMM only | ROCmForge hipBLAS | ROCmForge baseline |
+|---------------|-------------------------:|-------------------------:|------------------:|-------------------:|
+| Qwen2.5-7B Q4_0 | **620** | 92.3 | 85.7 | 63.6 |
 
-Prefill now has a dedicated WMMA Q4_0 GEMM path using gfx1201 matrix cores (`__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12`), with inline Q4_0 dequant so there is no FP16 weight scratch round-trip. Isolated GEMM is 2.5× faster than hipBLAS (whose Tensile backend falls back to a VALU kernel on this hardware — confirmed via rocprofv3). End-to-end prefill gain at pp=256 is modest (+7-8 % over hipBLAS) because GEMM is only ~4 % of total prefill time; prefill attention dominates (~84 %) and is the next optimisation target. Full analysis in [`benches/results/prefill_wmma_e2e_analysis.md`](benches/results/prefill_wmma_e2e_analysis.md).
+| Prompt length | WMMA GEMM+Attn tok/s |
+|--------------:|--------------------:|
+| pp64  | 560 |
+| pp128 | 602 |
+| pp192 | 618 |
+| pp256 | **620** |
+| pp384 | 626 |
+| pp512 | 628 |
 
-Disable with `ROCMFORGE_DISABLE_WMMA_PREFILL=1` to fall through to the hipBLAS path, or also set `ROCMFORGE_DISABLE_HIPBLAS_PREFILL=1` to exercise the original custom-GEMM kernel.
+Prefill now uses custom WMMA GEMM and WMMA FlashAttention kernels on gfx1201 matrix cores (`__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12`). hipBLAS/Tensile on ROCm 7.2 does not use matrix cores for gfx1201 — ROCmForge bypasses this with hand-written WMMA kernels. The attention kernel uses online softmax, GQA (28Q / 4KV), causal masking with zero-work elimination on upper-triangle tiles, and replaces a scalar per-head loop that was ~84 % of pp=256 prefill time. At pp=256 total prefill is now 446 ms → 6.7× faster than the WMMA-GEMM-only path and 10× over the original baseline. Analysis: [`benches/results/prefill_wmma_attn_e2e_analysis.md`](benches/results/prefill_wmma_attn_e2e_analysis.md).
+
+Flags:
+- `ROCMFORGE_DISABLE_WMMA_ATTENTION=1` — fall back to the scalar per-head attention kernel.
+- `ROCMFORGE_DISABLE_WMMA_PREFILL=1` — fall through to the hipBLAS GEMM path.
+- Both plus `ROCMFORGE_DISABLE_HIPBLAS_PREFILL=1` — exercise the original custom-GEMV dispatch.
+
+A head-to-head pp=256 measurement against llama.cpp ROCm is still outstanding; their published pp=19 figure (1,092 tok/s) is apples-to-oranges at this prompt length.
 
 ### Speculative decoding (0.5B draft + 7B target)
 
@@ -54,7 +68,7 @@ CPU path is functional and has an AVX-512 VNNI Q4_0 GEMV kernel on Zen4+, but is
 ### Known issues
 
 - **Full-decode HIP graph disabled on RDNA4**: Graph replay of kernels reading device pointers returns stale values in complex graphs (~200+ nodes). See `hip_graph_device_pointer_bug.md`. Tail-only graph (lm_head + argmax) still active.
-- **Prefill throughput is the largest gap vs. llama.cpp** (5% of their pp19 baseline). Custom GEMV kernels instead of GEMM (hipBLAS/WMMA). Next optimization target.
+- **Prefill seq_len alignment**: The WMMA prefill GEMM requires seq_len divisible by 64; the WMMA attention kernel additionally requires `head_dim == 128`. Unaligned prompts fall back to hipBLAS/scalar kernels and lose most of the gain. Kernel variants for arbitrary seq_len are planned.
 
 ## Requirements
 
@@ -132,6 +146,7 @@ CPU fallback:
 | `ROCMFORGE_DISABLE_BATCHED_LM_HEAD=1` | Disable batched verify lm_head, fall back to sequential per-position dispatch |
 | `ROCMFORGE_DISABLE_AVX512=1` | Force the Q4_0 × Q8_0 CPU GEMV back to the AVX2 path (auto-enabled on Zen4+) |
 | `ROCMFORGE_DISABLE_WMMA_PREFILL=1` | Skip the WMMA Q4_0 prefill kernel and fall through to hipBLAS (auto-enabled on gfx12+) |
+| `ROCMFORGE_DISABLE_WMMA_ATTENTION=1` | Skip the WMMA GQA + causal prefill attention kernel and fall back to the scalar per-head kernel (auto-enabled when `seq_len % 64 == 0`) |
 
 ## Documentation
 

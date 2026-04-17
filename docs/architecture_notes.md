@@ -105,3 +105,13 @@ ROCmForge's CPU path on the Ryzen 9 7945HX vs. llama.cpp on the same machine:
 | 7B Q4_0     |   0.7 tok/s |       ~6–8 tok/s      |   ~10× |
 
 The gap is **not SIMD-bound** — AVX-512 VNNI is implemented and is 16–19% faster than AVX2 in isolation on 7B shapes. It lives in the entire CPU forward pipeline: Rayon overhead per GEMV call, scalar non-GEMV operations, missing kernel fusion, and apparently duplicate memory traversals (input quantization + GEMV). A competitive CPU path would be a standalone project — not a by-product of the GPU optimization work.
+
+## WMMA FlashAttention on RDNA 4 (Phase 3d)
+
+The prefill attention kernel uses the same `__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12` intrinsics as the GEMM kernel. FlashAttention-style with online softmax, 64 × 64 Q/KV tiles, and causal masking with zero-work elimination on tiles strictly above the diagonal.
+
+The pre-existing scalar `flash_attn_prefill_strided_kernel` had a fundamental parallelisation failure: the softmax update ran on thread 0 alone in a 128-element serial loop. The WMMA kernel parallelises the whole attention path — `QKᵀ`, softmax, `P × V` — over every thread and every matrix core. At `seq_len = 256`, isolated attention dropped from 78,412 µs to 221 µs (355×); end-to-end prefill at pp = 256 went from 2,773 ms → 411 ms (6.7×).
+
+GQA is handled with separate `q_row_stride` and `kv_row_stride`. The 7:1 KV sharing between Q heads flows through the L2 cache, not explicit LDS sharing. At `head_dim = 128` and `seq ≤ 512` the KV tiles fit comfortably in the 64 MB L2, and the measured cost of GQA overhead vs. a `gqa_ratio = 1` run is ~6 % at short sequences (where the extra stride bookkeeping is visible) and neutral at long sequences. Explicit LDS KV-dedup was evaluated and parked — attention is now ~1.5 % of pp = 256 prefill time, below the threshold where further tuning pays off.
+
+Causal-mask zero-work elimination saves roughly `(seq_len / TILE_KV − 1) / 2` tiles per Q-tile. At pp = 512 the theoretical saving is 44 % (28 fully-skipped tiles out of 64); measured saving vs. a non-causal WMMA run is ~25 %. The gap comes from diagonal tiles that still run the full GEMM with an extra per-element mask check. Below pp = 256 the mask infrastructure costs more than the few skippable tiles save, so causal and non-causal WMMA differ by < 15 %. We keep the mask always-on because correctness on a real model requires it.

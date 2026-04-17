@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### WMMA FlashAttention Prefill (Phases 3a–3d)
+
+- **WMMA prefill attention kernel**
+  (`hip_kernels/wmma/wmma_attention_prefill.hip`). FlashAttention-style
+  online softmax, 64×64 Q/KV tiling, GQA with separate `q_row_stride` /
+  `kv_row_stride` (28 Q / 4 KV on Qwen2.5-7B), causal mask with
+  early-break for fully-skipped tiles + per-element diagonal masking.
+  Kernel requires `seq_len % 64 == 0` and `head_dim == 128`.
+- **Correctness:** 9/9 isolated tests green (`tests/wmma_attention_*`),
+  `max_abs_diff` 8.9e-6 – 3.5e-5 at tol 1e-2 across GQA-only,
+  causal-only, and GQA+causal scenarios. `O[0] == V[0]` bit-exact for
+  the first query position across all 28 heads. End-to-end: identical
+  first decoded token vs. the scalar reference on a pp=80 prompt.
+- **Prefill dispatch integration** (Phase 3d). `gpu_attention_prefill`
+  replaces the scalar per-head `flash_attn_prefill_strided` loop with
+  one WMMA dispatch when the shape constraints hold. FP32 → FP16
+  conversion of Q / K / V happens on the same stream; scratch FP16
+  buffers are lazily allocated. Opt-out:
+  `ROCMFORGE_DISABLE_WMMA_ATTENTION=1`.
+- **End-to-end prefill throughput** (Qwen2.5-7B Q4_0, greedy,
+  `--max-tokens 1`, median of 3 runs):
+
+  | pp  | custom GEMM | hipBLAS | WMMA GEMM only | **WMMA GEMM + Attn** | vs GEMM-only |
+  |----:|------------:|--------:|---------------:|---------------------:|-------------:|
+  |  64 |        61.8 |    76.7 |           88.7 |           **560.1** |        6.3×  |
+  | 128 |        63.1 |    81.7 |           90.3 |           **602.5** |        6.7×  |
+  | 192 |        64.0 |    84.7 |           92.3 |           **618.1** |        6.7×  |
+  | 256 |        63.6 |    85.8 |           92.3 |           **622.5** |        6.7×  |
+  | 384 |        54.0 |    69.8 |           74.5 |           **626.1** |        8.4×  |
+  | 512 |        50.2 |    63.1 |           67.2 |           **628.6** |        9.4×  |
+
+  At pp=256 the prefill went from 2,773 ms (WMMA GEMM only) to 411 ms
+  (WMMA GEMM + WMMA Attention), a 6.7× end-to-end speedup on a single
+  phase. Isolated attention at pp=256 collapsed from 78,412 µs to
+  220 µs (355× vs scalar). Decode throughput (Qwen2.5-7B Q4_0 greedy)
+  remains unchanged — the attention kernel only affects the prefill
+  path, not the decode or verify paths.
+
 ### WMMA Q4_0 Prefill GEMM (Phases 2a–2d)
 
 - **`__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12` works on gfx1201.**
