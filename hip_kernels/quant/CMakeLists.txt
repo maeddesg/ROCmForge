@@ -145,6 +145,13 @@ set_target_properties(q4_0_dequantize PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
 
+# Q4_0 → FP16 dequantization + FP32↔FP16 conversion for the hipBLAS prefill path
+add_library(dequant_q4_0_to_f16 STATIC dequant_q4_0_to_f16.hip)
+target_link_libraries(dequant_q4_0_to_f16 quant_common)
+set_target_properties(dequant_q4_0_to_f16 PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+)
+
 # Q4_1 quantization kernel
 add_library(q4_1_quantize STATIC q4_1_quantize.hip)
 target_link_libraries(q4_1_quantize quant_common)

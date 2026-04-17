@@ -1442,6 +1442,29 @@ pub fn gpu_dispatch_gemm(
         return gpu_dispatch_gemv(device, weights, meta, input, output, out_dim, in_dim);
     }
 
+    // hipBLAS prefill path: dequantise the Q4_0 weight tensor to FP16,
+    // convert FP32 activations to FP16, call hipblasHgemm, convert the
+    // output back to FP32. The threshold keeps short prefills on the
+    // faster batched-GEMV path.
+    if seq_len >= super::prefill_gemm::PREFILL_GEMM_THRESHOLD
+        && meta.wtype == GgmlType::Q4_0
+        && !meta.needs_transpose
+        && super::safety::hipblas_prefill_enabled()
+    {
+        match dispatch_prefill_via_hipblas(
+            device, weights, input, output, out_dim, in_dim, seq_len,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                eprintln!(
+                    "[rocmforge] hipBLAS prefill path failed ({}), falling back to GEMV",
+                    err
+                );
+                // fall through to the original path
+            }
+        }
+    }
+
     // For small batch sizes (2-8), use batched GEMV: single weight load, N dot products.
     // This reads quantized weights once from VRAM instead of N times, saving N× bandwidth.
     // LDS limit: batch_size × (in_dim / 32) × 34 bytes must fit in 32 KB.
@@ -1536,6 +1559,62 @@ pub fn gpu_dispatch_gemm(
             }
         }
     }
+
+    Ok(())
+}
+
+fn dispatch_prefill_via_hipblas(
+    device: &GpuDevice,
+    weights: &GpuBuffer,
+    input: *const f32,
+    output: *mut f32,
+    out_dim: usize,
+    in_dim: usize,
+    seq_len: usize,
+) -> GpuResult<()> {
+    let stream = device.stream();
+    let handle = device.hipblas()?;
+
+    let weight_elements = out_dim * in_dim;
+    let act_in_elements = seq_len * in_dim;
+    let act_out_elements = seq_len * out_dim;
+
+    let weight_f16 =
+        device.prefill_f16_weight(weight_elements * std::mem::size_of::<u16>())? as *mut u8;
+    let act_in_f16 =
+        device.prefill_f16_act_in(act_in_elements * std::mem::size_of::<u16>())? as *mut u8;
+    let act_out_f16 =
+        device.prefill_f16_act_out(act_out_elements * std::mem::size_of::<u16>())? as *mut u8;
+
+    // 1. Q4_0 → FP16 dequant of the weight matrix.
+    super::prefill_gemm::dequantize_q4_0_to_f16_on_stream(
+        weights.as_ptr() as *const u8,
+        weight_f16,
+        weight_elements,
+        stream,
+    )?;
+
+    // 2. FP32 → FP16 conversion of the input activations.
+    super::prefill_gemm::convert_f32_to_f16_on_stream(input, act_in_f16, act_in_elements, stream)?;
+
+    // 3. hipblasHgemm with the "compute C^T via swapped operands" trick.
+    super::prefill_gemm::hgemm_row_major(
+        handle,
+        weight_f16 as *const u16,
+        act_in_f16 as *const u16,
+        act_out_f16 as *mut u16,
+        seq_len,
+        in_dim,
+        out_dim,
+    )?;
+
+    // 4. FP16 → FP32 conversion of the output.
+    super::prefill_gemm::convert_f16_to_f32_on_stream(
+        act_out_f16,
+        output,
+        act_out_elements,
+        stream,
+    )?;
 
     Ok(())
 }
