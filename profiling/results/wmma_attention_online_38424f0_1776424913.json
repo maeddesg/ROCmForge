@@ -1,0 +1,36 @@
+{
+  "hardware": "RX 9070 XT (gfx1201, RDNA 4)",
+  "pp256_28layer_attention_estimate_ms": 6.210455894470215,
+  "pp256_28layer_attention_reference_ms": 2330.0,
+  "shapes": [
+    {
+      "existing_us_median": 21589.68162536621,
+      "num_heads": 28,
+      "seq_len": 64,
+      "speedup_median": 371.9729509041632,
+      "wmma_online_us_median": 58.04099887609482
+    },
+    {
+      "existing_us_median": 37912.18185424805,
+      "num_heads": 28,
+      "seq_len": 128,
+      "speedup_median": 357.92885044085466,
+      "wmma_online_us_median": 105.92100024223328
+    },
+    {
+      "existing_us_median": 78202.67486572266,
+      "num_heads": 28,
+      "seq_len": 256,
+      "speedup_median": 352.5787693283386,
+      "wmma_online_us_median": 221.8019962310791
+    },
+    {
+      "existing_us_median": 235432.5408935547,
+      "num_heads": 28,
+      "seq_len": 512,
+      "speedup_median": 398.84417076888855,
+      "wmma_online_us_median": 590.2870297431946
+    }
+  ],
+  "ts": 1776424913
+}

@@ -1,0 +1,13 @@
+[Draft] Prefilling KV cache... done in 51.9ms
+ Making traditional Japanese ramen from scratch is a labor-intensive process, but it's also incredibly rewarding. Here's a step-by-step guide to help you create a delicious bowl of ramen:
+
+### Ingredients and Equipment
+
+#### Broth:
+- **Base Ingredients:**
+  - 2 lbs (1 kg) pork bones (chicken bones can be used as a vegetarian alternative)
+  - 1 onion, quartered
+  - 2 carrots, quartered
+  - 2 celery stalks, quartered
+  - 2 garlic cloves, smashed
+  - 10 cups (2.5 liters) water

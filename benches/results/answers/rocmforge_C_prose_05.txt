@@ -1,0 +1,49 @@
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.6s
+Chat template: none (raw completion)
+Prompt: 26 tokens
+Prefill: 426.9ms (60.9 tok/s)
+
+ The sun rises over the horizon, casting a warm golden hue across the sky. The lighthouse stands tall and proud, its white walls glowing in the early morning light. The sound of crashing waves can be heard in the distance, as well as the occasional cry of seagulls. The air is crisp and salty, carrying the scent of the ocean. As the sun continues to rise, the colors become more vibrant, with shades of orange, pink, and purple blending together. The atmosphere is peaceful and serene, with a sense of awe and wonder at the beauty of nature. The lighthouse keeper watches in silence, taking in the breathtaking
+
+128 tokens in 1252.5ms = 102.2 tok/s

@@ -1,0 +1,7 @@
+Quantum computing is a fascinating and complex field, but I'll try to explain it in simple terms.
+
+**Classical Computers vs. Quantum Computers**
+
+In classical computers, information is processed using bits, which can be either 0 or 1. Think of bits as switches that can be either "off" (0) or "on" (1).
+
+Quantum computers, on the other hand, use quantum bits, or qubits. Qubits can exist in multiple states simultaneously, thanks to a principle called superposition. This means a qubit can be both 0 and 1 at the same time, allowing quantum computers to process

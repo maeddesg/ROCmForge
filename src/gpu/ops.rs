@@ -1427,6 +1427,11 @@ pub fn gpu_dispatch_fused_gate_up(
     )
 }
 
+/// Minimum `seq_len` (= WMMA M dimension) at which the WMMA Q4_0 prefill
+/// kernel takes over. The kernel requires 64-aligned M; below this the
+/// hipBLAS path or the batched-GEMV path handles it.
+const WMMA_PREFILL_MIN_M: usize = 1;
+
 /// Dispatch a GPU GEMM for GGUF weights.
 pub fn gpu_dispatch_gemm(
     device: &GpuDevice,
@@ -1440,6 +1445,67 @@ pub fn gpu_dispatch_gemm(
 ) -> GpuResult<()> {
     if seq_len == 1 && supports_gemv_type(meta.wtype) {
         return gpu_dispatch_gemv(device, weights, meta, input, output, out_dim, in_dim);
+    }
+
+    // Phase 2d/3.1 — preferred prefill path for Q4_0: hand-written WMMA
+    // kernel with inline Q4_0 dequant. Kernel requires M ≥ 64 and out_dim /
+    // in_dim multiples of 64 / 32 respectively. When `seq_len` is not
+    // 64-aligned the kernel is dispatched at `padded_M = round_up_64(seq_len)`;
+    // the only caller at seq_len ≥ 64 is the prefill path, whose
+    // `GpuPrefillScratch` buffers are oversized to `buffer_seq_len` and
+    // zero-initialised so the trailing rows are safe to read and write.
+    //
+    // Ordering: WMMA → hipBLAS → custom GEMM → batched/tiled GEMV. Each
+    // step has its own opt-out env flag.
+    if seq_len >= WMMA_PREFILL_MIN_M
+        && meta.wtype == GgmlType::Q4_0
+        && !meta.needs_transpose
+        && (out_dim % 64) == 0
+        && (in_dim % 32) == 0
+        && super::safety::wmma_prefill_enabled()
+    {
+        let padded_m = seq_len.div_ceil(64) * 64;
+        match super::kernels::wmma::launch_wmma_gemm_q4_0(
+            input,
+            weights.as_ptr() as *const u8,
+            output,
+            padded_m,
+            out_dim,
+            in_dim,
+            super::ffi::hipStream_t::null(),
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                eprintln!(
+                    "[rocmforge] WMMA Q4_0 prefill path failed ({}), falling back to hipBLAS/GEMV",
+                    err
+                );
+                // fall through to the hipBLAS path
+            }
+        }
+    }
+
+    // hipBLAS prefill path: dequantise the Q4_0 weight tensor to FP16,
+    // convert FP32 activations to FP16, call hipblasHgemm, convert the
+    // output back to FP32. The threshold keeps short prefills on the
+    // faster batched-GEMV path.
+    if seq_len >= super::prefill_gemm::PREFILL_GEMM_THRESHOLD
+        && meta.wtype == GgmlType::Q4_0
+        && !meta.needs_transpose
+        && super::safety::hipblas_prefill_enabled()
+    {
+        match dispatch_prefill_via_hipblas(
+            device, weights, input, output, out_dim, in_dim, seq_len,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                eprintln!(
+                    "[rocmforge] hipBLAS prefill path failed ({}), falling back to GEMV",
+                    err
+                );
+                // fall through to the original path
+            }
+        }
     }
 
     // For small batch sizes (2-8), use batched GEMV: single weight load, N dot products.
@@ -1536,6 +1602,62 @@ pub fn gpu_dispatch_gemm(
             }
         }
     }
+
+    Ok(())
+}
+
+fn dispatch_prefill_via_hipblas(
+    device: &GpuDevice,
+    weights: &GpuBuffer,
+    input: *const f32,
+    output: *mut f32,
+    out_dim: usize,
+    in_dim: usize,
+    seq_len: usize,
+) -> GpuResult<()> {
+    let stream = device.stream();
+    let handle = device.hipblas()?;
+
+    let weight_elements = out_dim * in_dim;
+    let act_in_elements = seq_len * in_dim;
+    let act_out_elements = seq_len * out_dim;
+
+    let weight_f16 =
+        device.prefill_f16_weight(weight_elements * std::mem::size_of::<u16>())? as *mut u8;
+    let act_in_f16 =
+        device.prefill_f16_act_in(act_in_elements * std::mem::size_of::<u16>())? as *mut u8;
+    let act_out_f16 =
+        device.prefill_f16_act_out(act_out_elements * std::mem::size_of::<u16>())? as *mut u8;
+
+    // 1. Q4_0 → FP16 dequant of the weight matrix.
+    super::prefill_gemm::dequantize_q4_0_to_f16_on_stream(
+        weights.as_ptr() as *const u8,
+        weight_f16,
+        weight_elements,
+        stream,
+    )?;
+
+    // 2. FP32 → FP16 conversion of the input activations.
+    super::prefill_gemm::convert_f32_to_f16_on_stream(input, act_in_f16, act_in_elements, stream)?;
+
+    // 3. hipblasHgemm with the "compute C^T via swapped operands" trick.
+    super::prefill_gemm::hgemm_row_major(
+        handle,
+        weight_f16 as *const u16,
+        act_in_f16 as *const u16,
+        act_out_f16 as *mut u16,
+        seq_len,
+        in_dim,
+        out_dim,
+    )?;
+
+    // 4. FP16 → FP32 conversion of the output.
+    super::prefill_gemm::convert_f16_to_f32_on_stream(
+        act_out_f16,
+        output,
+        act_out_elements,
+        stream,
+    )?;
 
     Ok(())
 }

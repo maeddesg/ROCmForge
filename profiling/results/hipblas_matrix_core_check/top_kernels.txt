@@ -1,0 +1,20 @@
+flash_attn_prefill_strided_kernel(float*, float const*, float const*, float const*, int, int, int, int, int, int, int, int, float)|784|2973.6643329081635|2807.389|3443.075
+gemm_q4_0_f32_generic_kernel(void const*, float const*, float*, int, int, int)|25|10675.722119999999|10540.788|10911.352
+Cijk_Alik_Bljk_HB_MT64x64x8_SN_1LDSB0_APM1_ABV0_ACED0_AF0EM1_AF1EM1_AMAS0_ASE_ASGT_ASLT_ASM_ASAE01_ASCE01_ASEM1_AAC0_BL0_BS1_CLR0_DTLA0_DTLB0_DTVA0_DTVB0_DVO0_ETSP_EPS0_ELFLR0_EMLL0_FSSC10_FL0_GLVWA1_GLVWB1_GRCGA1_GRCGB1_GRPM1_GRVW1_GSU1_GSUASB_GLS0_ISA000_IU1_K1_KLS_LBSPPA0_LBSPPB0_LPA0_LPB0_LDL1_LRVW1_LWPMn1_LDW0_FMA_MIAV0_MDA2_MO40_MMFSC_MKFGSU256_NTA0_NTB0_NTC0_NTD0_NEPBS0_NLCA1_NLCB1_ONLL1_OPLV0_PK0_PAP0_PGR1_PLR1_PKA0_SIA1_SLW1_SS0_SU32_SUM0_SUS256_SCIUI1_SPO0_SRVW0_SSO0_SVW4_SNLL0_TSGRA0_TSGRB0_TT4_4_TLDS0_UMLDSA0_UMLDSB0_U64SL1_USFGRO0_VAW2_VS1_VW1_VWB1_VFLRP0_WSGRA0_WSGRB0_WS64_WG16_16_1_WGM8|168|1492.4761369047619|122.321|3844.479
+dequant_q4_0_to_f16_kernel_impl(unsigned char const*, __half*, int)|168|265.12630357142859|17.04|712.447
+gemm_q4_1_f32_generic_kernel(void const*, float const*, float*, int, int, int)|3|9464.2566666666662|9443.376|9480.137
+void gemv_gate_up_swiglu_q4_0_f32_q8_inline_vulkan_style_v2_kernel<8>(void const*, void const*, float const*, float*, int, int)|28|135.31289285714286|133.562|140.522
+convert_f16_to_f32_kernel_impl(__half const*, float*, int)|168|18.061095238095238|1.88|37.041
+void gemv_q4_0_f32_q8_inline_residual_multi_row_kernel<8, 4>(void const*, float const*, float const*, float*, int, int)|53|50.98011320754717|20.16|87.481
+silu_kernel(float const*, float*, int)|28|48.699035714285721|48.12|49.6
+__amd_rocclr_copyBuffer|145|9.3272689655172414|1.96|12.68
+gemv_q6_k_f32_kernel(void const*, float const*, float*, int, int)|2|663.007|654.927|671.087
+void gemv_qkv_q4_0_f32_wave_parallel_v3_kernel<8>(void const*, void const*, void const*, float const*, float const*, float const*, float const*, float*, float*, float*, int, int, int)|28|43.620428571428576|42.48|48.88
+convert_f32_to_f16_kernel_impl(float const*, __half*, int)|168|6.3095952380952385|5.16|12.28
+mul_kernel(float const*, float const*, float*, int)|28|35.788892857142855|31.32|37.52
+add_batched_kernel(float const*, float const*, float*, int, int)|84|10.27347619047619|1.92|18.6
+rms_norm_batched_kernel(float const*, float const*, float*, int, float, int)|56|13.688660714285714|11.0|25.6
+rope_heads_batched_kernel(float*, int, int, int, float, int, int)|56|12.5415|11.08|16.08
+flash_attn_decode_strided_multi_head_v2_kernel(float*, float const*, __half const*, __half const*, int, int, int, int, float)|28|22.251678571428574|21.72|27.121
+add_kernel(float const*, float const*, float*, int)|56|8.5450535714285714|7.4|9.88
+void gemv_q4_1_f32_legacy_kernel<true>(void const*, float const*, float const*, float*, int, int)|3|65.867333333333335|65.561|66.201

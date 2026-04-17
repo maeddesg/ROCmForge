@@ -1,0 +1,3 @@
+Classical conditioning and operant conditioning are two fundamental concepts in the field of psychology that describe different types of learning processes.
+
+Classical conditioning, also known as respondent conditioning, is a type of learning in which a neutral stimulus becomes associated with an automatic (unconditioned) response through repeated pairing with a stimulus that naturally produces the response. The process was first described by Ivan Pavlov in his experiments with dogs. In Pavlov's experiment, he paired the sound of a bell (neutral stimulus) with the presentation of food (unconditioned stimulus), which naturally caused the dogs to salivate (unconditioned response). After several pairings,

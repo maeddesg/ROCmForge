@@ -208,6 +208,11 @@ mod gpu_build {
                             // Q4_0 libraries
                             ("libq4_0_quantize.a", "q4_0_quantize"),
                             ("libq4_0_dequantize.a", "q4_0_dequantize"),
+                            ("libdequant_q4_0_to_f16.a", "dequant_q4_0_to_f16"),
+                            ("libwmma_gemm_16x16.a", "wmma_gemm_16x16"),
+                            ("libwmma_gemm_tiled.a", "wmma_gemm_tiled"),
+                            ("libwmma_gemm_q4_0.a", "wmma_gemm_q4_0"),
+                            ("libwmma_attention_prefill.a", "wmma_attention_prefill"),
                             ("libq4_0_verify.a", "q4_0_verify"),
                             ("libq4_0_gemv.a", "q4_0_gemv"),
                             ("libq4_0_gemv_batched.a", "q4_0_gemv_batched"),
@@ -344,6 +349,7 @@ fn main() {
 
         println!("cargo:rustc-link-lib=hiprtc");
         println!("cargo:rustc-link-lib=amdhip64");
+        println!("cargo:rustc-link-lib=hipblas");
         println!("cargo:rerun-if-env-changed=HIP_PATH");
         println!("cargo:rerun-if-env-changed=ROCM_PATH");
         println!("cargo:rerun-if-env-changed=ROCMFORGE_GPU_ARCH");

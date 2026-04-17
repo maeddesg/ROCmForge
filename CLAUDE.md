@@ -68,6 +68,8 @@ All flags are opt-in; defaults are conservative.
 | `ROCMFORGE_PROFILE_VERIFY_BREAKDOWN=1` | Sub-phase timing within verify layers (requires PROFILE_SPEC_STEP) |
 | `ROCMFORGE_DISABLE_TILED_GEMV=1` | Disable tiled batched GEMV for large FFN projections (default on) |
 | `ROCMFORGE_DISABLE_BATCHED_LM_HEAD=1` | Disable batched verify lm_head, fall back to sequential per-position dispatch |
+| `ROCMFORGE_DISABLE_WMMA_PREFILL=1` | Disable WMMA Q4_0 prefill GEMM, fall through to hipBLAS |
+| `ROCMFORGE_DISABLE_WMMA_ATTENTION=1` | Disable WMMA GQA+causal prefill attention, fall back to scalar kernel |
 | `ROCMFORGE_RUN_REAL_MODEL_GPU_TESTS=1` | Enable real-model benchmark tests |
 | `ROCMFORGE_RUN_GPU_BENCHES=1` | Enable Criterion GPU benchmarks |
 
@@ -127,19 +129,23 @@ Speculative decode path (GPU only, --draft-model):
 
 **CPU modules target <1000 LOC.** `ops.rs` (2323 LOC) is an accepted exception as the core dispatch file. New CPU features should be split into separate files.
 
-## Performance Baseline (April 16, 2026 — RX 9070 XT / gfx1201)
+## Performance Baseline (April 17, 2026 — RX 9070 XT / gfx1201, Qwen2.5 Q4_0)
 
-| Model | ROCmForge | llama.cpp ROCm | Ratio |
-|-------|-----------|----------------|-------|
-| Qwen2.5-0.5B Q4_0 decode | 222 tok/s | 358 tok/s | 62% |
-| Qwen2.5-7B Q4_0 decode | 82 tok/s | 117 tok/s | 70% |
-| Qwen2.5-7B Q4_0 prefill (pp19) | 59 tok/s | 1,092 tok/s | 5% |
+| Metric | ROCmForge | llama.cpp ROCm | Ratio |
+|--------|-----------|----------------|-------|
+| 0.5B decode | 222 tok/s | 358 tok/s | 0.62× |
+| 7B decode | 102 tok/s | 117–121 tok/s | 0.84× |
+| 7B prefill pp64 (synthetic) | 560 tok/s | 2,912 tok/s | 0.19× |
+| 7B prefill pp256 (synthetic) | 620 tok/s | 4,951 tok/s | 0.13× |
+| 7B prefill pp512 (synthetic) | 629 tok/s | 5,158 tok/s | 0.12× |
+| 7B prefill real prompts (median, 19–41 tok) | 356 tok/s | 526 tok/s | 0.68× |
+| 7B total wall clock, 24 tok prompt + 128 gen (median) | 1,319 ms | 1,104 ms | 1.20× |
 
-Full-decode HIP graph is disabled on RDNA4 due to a device-pointer stale-read bug in complex graphs. See `hip_graph_device_pointer_bug.md`. With full-decode graph enabled (gfx1100, before bug), 0.5B decode reached ~646 tok/s after kernel fusions.
+Full-decode HIP graph disabled on RDNA 4 due to a device-pointer stale-read bug in complex graphs. See `hip_graph_device_pointer_bug.md`. Tail-only graph (lm_head + argmax) is still active.
 
-Speculative decoding (0.5B draft + 7B target) is implemented but currently slower than baseline because verify runs token-by-token. Batched verify is the next optimization target.
+Speculative decoding (0.5B draft + 7B target): implemented with batched verify, tiled GEMV, batched lm_head, adaptive depth. On the 15-prompt real benchmark it is a loss on every prompt at greedy (median depth=1: 72 tok/s vs. baseline 102 tok/s). Break-even needs α ≈ 80 %+; best observed is 78 % on a code prompt.
 
-Gap vs. llama.cpp ROCm: primarily launch overhead and missing GEMM for prefill. See `improvements.md` and `OPTIMIZATION_PLAN.md`.
+Gap vs. llama.cpp ROCm: synthetic prefill at pp=256 is ~8× due to ~295 ms of unfused norm/RoPE/residual overhead (kernels themselves are competitive). On real short prompts the wall-clock gap narrows to 1.2×. Decode gap 0.84× is unchanged from project start and not yet profiled.
 
 ### Profiling
 

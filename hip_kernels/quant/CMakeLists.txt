@@ -145,6 +145,42 @@ set_target_properties(q4_0_dequantize PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
 
+# Q4_0 → FP16 dequantization + FP32↔FP16 conversion for the hipBLAS prefill path
+add_library(dequant_q4_0_to_f16 STATIC dequant_q4_0_to_f16.hip)
+target_link_libraries(dequant_q4_0_to_f16 quant_common)
+set_target_properties(dequant_q4_0_to_f16 PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+)
+
+# Phase 2a — WMMA proof-of-concept kernel. Lives outside hip_kernels/quant
+# but is built as part of the same CMake invocation for convenience.
+add_library(wmma_gemm_16x16 STATIC ../wmma/wmma_gemm_16x16.hip)
+set_target_properties(wmma_gemm_16x16 PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    POSITION_INDEPENDENT_CODE ON
+)
+
+# Phase 2a Step 2 — Tiled 64×64 WMMA GEMM.
+add_library(wmma_gemm_tiled STATIC ../wmma/wmma_gemm_tiled.hip)
+set_target_properties(wmma_gemm_tiled PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    POSITION_INDEPENDENT_CODE ON
+)
+
+# Phase 2b — WMMA GEMM with inline Q4_0 weight dequant.
+add_library(wmma_gemm_q4_0 STATIC ../wmma/wmma_gemm_q4_0.hip)
+set_target_properties(wmma_gemm_q4_0 PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    POSITION_INDEPENDENT_CODE ON
+)
+
+# Phase 3a — WMMA prefill attention PoC (single head, seq=64).
+add_library(wmma_attention_prefill STATIC ../wmma/wmma_attention_prefill.hip)
+set_target_properties(wmma_attention_prefill PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    POSITION_INDEPENDENT_CODE ON
+)
+
 # Q4_1 quantization kernel
 add_library(q4_1_quantize STATIC q4_1_quantize.hip)
 target_link_libraries(q4_1_quantize quant_common)

@@ -1,0 +1,15 @@
+The function should have a docstring explaining the parameters and return value. Use a for loop to iterate over the list and apply the binary search algorithm. Include a check function that tests the binary search function with various inputs, including edge cases. Use assertions to verify the correctness of the function.
+
+Here's a Python function that implements binary search on a sorted list:
+
+```python
+def binary_search(arr, target):
+    """
+    Perform binary search on a sorted list to find the target element.
+
+    Parameters:
+    arr (list): A sorted list of elements.
+    target: The element to search for.
+
+    Returns:
+    int: The

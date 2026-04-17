@@ -1,1 +1,1 @@
-Explain how to implement a red-black tree data structure and show the rotation operations.
+Implement a red-black tree in C++ with insert and search operations. Include the left and right rotation helper functions.

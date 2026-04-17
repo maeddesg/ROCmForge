@@ -1,0 +1,10 @@
+Quantum computing is a fascinating and complex field that leverages the principles of quantum mechanics to perform computations. Let's break it down step by step:
+
+### Classical Computers vs. Quantum Computers
+
+1. **Classical Computers:**
+   - **Bits:** These are the basic units of information in classical computers. They can be either 0 or 1.
+   - **Operations:** Classical computers perform operations on bits using logic gates (AND, OR, NOT, etc.).
+
+2. **Quantum Computers:**
+   - **Qubits:** These are the basic units of information in quantum computers. Unlike classical bits, qubits can exist in

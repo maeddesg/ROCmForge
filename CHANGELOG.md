@@ -2,6 +2,202 @@
 
 ## [Unreleased]
 
+### WMMA dispatch threshold lowered to `seq_len ≥ 1` (Phase 3.2)
+
+- `WMMA_PREFILL_MIN_M` dropped from 64 to 1 in `gpu_dispatch_gemm`,
+  and the WMMA prefill attention gate dropped from `seq_len >= 64` to
+  `seq_len >= 1`. Every prompt now engages WMMA via Phase 3.1 padding.
+- `GpuPrefillScratch` now always pads `buffer_seq_len` to a multiple
+  of 64 (minimum 64 rows). Previously only `seq_len ≥ 64` got the
+  oversized buffers; the verify path's short scratch and any
+  sub-64-token prefill were exact-sized and would OOB if WMMA fired.
+- `decode_scratch.logits_batch` oversized from `MAX_VERIFY_BATCH × v`
+  to `max(MAX_VERIFY_BATCH, 64) × v` (+32 MB) so the batched verify
+  lm_head GEMM at `n ≤ 9` can safely dispatch at `padded_M = 64`.
+- Measured on 15 real prompts (5 code / 5 chat / 5 prose, 19–41
+  prompt tokens, 128 decoded tokens, greedy, Qwen2.5-7B Q4_0, median
+  of 3):
+
+  | Metric | Before (≥ 64 gate) | After (≥ 1 gate) | Δ |
+  |---|---:|---:|---:|
+  | Prefill tok/s (median) | 60.6 | **356.2** | **5.9×** |
+  | TTFT ms (median) | 396 | **67** | 5.9× faster |
+  | Decode tok/s (median) | 102.3 | 102.0 | ±0 |
+  | Wall-clock 128-token completion (median) | 1,648 ms | **1,319 ms** | 20 % shorter |
+  | Gap vs. llama.cpp prefill (median) | 8.7× | **1.48×** | −83 % |
+
+- Answer quality on the same 15 prompts: 5/15 byte-identical to the
+  scalar baseline, 10/15 diverge between words 7 and 109 (expected
+  FP16 WMMA accumulation drift). No semantic regressions.
+
+### WMMA prefill path accepts arbitrary `seq_len ≥ 64` (Phase 3.1)
+
+- `GpuPrefillScratch` oversizes all activation buffers to the next
+  multiple of 64 rows and zero-initialises them once at allocation.
+  Downstream ops keep iterating over the logical `seq_len`; the WMMA
+  GEMM and attention kernels dispatch at the padded row count. The
+  padding rows stay zero throughout the forward pass, so trailing
+  outputs are zero (harmless) and the causal mask filters padding
+  key positions from real queries automatically.
+- `gpu_dispatch_gemm` and `gpu_attention_prefill` drop the
+  `seq_len % 64 == 0` gate — the WMMA path now engages for every
+  `seq_len ≥ 64`.
+- Measured throughput on Qwen2.5-7B Q4_0, RX 9070 XT (median of 3,
+  `--max-tokens 1`):
+
+  | pp  | Phase 3d (aligned only) | **Phase 3.1 (padded)** | vs scalar fallback |
+  |----:|-----------------------:|-----------------------:|-------------------:|
+  |  65 |                     88 |                **469** |               5.3× |
+  | 100 |                     88 |                **558** |               6.3× |
+  | 200 |                     88 |                **588** |               6.7× |
+  | 300 |                     88 |                **615** |               7.0× |
+
+  (The Phase 3d column shows the scalar-fallback throughput that
+  unaligned prompts received before this phase.)
+- One-time zero-init via `hipMemsetAsync` for ~30 MB of activation
+  scratch takes ~150 µs on RDNA 4 — amortised over 28 layers of
+  prefill, well under 1 % of total time.
+- Test: `tests/wmma_padding_correctness.rs` — 6 scenarios
+  (unaligned 65/100/200/300, aligned 64/128 no-op), first decoded
+  token identical to the scalar fallback.
+
+### WMMA FlashAttention Prefill (Phases 3a–3d)
+
+- **WMMA prefill attention kernel**
+  (`hip_kernels/wmma/wmma_attention_prefill.hip`). FlashAttention-style
+  online softmax, 64×64 Q/KV tiling, GQA with separate `q_row_stride` /
+  `kv_row_stride` (28 Q / 4 KV on Qwen2.5-7B), causal mask with
+  early-break for fully-skipped tiles + per-element diagonal masking.
+  Kernel requires `seq_len % 64 == 0` and `head_dim == 128`.
+- **Correctness:** 9/9 isolated tests green (`tests/wmma_attention_*`),
+  `max_abs_diff` 8.9e-6 – 3.5e-5 at tol 1e-2 across GQA-only,
+  causal-only, and GQA+causal scenarios. `O[0] == V[0]` bit-exact for
+  the first query position across all 28 heads. End-to-end: identical
+  first decoded token vs. the scalar reference on a pp=80 prompt.
+- **Prefill dispatch integration** (Phase 3d). `gpu_attention_prefill`
+  replaces the scalar per-head `flash_attn_prefill_strided` loop with
+  one WMMA dispatch when the shape constraints hold. FP32 → FP16
+  conversion of Q / K / V happens on the same stream; scratch FP16
+  buffers are lazily allocated. Opt-out:
+  `ROCMFORGE_DISABLE_WMMA_ATTENTION=1`.
+- **End-to-end prefill throughput** (Qwen2.5-7B Q4_0, greedy,
+  `--max-tokens 1`, median of 3 runs):
+
+  | pp  | custom GEMM | hipBLAS | WMMA GEMM only | **WMMA GEMM + Attn** | vs GEMM-only |
+  |----:|------------:|--------:|---------------:|---------------------:|-------------:|
+  |  64 |        61.8 |    76.7 |           88.7 |           **560.1** |        6.3×  |
+  | 128 |        63.1 |    81.7 |           90.3 |           **602.5** |        6.7×  |
+  | 192 |        64.0 |    84.7 |           92.3 |           **618.1** |        6.7×  |
+  | 256 |        63.6 |    85.8 |           92.3 |           **622.5** |        6.7×  |
+  | 384 |        54.0 |    69.8 |           74.5 |           **626.1** |        8.4×  |
+  | 512 |        50.2 |    63.1 |           67.2 |           **628.6** |        9.4×  |
+
+  At pp=256 the prefill went from 2,773 ms (WMMA GEMM only) to 411 ms
+  (WMMA GEMM + WMMA Attention), a 6.7× end-to-end speedup on a single
+  phase. Isolated attention at pp=256 collapsed from 78,412 µs to
+  220 µs (355× vs scalar). Decode throughput (Qwen2.5-7B Q4_0 greedy)
+  remains unchanged — the attention kernel only affects the prefill
+  path, not the decode or verify paths.
+
+### WMMA Q4_0 Prefill GEMM (Phases 2a–2d)
+
+- **`__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12` works on gfx1201.**
+  Register layout derived from the AMD matrix-instruction calculator is
+  committed in `docs/wmma_register_layout_gfx12.md` + raw layout tables.
+  Phase 2a's 16×16 proof-of-concept kernel produced bit-identical output
+  against a CPU FP32 reference on three diagnostic tests (deterministic,
+  `B = I`, `A = I`).
+- **Tiled 64×64 WMMA GEMM** (`hip_kernels/wmma/wmma_gemm_tiled.hip`,
+  Phase 2a Step 2). 4 waves × 4 WMMA blocks, single-buffered 8 KB LDS,
+  no bank-conflict tuning yet. Isolated: 2.96–3.40× faster than hipBLAS
+  on the three Qwen2.5-7B projection shapes at pp=256, 62–75 % of FP16
+  theoretical peak.
+- **Inline Q4_0 dequant WMMA**
+  (`hip_kernels/wmma/wmma_gemm_q4_0.hip`, Phase 2b). K-loop steps in
+  chunks of 32 (one Q4_0 block) and runs two 16-wide WMMA K-iterations
+  per chunk; nibble unpacking and scale multiplication land straight in
+  LDS, so no FP16 weight scratch is ever materialised. Bit-identical to
+  Phase 2a + the existing dequant kernel across 5 shapes. 2.5× faster
+  than hipBLAS on the isolated GEMM and 28–36 % faster than Phase 2a +
+  separate dequant (the fair apples-to-apples comparison).
+- **Prefill dispatch integration** (Phase 2d). `gpu_dispatch_gemm`
+  prefers the WMMA path for Q4_0 tensors when `seq_len ≥ 64 &&
+  seq_len % 64 == 0 && out_dim % 64 == 0 && in_dim % 32 == 0`.
+  Dispatch order: WMMA → hipBLAS → custom GEMM → batched/tiled GEMV.
+  Opt-out: `ROCMFORGE_DISABLE_WMMA_PREFILL=1`.
+- **End-to-end prefill throughput** (Qwen2.5-7B Q4_0, greedy, single
+  forward; 64-aligned prompt lengths):
+
+  | pp  | Custom GEMM | hipBLAS | **WMMA Q4_0** | vs hipBLAS |
+  |----:|------------:|--------:|--------------:|-----------:|
+  |  64 |        61.8 |    77.0 |      **88.8** |    +15.5 % |
+  | 128 |        63.4 |    81.7 |      **90.3** |    +10.5 % |
+  | 256 |        63.7 |    86.0 |      **92.4** |     +7.4 % |
+  | 512 |        50.3 |    63.1 |      **67.2** |     +6.5 % |
+
+- **Correctness**
+  - `tests/wmma_16x16_correctness.rs` — 3 POC sub-tests, bit-exact.
+  - `tests/wmma_tiled_correctness.rs` — 5 shapes vs hipBLAS, within
+    FP16 accumulation envelope.
+  - `tests/wmma_q4_0_correctness.rs` — 5 shapes bit-identical to
+    Phase 2a + separate dequant.
+  - `tests/prefill_wmma_matches_hipblas.rs` — first decoded token
+    matches hipBLAS on a real model prompt.
+- **Verdict.** End-to-end gain at pp=256 is modest (+7.4 %) because
+  GEMM is only ~4 % of prefill time on this model size. Prefill
+  attention dominates (~84 %) and is the next optimisation target.
+  Full analysis in
+  `benches/results/prefill_wmma_e2e_analysis.md`.
+- **Phase 2c (LDS tuning, double-buffering, coalesced Q4_0 load)
+  deprioritised** — its ceiling contribution to end-to-end is ≤ 2 %.
+  Attention-tiling (FlashAttention-style) for prefill is the lever
+  worth pursuing next.
+
+### hipBLAS Prefill GEMM (Phase 1 — north-star)
+
+- **hipBLAS-backed prefill path** for Q4_0 tensors with `seq_len >= 32`.
+  Per projection: Q4_0 → FP16 dequant into a device-owned scratch,
+  FP32 → FP16 input conversion, `hipblasHgemm`, FP16 → FP32 output
+  conversion. Row-major activations are consumed via the standard
+  "compute `C^T` by swapping operands" trick (no transpose kernel).
+- **FFI layer** (`src/gpu/hipblas_ffi.rs`): `hipblasCreate` / `Destroy`
+  / `SetStream` / `Hgemm`, RAII-wrapped handle, linked via `hipblas` in
+  `build.rs`.
+- **Dequant + FP-conversion kernels**
+  (`hip_kernels/quant/dequant_q4_0_to_f16.hip`): coalesced writes,
+  shared per-block FP16 scale table, one thread per output element.
+- **Device-owned FP16 scratch** (`GpuDevice::prefill_f16_*`): lazy,
+  grows on demand, single allocation per size class. Working set
+  ~150 MB on Qwen2.5-7B.
+- **Dispatch hook** in `gpu_dispatch_gemm`: picks hipBLAS for
+  `seq_len >= PREFILL_GEMM_THRESHOLD` on Q4_0 tensors without
+  `needs_transpose`, opt-out via `ROCMFORGE_DISABLE_HIPBLAS_PREFILL=1`.
+  Falls back to the existing `gemm_q4_0_f32` kernel on any error.
+- **Correctness test**
+  (`tests/prefill_hipblas_matches_gemv.rs`): asserts the first decoded
+  token matches between hipBLAS and the GEMV reference on a 44-token
+  prompt. FP16 accumulation inside hipBLAS can drift later tokens, so
+  full-string equality is not required.
+- **Sweep script** `benches/bench_prefill_hipblas.fish` (pp 19/64/128/
+  256/512 × GEMV vs hipBLAS × 3 runs).
+- **Measured** (Qwen2.5-7B Q4_0, median of 3):
+
+  | pp  | GEMV  | hipBLAS | Speedup |
+  |----:|------:|--------:|--------:|
+  |  19 |  59.9 |    52.9 |   −12 % |
+  |  64 |  62.4 |    77.8 |   +25 % |
+  | 128 |  63.6 |    82.4 |   +30 % |
+  | 256 |  63.8 |    86.0 |   +35 % |
+  | 512 |  50.3 |    63.1 |   +25 % |
+
+- **Verdict:** 86 tok/s peak sits below the 200 tok/s threshold that
+  the fail-fast framework set for "hardware can trivially do it with
+  hipBLAS". The GEMV→GEMM switch is real but not a step change — the
+  next investigation is whether `hipblasHgemm` on gfx1201 actually
+  uses matrix cores, before deciding if Phase 2 (custom WMMA with
+  inline dequant) will pay off. Full analysis in
+  `benches/results/prefill_hipblas_analysis.md`.
+
 ### AVX-512 VNNI Q4_0 GEMV Kernel (CPU Fallback Path)
 
 - **AVX-512 VNNI dot-product kernel** for Q4_0 × Q8_0 GEMV on Zen4+

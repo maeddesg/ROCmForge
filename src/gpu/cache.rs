@@ -509,8 +509,14 @@ impl GpuForwardScratch {
             })?;
         retire_count.copy_from_host(&[0u8; 4])?;
 
+        // Oversize to at least 64 rows so the WMMA prefill GEMM can safely
+        // dispatch at padded_M = 64 when verify calls gpu_dispatch_gemm
+        // with n ≤ MAX_VERIFY_BATCH rows (Phase 3.2). Only the first n rows
+        // are ever read; the trailing rows are WMMA output of zero-padded
+        // inputs (i.e. zero) and harmless.
+        let logits_batch_rows = MAX_VERIFY_BATCH.max(64);
         let logits_batch =
-            GpuBuffer::alloc(MAX_VERIFY_BATCH * v * std::mem::size_of::<f32>()).map_err(|e| {
+            GpuBuffer::alloc(logits_batch_rows * v * std::mem::size_of::<f32>()).map_err(|e| {
                 GpuError::CacheAllocationFailed {
                     reason: format!("logits_batch allocation failed: {}", e),
                 }
@@ -770,9 +776,20 @@ impl GpuForwardScratch {
 
 /// Reusable scratch buffers in GPU VRAM for batched prompt prefill.
 ///
-/// Layout is row-major `[seq_len, dim]` for all activation buffers.
+/// Layout is row-major `[buffer_seq_len, dim]` for all activation buffers.
+/// When `seq_len >= 64` the buffers are allocated at `buffer_seq_len`
+/// (the next multiple of 64) and zero-initialised; all ops continue to
+/// process only the first `seq_len` rows, and the WMMA prefill kernels
+/// read/write the full `buffer_seq_len` rows with the trailing padding
+/// rows staying zero throughout the forward pass. This lets the WMMA
+/// paths activate for arbitrary `seq_len >= 64` without a per-call
+/// zero-memset.
 pub struct GpuPrefillScratch {
     pub seq_len: usize,
+    /// Physical row count of every activation buffer. Equal to `seq_len`
+    /// below the WMMA threshold and the next multiple of 64 at or above
+    /// it.
+    pub buffer_seq_len: usize,
     pub hidden: GpuBuffer,
     pub normed: GpuBuffer,
     pub q: GpuBuffer,
@@ -783,6 +800,14 @@ pub struct GpuPrefillScratch {
     pub gate: GpuBuffer,
     pub swiglu: GpuBuffer,
     pub token_ids: GpuBuffer,
+    /// FP16 staging buffers for the WMMA prefill attention kernel. The kernel
+    /// expects FP16 Q/K/V; the activation path produces FP32, so we convert
+    /// per layer before dispatch. Lazily allocated on first use and
+    /// zero-initialised at allocation so padding rows stay zero across
+    /// dispatches.
+    pub q_f16: Option<GpuBuffer>,
+    pub k_f16: Option<GpuBuffer>,
+    pub v_f16: Option<GpuBuffer>,
 }
 
 impl GpuPrefillScratch {
@@ -798,60 +823,90 @@ impl GpuPrefillScratch {
         let kv = config.num_kv_heads * config.head_dim;
         let ff = config.intermediate_size;
 
-        let hidden = GpuBuffer::alloc(seq_len * h * std::mem::size_of::<f32>()).map_err(|e| {
-            GpuError::CacheAllocationFailed {
+        // Phase 3.1/3.2: oversize activation buffers to the next multiple
+        // of 64 (minimum 64 rows) so the WMMA prefill path can dispatch at
+        // `buffer_seq_len` while downstream ops keep running on the logical
+        // `seq_len`. The WMMA kernels require M ≥ 64, so even short prompts
+        // pad up to 64 — this is what brings the typical 20–40-token real
+        // prompt into the WMMA path.
+        let buffer_seq_len = seq_len.max(1).div_ceil(64).max(1) * 64;
+
+        let hidden = GpuBuffer::alloc(buffer_seq_len * h * std::mem::size_of::<f32>()).map_err(
+            |e| GpuError::CacheAllocationFailed {
                 reason: format!("prefill hidden allocation failed: {}", e),
-            }
-        })?;
-        let normed = GpuBuffer::alloc(seq_len * h * std::mem::size_of::<f32>()).map_err(|e| {
-            GpuError::CacheAllocationFailed {
+            },
+        )?;
+        let normed = GpuBuffer::alloc(buffer_seq_len * h * std::mem::size_of::<f32>()).map_err(
+            |e| GpuError::CacheAllocationFailed {
                 reason: format!("prefill normed allocation failed: {}", e),
-            }
-        })?;
-        let q_buf = GpuBuffer::alloc(seq_len * q * std::mem::size_of::<f32>()).map_err(|e| {
-            GpuError::CacheAllocationFailed {
+            },
+        )?;
+        let q_buf = GpuBuffer::alloc(buffer_seq_len * q * std::mem::size_of::<f32>()).map_err(
+            |e| GpuError::CacheAllocationFailed {
                 reason: format!("prefill q allocation failed: {}", e),
-            }
-        })?;
-        let k_buf = GpuBuffer::alloc(seq_len * kv * std::mem::size_of::<f32>()).map_err(|e| {
-            GpuError::CacheAllocationFailed {
+            },
+        )?;
+        let k_buf = GpuBuffer::alloc(buffer_seq_len * kv * std::mem::size_of::<f32>()).map_err(
+            |e| GpuError::CacheAllocationFailed {
                 reason: format!("prefill k allocation failed: {}", e),
-            }
-        })?;
-        let v_buf = GpuBuffer::alloc(seq_len * kv * std::mem::size_of::<f32>()).map_err(|e| {
-            GpuError::CacheAllocationFailed {
+            },
+        )?;
+        let v_buf = GpuBuffer::alloc(buffer_seq_len * kv * std::mem::size_of::<f32>()).map_err(
+            |e| GpuError::CacheAllocationFailed {
                 reason: format!("prefill v allocation failed: {}", e),
-            }
-        })?;
-        let attn_out = GpuBuffer::alloc(seq_len * q * std::mem::size_of::<f32>()).map_err(|e| {
-            GpuError::CacheAllocationFailed {
-                reason: format!("prefill attn_out allocation failed: {}", e),
-            }
-        })?;
+            },
+        )?;
+        let attn_out =
+            GpuBuffer::alloc(buffer_seq_len * q * std::mem::size_of::<f32>()).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("prefill attn_out allocation failed: {}", e),
+                }
+            })?;
         let layer_out =
-            GpuBuffer::alloc(seq_len * h * std::mem::size_of::<f32>()).map_err(|e| {
+            GpuBuffer::alloc(buffer_seq_len * h * std::mem::size_of::<f32>()).map_err(|e| {
                 GpuError::CacheAllocationFailed {
                     reason: format!("prefill layer_out allocation failed: {}", e),
                 }
             })?;
-        let gate = GpuBuffer::alloc(seq_len * ff * std::mem::size_of::<f32>()).map_err(|e| {
-            GpuError::CacheAllocationFailed {
+        let gate = GpuBuffer::alloc(buffer_seq_len * ff * std::mem::size_of::<f32>()).map_err(
+            |e| GpuError::CacheAllocationFailed {
                 reason: format!("prefill gate allocation failed: {}", e),
-            }
-        })?;
-        let swiglu = GpuBuffer::alloc(seq_len * ff * std::mem::size_of::<f32>()).map_err(|e| {
-            GpuError::CacheAllocationFailed {
+            },
+        )?;
+        let swiglu = GpuBuffer::alloc(buffer_seq_len * ff * std::mem::size_of::<f32>()).map_err(
+            |e| GpuError::CacheAllocationFailed {
                 reason: format!("prefill swiglu allocation failed: {}", e),
-            }
-        })?;
+            },
+        )?;
         let token_ids = GpuBuffer::alloc(seq_len * std::mem::size_of::<i32>()).map_err(|e| {
             GpuError::CacheAllocationFailed {
                 reason: format!("prefill token_ids allocation failed: {}", e),
             }
         })?;
 
+        // Zero-initialise all activation buffers. The padding rows
+        // [seq_len..buffer_seq_len] stay zero for the entire forward pass
+        // because every op below the WMMA dispatch iterates only over
+        // `seq_len` rows. `buffer_seq_len` is always at least 64 now, so
+        // this runs unconditionally.
+        {
+            use super::ffi::{hip_memset_async, hip_stream_synchronize, hipStream_t};
+            let stream = hipStream_t::null();
+            for buf in [&hidden, &normed, &q_buf, &k_buf, &v_buf, &attn_out, &layer_out, &gate, &swiglu] {
+                hip_memset_async(buf.as_ptr(), 0, buf.size(), stream).map_err(|e| {
+                    GpuError::CacheAllocationFailed {
+                        reason: format!("prefill scratch zero-init failed: {}", e),
+                    }
+                })?;
+            }
+            hip_stream_synchronize(stream).map_err(|e| GpuError::CacheAllocationFailed {
+                reason: format!("prefill scratch zero-init sync failed: {}", e),
+            })?;
+        }
+
         Ok(Self {
             seq_len,
+            buffer_seq_len,
             hidden,
             normed,
             q: q_buf,
@@ -862,7 +917,78 @@ impl GpuPrefillScratch {
             gate,
             swiglu,
             token_ids,
+            q_f16: None,
+            k_f16: None,
+            v_f16: None,
         })
+    }
+
+    /// Ensure the FP16 Q/K/V staging buffers used by the WMMA prefill
+    /// attention kernel are allocated. Lazy — callers that stay on the scalar
+    /// attention path pay no VRAM cost. Sized to `buffer_seq_len` and
+    /// zero-initialised so the padding rows [seq_len..buffer_seq_len] stay
+    /// zero across dispatches (the FP32 → FP16 conversion only overwrites
+    /// the first `seq_len` rows).
+    pub fn ensure_attention_f16_buffers(
+        &mut self,
+        num_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+    ) -> GpuResult<()> {
+        use super::ffi::{hip_memset_async, hip_stream_synchronize, hipStream_t};
+        let q_bytes = self.buffer_seq_len * num_heads * head_dim * std::mem::size_of::<u16>();
+        let kv_bytes = self.buffer_seq_len * num_kv_heads * head_dim * std::mem::size_of::<u16>();
+        let mut did_alloc = false;
+        if self.q_f16.is_none() {
+            let buf = GpuBuffer::alloc(q_bytes).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("prefill q_f16 allocation failed: {}", e),
+                }
+            })?;
+            hip_memset_async(buf.as_ptr(), 0, buf.size(), hipStream_t::null()).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("q_f16 zero-init failed: {}", e),
+                }
+            })?;
+            self.q_f16 = Some(buf);
+            did_alloc = true;
+        }
+        if self.k_f16.is_none() {
+            let buf = GpuBuffer::alloc(kv_bytes).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("prefill k_f16 allocation failed: {}", e),
+                }
+            })?;
+            hip_memset_async(buf.as_ptr(), 0, buf.size(), hipStream_t::null()).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("k_f16 zero-init failed: {}", e),
+                }
+            })?;
+            self.k_f16 = Some(buf);
+            did_alloc = true;
+        }
+        if self.v_f16.is_none() {
+            let buf = GpuBuffer::alloc(kv_bytes).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("prefill v_f16 allocation failed: {}", e),
+                }
+            })?;
+            hip_memset_async(buf.as_ptr(), 0, buf.size(), hipStream_t::null()).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("v_f16 zero-init failed: {}", e),
+                }
+            })?;
+            self.v_f16 = Some(buf);
+            did_alloc = true;
+        }
+        if did_alloc {
+            hip_stream_synchronize(hipStream_t::null()).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("attention FP16 zero-init sync failed: {}", e),
+                }
+            })?;
+        }
+        Ok(())
     }
 
     pub fn hidden_row_ptr(&self, row: usize, hidden_size: usize) -> *const f32 {

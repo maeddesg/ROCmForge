@@ -48,6 +48,31 @@ path = "src/main.rs"
 name = "bench_gemv"
 path = "src/bench_gemv.rs"
 
+[[bin]]
+name = "bench_wmma_tiled"
+path = "profiling/wmma_poc/bench_wmma_tiled.rs"
+required-features = ["gpu"]
+
+[[bin]]
+name = "bench_wmma_q4_0"
+path = "profiling/wmma_poc/bench_wmma_q4_0.rs"
+required-features = ["gpu"]
+
+[[bin]]
+name = "bench_wmma_attention"
+path = "profiling/wmma_poc/bench_wmma_attention.rs"
+required-features = ["gpu"]
+
+[[bin]]
+name = "bench_wmma_attention_online"
+path = "profiling/wmma_poc/bench_wmma_attention_online.rs"
+required-features = ["gpu"]
+
+[[bin]]
+name = "bench_wmma_attention_gqa_causal"
+path = "profiling/wmma_poc/bench_wmma_attention_gqa_causal.rs"
+required-features = ["gpu"]
+
 [[bench]]
 name = "kernels"
 harness = false

@@ -1,0 +1,27 @@
+```cpp
+#include <iostream>
+#include <cassert>
+
+struct RBNode {
+    int key;
+    char color;
+    RBNode *left, *right, *parent;
+
+    RBNode(int k) : key(k), color('R'), left(nullptr), right(nullptr), parent(nullptr) {}
+};
+
+enum Color { RED, BLACK };
+
+class RedBlackTree {
+public:
+    RBNode *root;
+
+    RedBlackTree() : root(nullptr) {}
+
+    ~RedBlackTree() {
+        destroy(root);
+    }
+
+    void insert(int key);
+    RBNode* search(int key);
+    void left_rotate(RBNode* node);

@@ -147,6 +147,22 @@ pub fn hip_memcpy_h2d(dst: *mut u8, src: *const u8, size: usize) -> GpuResult<()
     }
 }
 
+/// Zero (or fill) a device buffer asynchronously on a HIP stream.
+pub fn hip_memset_async(
+    dst: *mut u8,
+    value: i32,
+    size: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if size == 0 {
+        return Ok(());
+    }
+    unsafe {
+        let code = hipMemsetAsync(dst as *mut c_void, value as c_int, size, stream);
+        hip_check(code)
+    }
+}
+
 /// Copy data from host (CPU) to device (GPU) on an explicit HIP stream.
 pub fn hip_memcpy_h2d_async(
     dst: *mut u8,
@@ -699,6 +715,12 @@ extern "C" {
         src: *const c_void,
         size: usize,
         kind: hipMemcpyKind,
+        stream: hipStream_t,
+    ) -> hipError_t;
+    fn hipMemsetAsync(
+        dst: *mut c_void,
+        value: c_int,
+        sizeBytes: usize,
         stream: hipStream_t,
     ) -> hipError_t;
     fn hipGetErrorString(error: hipError_t) -> *const c_char;

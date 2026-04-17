@@ -1,0 +1,53 @@
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.6s
+Chat template: none (raw completion)
+Prompt: 24 tokens
+Prefill: 67.2ms (357.0 tok/s)
+
+ There are several reasons why your sourdough bread might be turning out too dense. Here are some common issues and potential solutions:
+
+1. **Over-kneading or Under-kneading**: Sourdough bread requires a good amount of kneading to develop the gluten structure. If you knead it too much, it can become overdeveloped and tough. If you don't knead it enough, the dough won't have the necessary structure. Aim for a good stretch and fold technique, which helps develop the gluten without overworking the dough.
+
+2. **Incorrect Proofing Time**: Proper proofing (both first rise and second
+
+128 tokens in 1255.0ms = 102.0 tok/s

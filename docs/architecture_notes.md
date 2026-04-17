@@ -46,6 +46,22 @@ Concretely:
 - **Kernel fusion** is only worth it when it merges *different* memory-access patterns (e.g. elementwise + GEMV eliminating a store/load round-trip for non-cached addresses), not when it batches identical patterns or removes intermediates that already fit in L2.
 - **The real optimization levers are algorithmic** (GEMV → GEMM for prefill) and live at **compute patterns with unpredictable access patterns** (attention tiling at long context, where the KV cache spills out of L2). These differ qualitatively from the previous experiments because they have different memory-access patterns where the memory-controller pipelining effect is weaker.
 
+### WMMA matrix-core usage on RDNA 4 (gfx1201)
+
+hipBLAS / Tensile in ROCm 7.2 does **not** select matrix-core kernels for gfx1201 — confirmed by a `rocprofv3 --kernel-trace` on the hipBLAS prefill path: every projection dispatches a Tensile kernel whose mangled name carries `FMA` (VALU fused-multiply-add), not `MFMA` / `WMMA`. Zero wmma / mfma / xdlops kernels appear anywhere in the full 26-kernel trace. Full write-up in `profiling/results/hipblas_matrix_core_check.md`.
+
+ROCmForge works around this with a hand-written WMMA prefill kernel built on the `__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12` intrinsic. The kernel consumes Q4_0 weights directly — nibble unpack and scale multiplication happen inline into LDS, so no FP16 weight scratch is ever materialised. Register-layout reference (from the AMD matrix-instruction calculator): `docs/wmma_register_layout_gfx12.md`; kernel source: `hip_kernels/wmma/wmma_gemm_q4_0.hip`.
+
+Isolated GEMM throughput on the three Qwen2.5-7B prefill shapes (pp=256; 49 TFLOPS FP16 peak reference):
+
+| Shape                     | hipBLAS µs | WMMA Q4_0 µs | Speedup | % of peak |
+|---------------------------|-----------:|-------------:|--------:|----------:|
+| QKV/O (256×3584×3584)     |        644 |          254 |  2.54×  |   52.9 %  |
+| Gate/Up (256×18944×3584)  |      3,200 |        1,213 |  2.64×  |   58.5 %  |
+| Down (256×3584×18944)     |      3,328 |        1,294 |  2.57×  |   54.8 %  |
+
+End-to-end prefill on Qwen2.5-7B Q4_0 at pp=256 goes from 86 tok/s (hipBLAS) to 92.4 tok/s (WMMA). The modest 7–8 % headline gain reflects the fact that GEMM is already only ~4 % of prefill wall-clock at this model size — prefill attention dominates (~84 %) and is the next optimisation target. LDS bank-conflict tuning and double-buffering would push the WMMA kernel from 55 % toward 80 % of peak but contribute ≤ 2 % end-to-end; we parked them for that reason.
+
 ### Open questions
 
 - Whether this pipelining effect also occurs to the same degree on RDNA 3 (gfx1100, RX 7900 XT) has not been measured. The memory-controller architecture differs (Infinity Cache vs. no Infinity Cache on RDNA 4). A comparison experiment on gfx1100 would be informative.
@@ -89,3 +105,24 @@ ROCmForge's CPU path on the Ryzen 9 7945HX vs. llama.cpp on the same machine:
 | 7B Q4_0     |   0.7 tok/s |       ~6–8 tok/s      |   ~10× |
 
 The gap is **not SIMD-bound** — AVX-512 VNNI is implemented and is 16–19% faster than AVX2 in isolation on 7B shapes. It lives in the entire CPU forward pipeline: Rayon overhead per GEMV call, scalar non-GEMV operations, missing kernel fusion, and apparently duplicate memory traversals (input quantization + GEMV). A competitive CPU path would be a standalone project — not a by-product of the GPU optimization work.
+
+## WMMA intrinsics — RDNA 4 (gfx12) only
+
+Every WMMA kernel in the repo uses `__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12`. This intrinsic is **gfx12-specific**. Porting any of these kernels to RDNA 3 (gfx11) is not a drop-in flag change; it requires:
+
+- **Different intrinsic name.** RDNA 3 uses `__builtin_amdgcn_wmma_f32_16x16x16_f16_w32` (no `_gfx12` suffix).
+- **Different A/B matrix register layout.** RDNA 3 holds each 16×16 operand in 8 VGPRs per lane with a duplication pattern; gfx12 packs it into 4 VGPRs with no duplication. Every operand-load sequence in the Q4_0 inline-dequant GEMM and the attention kernel assumes the gfx12 layout.
+- **Lane duplication.** RDNA 3 requires copying lanes 0–15 to lanes 16–31 for the B operand. gfx12 does not. Our kernels omit this step entirely.
+- **Different accumulator read-back.** The output lane-to-row/column mapping is derived from the AMD matrix-instruction calculator for gfx12; the mapping differs on gfx11 and has to be re-derived from the calculator output for that architecture.
+
+We verified the gfx12 layout via the calculator and confirmed bit-identical output vs. a CPU FP32 reference on three diagnostic tests (deterministic, `B = I`, `A = I`) before building on top of it. None of that validation transfers to gfx11.
+
+## WMMA FlashAttention on RDNA 4 (Phase 3d)
+
+The prefill attention kernel uses the same `__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12` intrinsics as the GEMM kernel. FlashAttention-style with online softmax, 64 × 64 Q/KV tiles, and causal masking with zero-work elimination on tiles strictly above the diagonal.
+
+The pre-existing scalar `flash_attn_prefill_strided_kernel` had a fundamental parallelisation failure: the softmax update ran on thread 0 alone in a 128-element serial loop. The WMMA kernel parallelises the whole attention path — `QKᵀ`, softmax, `P × V` — over every thread and every matrix core. At `seq_len = 256`, isolated attention dropped from 78,412 µs to 221 µs (355×); end-to-end prefill at pp = 256 went from 2,773 ms → 411 ms (6.7×).
+
+GQA is handled with separate `q_row_stride` and `kv_row_stride`. The 7:1 KV sharing between Q heads flows through the L2 cache, not explicit LDS sharing. At `head_dim = 128` and `seq ≤ 512` the KV tiles fit comfortably in the 64 MB L2, and the measured cost of GQA overhead vs. a `gqa_ratio = 1` run is ~6 % at short sequences (where the extra stride bookkeeping is visible) and neutral at long sequences. Explicit LDS KV-dedup was evaluated and parked — attention is now ~1.5 % of pp = 256 prefill time, below the threshold where further tuning pays off.
+
+Causal-mask zero-work elimination saves roughly `(seq_len / TILE_KV − 1) / 2` tiles per Q-tile. At pp = 512 the theoretical saving is 44 % (28 fully-skipped tiles out of 64); measured saving vs. a non-causal WMMA run is ~25 %. The gap comes from diagonal tiles that still run the full GEMM with an extra per-element mask check. Below pp = 256 the mask infrastructure costs more than the few skippable tiles save, so causal and non-causal WMMA differ by < 15 %. We keep the mask always-on because correctness on a real model requires it.

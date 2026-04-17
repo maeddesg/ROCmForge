@@ -1,1 +1,1 @@
-Write a JavaScript function that takes an array of objects and groups them by a specified key, returning a Map.
+Write a JavaScript function called groupBy that takes an array of objects and a key name, and returns an object where the keys are the unique values of that property and the values are arrays of matching objects.

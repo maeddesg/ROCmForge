@@ -12,6 +12,7 @@ pub mod q8_decode;
 pub mod q8_gemv;
 pub mod quant;
 pub mod rope;
+pub mod wmma;
 
 /// Check if a pointer is aligned to a given boundary.
 pub(crate) fn is_aligned<T>(ptr: *const T, alignment: usize) -> bool {

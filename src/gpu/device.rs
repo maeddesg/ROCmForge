@@ -5,14 +5,48 @@
 
 use super::error::GpuResult;
 use super::ffi;
+use super::hipblas_ffi::HipBlasHandle;
 use super::weights::GpuBuffer;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 const DEFAULT_Q8_WORKSPACE_BYTES: usize = 64 * 1024;
 
 struct Q8Workspace {
     buffer: Option<GpuBuffer>,
     size: usize,
+}
+
+/// Device-owned FP16 scratch used by the hipBLAS prefill path.
+///
+/// Three buffers live here:
+/// - `weight_f16`: dequantised weight matrix for the current projection.
+/// - `act_in_f16`:  FP32 → FP16 conversion of the input activations.
+/// - `act_out_f16`: hipBLAS GEMM output before FP16 → FP32.
+///
+/// They grow on demand. Kept on `GpuDevice` (not on `GpuPrefillScratch`)
+/// because many callers reach `gpu_dispatch_gemm` without a scratch
+/// reference — the device handle is the shared resource the dispatcher
+/// can always access.
+pub(crate) struct PrefillF16Workspace {
+    pub weight: Option<GpuBuffer>,
+    pub weight_bytes: usize,
+    pub act_in: Option<GpuBuffer>,
+    pub act_in_bytes: usize,
+    pub act_out: Option<GpuBuffer>,
+    pub act_out_bytes: usize,
+}
+
+impl PrefillF16Workspace {
+    fn new() -> Self {
+        Self {
+            weight: None,
+            weight_bytes: 0,
+            act_in: None,
+            act_in_bytes: 0,
+            act_out: None,
+            act_out_bytes: 0,
+        }
+    }
 }
 
 /// GPU device handle.
@@ -25,6 +59,8 @@ pub struct GpuDevice {
     warp_size: usize,
     max_shared_mem_per_block: usize,
     q8_workspace: Mutex<Q8Workspace>,
+    hipblas_handle: OnceLock<HipBlasHandle>,
+    prefill_f16: Mutex<PrefillF16Workspace>,
 }
 
 impl GpuDevice {
@@ -47,7 +83,61 @@ impl GpuDevice {
                 buffer: None,
                 size: 0,
             }),
+            hipblas_handle: OnceLock::new(),
+            prefill_f16: Mutex::new(PrefillF16Workspace::new()),
         })
+    }
+
+    /// Ensure the FP16 weight scratch is at least `bytes` big and return a
+    /// raw pointer to it. Grows the buffer on demand; synchronises the
+    /// stream before replacing any live buffer.
+    pub fn prefill_f16_weight(&self, bytes: usize) -> GpuResult<*mut u8> {
+        self.prefill_grow(bytes, |w| (&mut w.weight, &mut w.weight_bytes))
+    }
+
+    pub fn prefill_f16_act_in(&self, bytes: usize) -> GpuResult<*mut u8> {
+        self.prefill_grow(bytes, |w| (&mut w.act_in, &mut w.act_in_bytes))
+    }
+
+    pub fn prefill_f16_act_out(&self, bytes: usize) -> GpuResult<*mut u8> {
+        self.prefill_grow(bytes, |w| (&mut w.act_out, &mut w.act_out_bytes))
+    }
+
+    fn prefill_grow<F>(&self, bytes: usize, pick: F) -> GpuResult<*mut u8>
+    where
+        F: FnOnce(&mut PrefillF16Workspace) -> (&mut Option<GpuBuffer>, &mut usize),
+    {
+        let mut ws = self
+            .prefill_f16
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let (buf_slot, size_slot) = pick(&mut ws);
+        if *size_slot < bytes {
+            if *size_slot != 0 {
+                // Any outstanding kernel must finish before we free.
+                ffi::hip_stream_synchronize(self.stream)?;
+            }
+            *buf_slot = Some(GpuBuffer::alloc(bytes)?);
+            *size_slot = bytes;
+        }
+        Ok(buf_slot
+            .as_ref()
+            .map(|b| b.as_ptr())
+            .unwrap_or(std::ptr::null_mut()))
+    }
+
+    /// Lazily create and return the hipBLAS handle bound to this device's
+    /// stream. Handle lifetime is tied to the `GpuDevice` lifetime.
+    pub fn hipblas(&self) -> GpuResult<&HipBlasHandle> {
+        if let Some(handle) = self.hipblas_handle.get() {
+            return Ok(handle);
+        }
+        let handle = HipBlasHandle::create()?;
+        handle.set_stream(self.stream)?;
+        // `OnceLock::set` returns an error if another thread raced us —
+        // in that case we discard our handle and return the winner.
+        let _ = self.hipblas_handle.set(handle);
+        Ok(self.hipblas_handle.get().unwrap())
     }
 
     /// Get device ID.

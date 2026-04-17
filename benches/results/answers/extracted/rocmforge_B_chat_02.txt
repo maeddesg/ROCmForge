@@ -1,0 +1,8 @@
+[Draft] Prefilling KV cache... done in 59.5ms
+ Learning a new programming language can be a challenging but rewarding experience. Here are some steps to help you learn Rust from scratch:
+
+1. Start with the basics: Begin by learning the syntax and basic concepts of Rust. Rust has a unique syntax and some features that are different from other languages, so it's important to understand the basics before moving on to more advanced topics.
+
+2. Read the official documentation: Rust has an extensive and well-written official documentation that covers everything from the basics to advanced topics. Start by reading the "Rust by Example" section, which provides practical examples of how to use Rust.
+
+3. Practice coding: Practice
