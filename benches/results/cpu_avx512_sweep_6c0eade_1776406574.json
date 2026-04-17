@@ -1,0 +1,43 @@
+{
+  "git_sha": "6c0eade",
+  "timestamp": 1776406339,
+  "model": "qwen2.5-0.5b-instruct-q4_0",
+  "max_tokens": 128,
+  "runs": [
+    {"prompt": "code", "mode": "avx2", "run": 1, "tokens": 128, "ms": 10562.0, "tps": 12.1}
+    ,
+    {"prompt": "code", "mode": "avx2", "run": 2, "tokens": 128, "ms": 10662.5, "tps": 12.0}
+    ,
+    {"prompt": "code", "mode": "avx2", "run": 3, "tokens": 128, "ms": 10620.8, "tps": 12.1}
+    ,
+    {"prompt": "code", "mode": "avx512", "run": 1, "tokens": 128, "ms": 10585.3, "tps": 12.1}
+    ,
+    {"prompt": "code", "mode": "avx512", "run": 2, "tokens": 128, "ms": 10860.0, "tps": 11.8}
+    ,
+    {"prompt": "code", "mode": "avx512", "run": 3, "tokens": 128, "ms": 10588.5, "tps": 12.1}
+    ,
+    {"prompt": "chat", "mode": "avx2", "run": 1, "tokens": 128, "ms": 10495.9, "tps": 12.2}
+    ,
+    {"prompt": "chat", "mode": "avx2", "run": 2, "tokens": 128, "ms": 10545.6, "tps": 12.1}
+    ,
+    {"prompt": "chat", "mode": "avx2", "run": 3, "tokens": 128, "ms": 10611.0, "tps": 12.1}
+    ,
+    {"prompt": "chat", "mode": "avx512", "run": 1, "tokens": 128, "ms": 10964.6, "tps": 11.7}
+    ,
+    {"prompt": "chat", "mode": "avx512", "run": 2, "tokens": 128, "ms": 10936.4, "tps": 11.7}
+    ,
+    {"prompt": "chat", "mode": "avx512", "run": 3, "tokens": 128, "ms": 10754.2, "tps": 11.9}
+    ,
+    {"prompt": "prose", "mode": "avx2", "run": 1, "tokens": 128, "ms": 10669.1, "tps": 12.0}
+    ,
+    {"prompt": "prose", "mode": "avx2", "run": 2, "tokens": 128, "ms": 10675.7, "tps": 12.0}
+    ,
+    {"prompt": "prose", "mode": "avx2", "run": 3, "tokens": 128, "ms": 10714.8, "tps": 11.9}
+    ,
+    {"prompt": "prose", "mode": "avx512", "run": 1, "tokens": 128, "ms": 10828.9, "tps": 11.8}
+    ,
+    {"prompt": "prose", "mode": "avx512", "run": 2, "tokens": 128, "ms": 10767.4, "tps": 11.9}
+    ,
+    {"prompt": "prose", "mode": "avx512", "run": 3, "tokens": 128, "ms": 10686.9, "tps": 12.0}
+  ]
+}

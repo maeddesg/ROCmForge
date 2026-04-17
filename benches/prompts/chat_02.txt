@@ -1,0 +1,1 @@
+What's the best way to learn a new programming language? I already know Python and want to learn Rust.

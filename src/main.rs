@@ -114,7 +114,11 @@ fn parse_args() -> Args {
                     .next()
                     .unwrap_or_else(|| usage())
                     .parse()
-                    .unwrap_or_else(|_| usage())
+                    .unwrap_or_else(|_| usage());
+                if spec_depth > 8 {
+                    eprintln!("Error: --spec-depth maximum is 8 (got {})", spec_depth);
+                    usage();
+                }
             }
             "-h" | "--help" => usage(),
             other => {
@@ -793,6 +797,15 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         let mut ema_acceptance: f32 = args.spec_depth as f32 * 0.5; // optimistic start
         let spec_debug = std::env::var_os("ROCMFORGE_SPEC_DEBUG").is_some();
 
+        // Emit the first token from prefill (same as standard decode loop).
+        // Subsequent next_tokens are already emitted via accepted_tokens.
+        if !tok.is_eog(next_token) && n_generated < args.max_tokens {
+            let text = tok.decode_token(next_token);
+            print!("{}", text);
+            std::io::stdout().flush().ok();
+            n_generated += 1;
+        }
+
         loop {
             if tok.is_eog(next_token) || n_generated >= args.max_tokens || pos >= max_seq {
                 break;
@@ -882,6 +895,11 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
                 avg_accepted, total_steps,
                 depth_info,
             );
+            #[cfg(feature = "gpu")]
+            {
+                gpu::print_spec_step_profile_summary();
+                gpu::print_verify_breakdown_summary();
+            }
         } else {
             eprintln!("\n[EOS on first token]");
         }

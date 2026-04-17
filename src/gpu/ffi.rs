@@ -449,6 +449,53 @@ pub fn hip_occupancy_available_dynamic_smem_per_block(
     }
 }
 
+// ── HIP Event Wrappers ────────────────────────────────────────────────────────────
+
+/// Create a HIP event with default flags.
+pub fn hip_event_create() -> GpuResult<hipEvent_t> {
+    unsafe {
+        let mut event = hipEvent_t::null();
+        // 0x0 = hipEventDefault
+        let code = hipEventCreateWithFlags(&mut event, 0);
+        hip_check(code)?;
+        Ok(event)
+    }
+}
+
+/// Record a HIP event on the given stream (null stream = default).
+pub fn hip_event_record(event: hipEvent_t, stream: hipStream_t) -> GpuResult<()> {
+    unsafe {
+        let code = hipEventRecord(event, stream);
+        hip_check(code)
+    }
+}
+
+/// Block the host until the event has been recorded on the device.
+pub fn hip_event_synchronize(event: hipEvent_t) -> GpuResult<()> {
+    unsafe {
+        let code = hipEventSynchronize(event);
+        hip_check(code)
+    }
+}
+
+/// Return elapsed time in milliseconds between two recorded events.
+pub fn hip_event_elapsed_time(start: hipEvent_t, stop: hipEvent_t) -> GpuResult<f32> {
+    unsafe {
+        let mut ms: f32 = 0.0;
+        let code = hipEventElapsedTime(&mut ms, start, stop);
+        hip_check(code)?;
+        Ok(ms)
+    }
+}
+
+/// Destroy a HIP event.
+pub fn hip_event_destroy(event: hipEvent_t) -> GpuResult<()> {
+    unsafe {
+        let code = hipEventDestroy(event);
+        hip_check(code)
+    }
+}
+
 // ── FFI Declarations ───────────────────────────────────────────────────────────────
 
 #[repr(C)]
@@ -554,6 +601,29 @@ impl hipGraphExec_t {
         self._private.is_null()
     }
 }
+
+/// Opaque HIP event handle.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct hipEvent_t {
+    _private: *mut c_void,
+}
+
+impl hipEvent_t {
+    pub fn null() -> Self {
+        Self {
+            _private: std::ptr::null_mut(),
+        }
+    }
+
+    pub fn is_null(self) -> bool {
+        self._private.is_null()
+    }
+}
+
+// Safety: hipEvent_t is an opaque handle that is safe to send across threads.
+unsafe impl Send for hipEvent_t {}
+unsafe impl Sync for hipEvent_t {}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -687,6 +757,11 @@ extern "C" {
         numBlocks: i32,
         blockSize: i32,
     ) -> hipError_t;
+    fn hipEventCreateWithFlags(event: *mut hipEvent_t, flags: u32) -> hipError_t;
+    fn hipEventRecord(event: hipEvent_t, stream: hipStream_t) -> hipError_t;
+    fn hipEventSynchronize(event: hipEvent_t) -> hipError_t;
+    fn hipEventElapsedTime(ms: *mut f32, start: hipEvent_t, stop: hipEvent_t) -> hipError_t;
+    fn hipEventDestroy(event: hipEvent_t) -> hipError_t;
 }
 
 // ── Public Types ───────────────────────────────────────────────────────────────────

@@ -1,0 +1,163 @@
+{
+  "git_sha": "d8d1579",
+  "timestamp": 1776352604,
+  "config": {
+    "spec_depth": 1,
+    "tiled_gemv": true,
+    "model": "Qwen2.5-7B-Q4_0",
+    "max_tokens": 64
+  },
+  "prompt_id": "code_01",
+  "method_1_rocprofv3": {
+    "kernel_groups": {
+      "activation": {
+        "n_launches": 948,
+        "total_us": 1527.9,
+        "avg_us_per_launch": 1.6,
+        "kernels": {
+          "silu_kernel": 948
+        }
+      },
+      "attention": {
+        "n_launches": 3552,
+        "total_us": 380009.7,
+        "avg_us_per_launch": 107.0,
+        "kernels": {
+          "flash_attn_prefill_strided_kernel": 1120,
+          "flash_attn_decode_strided_multi_head_v2_kernel": 1536,
+          "void flash_attn_verify_all_heads_kernel<32>": 896
+        }
+      },
+      "elementwise": {
+        "n_launches": 5688,
+        "total_us": 8407.6,
+        "avg_us_per_launch": 1.5,
+        "kernels": {
+          "add_batched_kernel": 2844,
+          "add_kernel": 1896,
+          "mul_kernel": 948
+        }
+      },
+      "kv_cache": {
+        "n_launches": 948,
+        "total_us": 1296.9,
+        "avg_us_per_launch": 1.4,
+        "kernels": {
+          "kv_write_batched_kernel": 948
+        }
+      },
+      "normalization": {
+        "n_launches": 5065,
+        "total_us": 20440.8,
+        "avg_us_per_launch": 4.0,
+        "kernels": {
+          "rms_norm_batched_kernel": 1896,
+          "rms_norm_kernel": 3169
+        }
+      },
+      "other": {
+        "n_launches": 5832,
+        "total_us": 289501.8,
+        "avg_us_per_launch": 49.6,
+        "kernels": {
+          "__amd_rocclr_copyBuffer": 424,
+          "void gemv_q8_0_f32_lm_head_multi_row_v2_kernel<8>": 32,
+          "void gemv_q4_0_f32_batched_kernel<2>": 5376
+        }
+      },
+      "projections_down": {
+        "n_launches": 3872,
+        "total_us": 140937.1,
+        "avg_us_per_launch": 36.4,
+        "kernels": {
+          "void gemv_q4_0_f32_q8_inline_residual_multi_row_kernel<8, 4>": 3072,
+          "void gemv_q4_0_f32_batched_tiled_kernel<2>": 800
+        }
+      },
+      "projections_ffn": {
+        "n_launches": 1536,
+        "total_us": 18447.5,
+        "avg_us_per_launch": 12.0,
+        "kernels": {
+          "void gemv_gate_up_swiglu_q4_0_f32_q8_inline_vulkan_style_v2_kernel<8>": 1536
+        }
+      },
+      "projections_other": {
+        "n_launches": 621,
+        "total_us": 306934.7,
+        "avg_us_per_launch": 494.3,
+        "kernels": {
+          "gemm_q4_0_f32_generic_kernel": 361,
+          "gemm_q4_1_f32_generic_kernel": 3,
+          "gemv_q6_k_f32_kernel": 65,
+          "void gemv_q4_1_f32_legacy_kernel<false>": 192
+        }
+      },
+      "projections_qkv": {
+        "n_launches": 1536,
+        "total_us": 10685.5,
+        "avg_us_per_launch": 7.0,
+        "kernels": {
+          "void gemv_qkv_q4_0_f32_wave_parallel_v3_kernel<8>": 1536
+        }
+      },
+      "rope": {
+        "n_launches": 4968,
+        "total_us": 9065.7,
+        "avg_us_per_launch": 1.8,
+        "kernels": {
+          "rope_heads_batched_kernel": 1896,
+          "rope_heads_kernel": 1536,
+          "kv_write_rope_kernel": 1536
+        }
+      },
+      "sampling": {
+        "n_launches": 192,
+        "total_us": 508.4,
+        "avg_us_per_launch": 2.6,
+        "kernels": {
+          "argmax_stage1_kernel": 96,
+          "argmax_finalize_kernel": 96
+        }
+      }
+    },
+    "total_launches": 34758,
+    "total_gpu_time_us": 1187763.6
+  },
+  "method_2_hip_events": {
+    "spec_step": {
+      "n_steps": 32,
+      "n_layers": 896,
+      "layers_per_step": 28,
+      "attn_norm_us": 379.0,
+      "attn_qkv_us": 2242.3,
+      "attn_rope_us": 279.7,
+      "attn_kv_write_us": 184.5,
+      "attn_scores_us": 1174.4,
+      "attn_o_residual_us": 1033.1,
+      "attn_subtotal_us": 5293.0,
+      "ffn_norm_us": 349.1,
+      "ffn_gate_up_silu_mul_us": 6492.2,
+      "ffn_down_residual_us": 4062.7,
+      "ffn_subtotal_us": 10904.0,
+      "total_us": 16197.0
+    },
+    "verify_breakdown": {
+      "n_steps": 32,
+      "n_layers": 896,
+      "layers_per_step": 28,
+      "attn_norm_us": 379.0,
+      "attn_qkv_us": 2242.3,
+      "attn_rope_us": 279.7,
+      "attn_kv_write_us": 184.5,
+      "attn_scores_us": 1174.4,
+      "attn_o_residual_us": 1033.1,
+      "attn_subtotal_us": 5293.0,
+      "ffn_norm_us": 349.1,
+      "ffn_gate_up_silu_mul_us": 6492.2,
+      "ffn_down_residual_us": 4062.7,
+      "ffn_subtotal_us": 10904.0,
+      "total_us": 16197.0
+    }
+  }
+}

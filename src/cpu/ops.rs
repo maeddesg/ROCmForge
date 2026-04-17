@@ -1272,12 +1272,15 @@ pub fn gemv_q4_0_q8_0(
 
     let features = super::features::CpuFeatures::get();
     let use_avx2 = features.has_avx2;
+    let use_avx512_vnni = features.has_avx512 && features.has_avx512_vnni && avx512_enabled();
 
     y.par_iter_mut().enumerate().for_each(|(row, out)| {
         let row_w = &w[row * row_bytes..(row + 1) * row_bytes];
         let mut acc = 0.0f32;
 
-        // Process 2 blocks at a time for better ILP (instruction-level parallelism)
+        // Process 2 blocks at a time for better ILP (instruction-level parallelism).
+        // On Zen4 with AVX-512 VNNI the 2-block kernel issues a single vpdpbusd
+        // across both blocks' 64 bytes of data.
         let mut b = 0;
         while b + 1 < num_blocks {
             // Prefetch blocks ahead
@@ -1308,18 +1311,29 @@ pub fn gemv_q4_0_q8_0(
             let q8_1 = &x_q8[(b + 1) * Q8_BLOCK_BYTES + 2..][..Q8_BLOCK_ELEMS];
 
             // Compute both blocks
-            if use_avx2 {
-                #[cfg(target_arch = "x86_64")]
-                {
+            #[cfg(target_arch = "x86_64")]
+            {
+                if use_avx512_vnni {
+                    acc += unsafe {
+                        dot_q4_0_q8_0_2blocks_avx512_vnni(
+                            qs0,
+                            q8_0,
+                            combined_scale0,
+                            qs1,
+                            q8_1,
+                            combined_scale1,
+                        )
+                    };
+                } else if use_avx2 {
                     acc += unsafe { dot_q4_0_q8_0_block_avx2(qs0, q8_0, combined_scale0) };
                     acc += unsafe { dot_q4_0_q8_0_block_avx2(qs1, q8_1, combined_scale1) };
-                }
-                #[cfg(not(target_arch = "x86_64"))]
-                {
+                } else {
                     acc += dot_q4_0_q8_0_block_scalar(qs0, q8_0, combined_scale0);
                     acc += dot_q4_0_q8_0_block_scalar(qs1, q8_1, combined_scale1);
                 }
-            } else {
+            }
+            #[cfg(not(target_arch = "x86_64"))]
+            {
                 acc += dot_q4_0_q8_0_block_scalar(qs0, q8_0, combined_scale0);
                 acc += dot_q4_0_q8_0_block_scalar(qs1, q8_1, combined_scale1);
             }
@@ -1335,16 +1349,18 @@ pub fn gemv_q4_0_q8_0(
             let combined_scale = w_scale * x_scale;
             let qs = &block[2..18];
             let q8 = &x_q8[b * Q8_BLOCK_BYTES + 2..][..Q8_BLOCK_ELEMS];
-            if use_avx2 {
-                #[cfg(target_arch = "x86_64")]
-                {
+            #[cfg(target_arch = "x86_64")]
+            {
+                if use_avx512_vnni {
+                    acc += unsafe { dot_q4_0_q8_0_block_avx512_vnni(qs, q8, combined_scale) };
+                } else if use_avx2 {
                     acc += unsafe { dot_q4_0_q8_0_block_avx2(qs, q8, combined_scale) };
-                }
-                #[cfg(not(target_arch = "x86_64"))]
-                {
+                } else {
                     acc += dot_q4_0_q8_0_block_scalar(qs, q8, combined_scale);
                 }
-            } else {
+            }
+            #[cfg(not(target_arch = "x86_64"))]
+            {
                 acc += dot_q4_0_q8_0_block_scalar(qs, q8, combined_scale);
             }
             b += 1;
@@ -1352,6 +1368,16 @@ pub fn gemv_q4_0_q8_0(
 
         *out = acc;
     });
+}
+
+/// Runtime opt-out for AVX-512 kernels.
+///
+/// Reads `ROCMFORGE_DISABLE_AVX512` once per call via env var lookup. The
+/// caller is `gemv_q4_0_q8_0` which is not a hot enough path to warrant
+/// caching — the branch is taken once per GEMV, not once per block.
+#[inline]
+fn avx512_enabled() -> bool {
+    std::env::var_os("ROCMFORGE_DISABLE_AVX512").is_none()
 }
 
 /// Q4_1 × Q8_0 GEMV: quantize input to Q8_0 once, then integer dot product.
@@ -2100,6 +2126,116 @@ fn dot_q4_0_q8_0_block_scalar(qs: &[u8], q8: &[u8], scale: f32) -> f32 {
     }
     // Q4_0 is symmetric around 0, no min_offset needed
     (acc as f32) * scale
+}
+
+// ── Q4_0 × Q8_0 AVX-512 VNNI kernels ───────────────────────────────────────────
+//
+// Zen4 (7945HX / 9070-series CPUs) supports AVX-512 F/VL/BW/VNNI. The VNNI
+// instruction `vpdpbusd` performs a 4-byte-dot-product + accumulate in a
+// single µop on Zen4: `dst += sum(unsigned_u8[4] * signed_i8[4])` per i32
+// lane. A 512-bit register processes 64 source bytes (16 i32 lanes), which
+// means one instruction covers two Q4_0 blocks (2 × 32 values = 64).
+//
+// We use the bias-correction form rather than the sign-trick used in AVX2
+// (there is no `_mm512_sign_epi8`). Passing unsigned nibbles (0..15) to
+// vpdpbusd and subtracting 8 × sum(q8) after the fact gives the correct
+// signed dot product.
+
+/// Dot product for TWO consecutive Q4_0 × Q8_0 blocks in a single call.
+///
+/// Processes 2 × 32 = 64 values with one `_mm512_dpbusd_epi32`. Returns the
+/// sum of both blocks' scaled dot products:
+///   `sum(block_0_dot) * scale0 + sum(block_1_dot) * scale1`
+///
+/// Caller must ensure AVX-512F+VL+BW+VNNI are available.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512vl,avx512vnni")]
+pub unsafe fn dot_q4_0_q8_0_2blocks_avx512_vnni(
+    qs0: &[u8],
+    q8_0: &[u8],
+    scale0: f32,
+    qs1: &[u8],
+    q8_1: &[u8],
+    scale1: f32,
+) -> f32 {
+    use std::arch::x86_64::*;
+
+    debug_assert_eq!(qs0.len(), 16);
+    debug_assert_eq!(qs1.len(), 16);
+    debug_assert_eq!(q8_0.len(), Q8_BLOCK_ELEMS);
+    debug_assert_eq!(q8_1.len(), Q8_BLOCK_ELEMS);
+
+    // Unpack 32 unsigned nibbles per block (0..15).
+    let raw0 = _mm_loadu_si128(qs0.as_ptr() as *const __m128i);
+    let raw1 = _mm_loadu_si128(qs1.as_ptr() as *const __m128i);
+    let lo_mask = _mm_set1_epi8(0x0F);
+    let lo0 = _mm_and_si128(raw0, lo_mask);
+    let hi0 = _mm_and_si128(_mm_srli_epi16(raw0, 4), lo_mask);
+    let q4_0_u = _mm256_inserti128_si256(_mm256_castsi128_si256(lo0), hi0, 1);
+    let lo1 = _mm_and_si128(raw1, lo_mask);
+    let hi1 = _mm_and_si128(_mm_srli_epi16(raw1, 4), lo_mask);
+    let q4_1_u = _mm256_inserti128_si256(_mm256_castsi128_si256(lo1), hi1, 1);
+
+    // Combine into 512-bit register: block 0 in low 256, block 1 in high 256.
+    let q4_u = _mm512_inserti64x4(_mm512_castsi256_si512(q4_0_u), q4_1_u, 1);
+
+    // Load Q8 vectors (signed bytes) and combine.
+    let q8_0v = _mm256_loadu_si256(q8_0.as_ptr() as *const __m256i);
+    let q8_1v = _mm256_loadu_si256(q8_1.as_ptr() as *const __m256i);
+    let q8 = _mm512_inserti64x4(_mm512_castsi256_si512(q8_0v), q8_1v, 1);
+
+    // vpdpbusd: unsigned u8 × signed i8, accumulate 4 products per i32 lane.
+    // 64 input bytes → 16 i32 lanes. Lanes 0..7 belong to block 0, 8..15 to block 1.
+    let zero = _mm512_setzero_si512();
+    let dot_unsigned = _mm512_dpbusd_epi32(zero, q4_u, q8);
+
+    // To convert unsigned q4 dot into signed (nibble - 8) dot, subtract
+    // 8 * sum(q8) per block. Using vpdpbusd(0, all_ones, q8) gives partial
+    // sums grouped by 4 i8 values — same lane layout as the main dot.
+    let ones_u8 = _mm512_set1_epi8(1);
+    let q8_sum_partial = _mm512_dpbusd_epi32(zero, ones_u8, q8);
+    let eight = _mm512_set1_epi32(8);
+    let bias = _mm512_mullo_epi32(q8_sum_partial, eight);
+    let dot_signed = _mm512_sub_epi32(dot_unsigned, bias);
+
+    let dot_f = _mm512_cvtepi32_ps(dot_signed);
+
+    // Apply per-block scale: lanes 0..7 × scale0, lanes 8..15 × scale1.
+    let scale_vec = _mm512_set_ps(
+        scale1, scale1, scale1, scale1, scale1, scale1, scale1, scale1, scale0, scale0, scale0,
+        scale0, scale0, scale0, scale0, scale0,
+    );
+    let scaled = _mm512_mul_ps(dot_f, scale_vec);
+    _mm512_reduce_add_ps(scaled)
+}
+
+/// Single-block AVX-512 VNNI variant, used for odd-count leftover blocks.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512vl,avx512vnni")]
+pub unsafe fn dot_q4_0_q8_0_block_avx512_vnni(qs: &[u8], q8: &[u8], scale: f32) -> f32 {
+    use std::arch::x86_64::*;
+
+    debug_assert_eq!(qs.len(), 16);
+    debug_assert_eq!(q8.len(), Q8_BLOCK_ELEMS);
+
+    let raw = _mm_loadu_si128(qs.as_ptr() as *const __m128i);
+    let lo_mask = _mm_set1_epi8(0x0F);
+    let lo = _mm_and_si128(raw, lo_mask);
+    let hi = _mm_and_si128(_mm_srli_epi16(raw, 4), lo_mask);
+    let q4_u = _mm256_inserti128_si256(_mm256_castsi128_si256(lo), hi, 1);
+
+    let q8v = _mm256_loadu_si256(q8.as_ptr() as *const __m256i);
+
+    let zero = _mm256_setzero_si256();
+    let dot_unsigned = _mm256_dpbusd_epi32(zero, q4_u, q8v);
+    let ones_u8 = _mm256_set1_epi8(1);
+    let q8_sum_partial = _mm256_dpbusd_epi32(zero, ones_u8, q8v);
+    let eight = _mm256_set1_epi32(8);
+    let bias = _mm256_mullo_epi32(q8_sum_partial, eight);
+    let dot_signed = _mm256_sub_epi32(dot_unsigned, bias);
+    let dot_f = _mm256_cvtepi32_ps(dot_signed);
+    let scaled = _mm256_mul_ps(dot_f, _mm256_set1_ps(scale));
+    hsum_avx2(scaled)
 }
 
 // ── Sampling utilities ──────────────────────────────────────────────────────────

@@ -2,6 +2,112 @@
 
 ## [Unreleased]
 
+### AVX-512 VNNI Q4_0 GEMV Kernel (CPU Fallback Path)
+
+- **AVX-512 VNNI dot-product kernel** for Q4_0 × Q8_0 GEMV on Zen4+
+  CPUs (`src/cpu/ops.rs::dot_q4_0_q8_0_2blocks_avx512_vnni`). Single
+  `_mm512_dpbusd_epi32` processes 2 Q4_0 blocks (64 bytes) per call,
+  bias-correction via `dot - 8 × sum(q8)`. Single-block AVX-512-VL-256
+  variant for odd-count leftover blocks.
+- **CPU feature detection** (`src/cpu/features.rs`) now exposes
+  `has_avx512_vnni` as a public field (previously computed internally
+  but not visible to the GEMV dispatch).
+- **Dispatch** in `gemv_q4_0_q8_0` prefers AVX-512 VNNI when available,
+  falls back to AVX2 then scalar.
+- **Opt-out:** `ROCMFORGE_DISABLE_AVX512=1` forces the AVX2/scalar path.
+- **Correctness:** `tests/cpu_avx512_matches_reference.rs` asserts
+  byte-identical output between AVX-512 and AVX2 paths.
+- **Micro-benchmark:** `src/bench_gemv.rs` extended to measure isolated
+  GEMV speedup at Qwen2.5-0.5B and -7B shapes.
+- **Measured isolated kernel speedup:** 1–7% on 0.5B shapes, 16–19% on
+  7B shapes (compute-heavier).
+- **Measured end-to-end on 0.5B:** ~0% (12.1 tok/s with or without
+  AVX-512 VNNI). Rayon task-dispatch overhead and un-SIMDified
+  attention/norm/SiLU ops dominate the forward path at this model
+  size. See `benches/results/cpu_avx512_analysis.md`.
+- **Verdict:** ≥40 tok/s threshold for heterogeneous spec-decode is
+  not reached. Kernel retained as a clean, tested foundation; next
+  milestone pivots to Prefill-GEMM (hipBLAS / WMMA).
+
+### Speculative-Decode Milestone Summary
+
+- **Milestone summary** (`docs/spec_decode_milestone_summary.md`): compact
+  recap of the 5-experiment optimization cycle, baseline vs. current
+  throughput, what was committed, what was falsified, and recommended
+  next steps.
+- **Architecture notes updated** (`docs/architecture_notes.md`): third
+  independent experiment (buffer-traffic validation) confirms the RDNA 4
+  memory-controller-pipelining finding; added consistent-overshoot table
+  across all three experiments (factor 10–22× overestimation by naive
+  "load once instead of N times" model).
+
+### Intermediate-Buffer-Traffic Validation (Fused FFN Investigation)
+
+- **Micro-benchmark** (`profiling/buffer_traffic/bench.hip`): standalone
+  HIP program simulating the FFN chain in three variants — separate
+  kernels with VRAM roundtrips (A), cooperative single-dispatch with
+  VRAM traffic (B2), and chunked fusion with register-only intermediate
+  (B1). Parameterised by `fma_depth` ∈ {1, 16, 128, 1024} to separate
+  dispatch overhead from compute cost.
+- **Result:** Maximum achievable fused-FFN gain is ~224 µs/step at
+  depth=1 (1.4% of verify time), falling to ~130 µs at depth=128 and
+  negative at depth=1024 as the dispatch pipeline hides extra-kernel
+  work behind compute. Projected real-FFN saving: ~200 µs (1.2%) —
+  well below the 1,500 µs threshold that would make the rewrite
+  economically viable.
+- **Verdict:** Fused FFN **not** worth building. The hypothesis that
+  intermediate-buffer-traffic is the dominant cost is falsified —
+  weight-matrix traffic (~150 MB/layer) dominates intermediate-buffer
+  traffic (~150 KB/layer) by factor 500. Third consecutive null result
+  confirming the memory-pipelining finding.
+- **Artifact:** `profiling/results/BUFFER_TRAFFIC_ANALYSIS.md` with
+  verdict and consistency check vs. prior experiments.
+
+### Batched lm_head for Speculative Verify
+
+- **Batched lm_head** for speculative decode verify. Replaces sequential
+  per-position norm+GEMV+argmax with a single batched dispatch for norm
+  and GEMV, followed by per-position argmax. Token output is byte-identical
+  to the sequential path. Measured savings: ~114 μs per verify step at
+  depth=3 (~0.4% of verify time). The improvement is negligible at the
+  throughput level (<0.1%), but the code is cleaner and establishes the
+  `MAX_SPEC_DEPTH=8` scratch buffer infrastructure for future optimizations.
+  Disable with `ROCMFORGE_DISABLE_BATCHED_LM_HEAD=1`.
+- **Key learning:** Memory-bandwidth-bound GEMV kernels do not benefit
+  significantly from batching when dispatched back-to-back on the same
+  stream — the GPU memory controller pipelines consecutive accesses
+  effectively.
+- **CLI validation:** `--spec-depth` now rejects values > 8.
+- **Correctness test** (`tests/batched_lm_head_matches_sequential.rs`):
+  runs binary twice (`ROCMFORGE_DISABLE_BATCHED_LM_HEAD=0/1`) at depths
+  1/3/5, asserts byte-identical stdout. Also covers `--spec-depth` max-8
+  validation.
+- **Benchmark sweep** (`benches/bench_batched_lm_head.fish`): 15 prompts
+  × 3 depths × 2 modes (sequential/batched) = 105 runs, structured JSON
+  output to `benches/results/batched_lm_head_sweep_<sha>_<ts>.json`,
+  analysis written to `benches/results/batched_lm_head_analysis.md`.
+
+### Spec-Step Profiling + Tiled Batched GEMV
+
+- **Spec-step cost breakdown profiler** (`ROCMFORGE_PROFILE_SPEC_STEP=1`): HIP Event-based timing for 5 phases (draft_forward, target_verify, accept_reject, host_overhead, total). Prints table and JSON to stderr.
+- **Verify sub-phase profiler** (`ROCMFORGE_PROFILE_VERIFY_BREAKDOWN=1`, requires `PROFILE_SPEC_STEP=1`): HIP Event timing within verify layers (attn_norm, attn_qkv+bias, attn_rope, attn_kv_write, attn_scores, attn_o+residual, ffn_norm, gate+up+silu+mul, down+residual). Output in `profiling/results/LAUNCH_OVERHEAD_ANALYSIS.md` format.
+- **Tiled batched GEMV** for LDS-overflow projections (FFN down). Measured throughput gain: marginal at depth=1 (~1.5%), up to ~6.7% on workloads where adaptive depth stays above 1. Eliminates sequential fallback when LDS exceeds 32 KB. Disable with `ROCMFORGE_DISABLE_TILED_GEMV=1`.
+  - 105-run benchmark sweep (15 prompts × 7 modes): no regressions, verify times consistently lower.
+  - Adaptive depth threshold sweep: `ema < 1.2` confirmed as optimal — lower thresholds (1.0, 0.9) keep higher depth longer but verify costs scale superlinearly with batch size, net negative. Documented in `benches/results/depth_threshold_sweep.md`.
+- **Benchmark suite** (`benches/bench_spec.sh`): reproducible throughput
+  comparison across baseline + spec-decode modes with structured JSON output.
+- **Architecture insight**: RDNA 4 memory controller pipelines back-to-back GEMV launches effectively — sequential fallback wastes far less bandwidth than theoretical 2× prediction. Documented in `docs/batched_verify.md` and consolidated in `docs/architecture_notes.md`.
+
+### Speculative Decoding — Batched Verify + Adaptive Depth (PR #14)
+
+- **Batched verify forward**: Replace N+1 sequential target forwards with a single batched forward pass using a dedicated batched Q4_0 GEMV kernel (single weight load, N dot products) and an all-heads verify attention kernel (1 dispatch per layer instead of 784 for 7B).
+- **Adaptive speculation depth**: EMA-based tracking of acceptance rate, automatically reduces depth on low-acceptance prompts (+34–107% speedup over fixed depth=5).
+- **Draft KV cache fix**: Bounded allocation to actual need instead of full context window, saving multiple GB of VRAM.
+- **First-token output fix**: Speculative decode now correctly emits the prefill result token.
+- **Correctness test** (`tests/spec_greedy_matches_baseline.rs`): asserts
+  that greedy spec-decode output matches direct greedy decode byte-for-byte
+  across a range of prompts and depths.
+
 ### [GPU Backend]
 
 **fix(gpu): critical decode graph and Q8_0 kernel memory corruption bugs**

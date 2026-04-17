@@ -11,6 +11,7 @@ use super::ffi::hipStream_t;
 use super::graph::{CapturedDecodeGraph, DecodeGraphKey};
 use super::kernels::{kv_write, kv_write_batched, kv_write_on_stream, zero_fill};
 use super::weights::{GpuBuffer, GpuPinnedBuffer};
+use super::forward::MAX_VERIFY_BATCH;
 use crate::config::ModelConfig;
 
 // ── KV Cache ─────────────────────────────────────────────────────────────────────
@@ -375,6 +376,12 @@ pub struct GpuForwardScratch {
     /// Atomic retire counter for inter-block sync in fused GEMV+residual+norm kernel [1 u32].
     /// Self-resetting via atomicInc wrap-around.
     pub retire_count: GpuBuffer,
+    /// Batched logits for verify lm_head [MAX_VERIFY_BATCH × vocab_size f32]
+    pub logits_batch: GpuBuffer,
+    /// Batched argmax result indices on device [MAX_VERIFY_BATCH × i32]
+    pub argmax_batch_device: GpuBuffer,
+    /// Batched argmax result indices on pinned host [MAX_VERIFY_BATCH × i32]
+    pub argmax_batch_host: GpuPinnedBuffer,
 }
 
 impl GpuForwardScratch {
@@ -502,6 +509,27 @@ impl GpuForwardScratch {
             })?;
         retire_count.copy_from_host(&[0u8; 4])?;
 
+        let logits_batch =
+            GpuBuffer::alloc(MAX_VERIFY_BATCH * v * std::mem::size_of::<f32>()).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("logits_batch allocation failed: {}", e),
+                }
+            })?;
+
+        let argmax_batch_device =
+            GpuBuffer::alloc(MAX_VERIFY_BATCH * std::mem::size_of::<i32>()).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("argmax_batch_device allocation failed: {}", e),
+                }
+            })?;
+
+        let argmax_batch_host =
+            GpuPinnedBuffer::alloc(MAX_VERIFY_BATCH * std::mem::size_of::<i32>()).map_err(|e| {
+                GpuError::CacheAllocationFailed {
+                    reason: format!("argmax_batch_host allocation failed: {}", e),
+                }
+            })?;
+
         Ok(Self {
             hidden,
             normed,
@@ -523,6 +551,9 @@ impl GpuForwardScratch {
             decode_state_next_pos: None,
             captured_decode: None,
             retire_count,
+            logits_batch,
+            argmax_batch_device,
+            argmax_batch_host,
         })
     }
 

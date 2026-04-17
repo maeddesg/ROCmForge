@@ -40,6 +40,12 @@ use crate::loader::GgmlType;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
+/// Maximum speculative decoding depth. Determines fixed scratch buffer sizes
+/// for batched verify (logits_batch = MAX_VERIFY_BATCH × vocab_size × 4B).
+pub const MAX_SPEC_DEPTH: usize = 8;
+/// Maximum batch size for verify lm_head (depth + 1 for the input token).
+pub const MAX_VERIFY_BATCH: usize = MAX_SPEC_DEPTH + 1;
+
 fn bytes_of_f32_slice(src: &[f32]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(src.as_ptr() as *const u8, std::mem::size_of_val(src)) }
 }
@@ -1086,12 +1092,16 @@ pub fn gpu_verify_layer_forward(
     start_pos: usize,
     config: &ModelConfig,
 ) -> GpuResult<()> {
+    use super::spec_step_profile::VerifyLayerTimer;
+
     let seq_len = scratch.seq_len;
     let h = config.hidden_size;
     let q_size = config.num_heads * config.head_dim;
     let kv_size = config.num_kv_heads * config.head_dim;
     let ff_size = config.intermediate_size;
     let eps = config.rms_norm_eps;
+
+    let mut vt = VerifyLayerTimer::begin()?;
 
     // Attention: norm → QKV → RoPE → KV write → verify attention → O-proj → residual
     gpu_rms_norm_rows(
@@ -1100,6 +1110,7 @@ pub fn gpu_verify_layer_forward(
         scratch.normed.as_ptr() as *mut f32,
         seq_len, h, eps,
     )?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → attn_qkv
 
     gpu_project_rows(device, &gpu_layer.attn_q, &gpu_layer.attn_q_meta,
         scratch.normed.as_ptr() as *const f32, scratch.q.as_ptr() as *mut f32,
@@ -1123,18 +1134,22 @@ pub fn gpu_verify_layer_forward(
         add_batched(scratch.v.as_ptr() as *const f32, bv.as_ptr() as *const f32,
             scratch.v.as_ptr() as *mut f32, kv_size, seq_len)?;
     }
+    if let Some(ref mut t) = vt { t.mark()?; } // → attn_rope
 
     gpu_rope_rows(scratch.q.as_ptr() as *mut f32, start_pos, seq_len,
         config.num_heads, config.head_dim, config.rope_theta, config.rope_neox)?;
     gpu_rope_rows(scratch.k.as_ptr() as *mut f32, start_pos, seq_len,
         config.num_kv_heads, config.head_dim, config.rope_theta, config.rope_neox)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → attn_kv_write
 
     // Write new K/V to cache at start_pos..start_pos+seq_len
     kv.write_batched(layer_idx, start_pos, seq_len,
         scratch.k.as_ptr() as *const f32, scratch.v.as_ptr() as *const f32)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → attn_scores
 
     // Verify attention: read ALL K/V from FP16 cache (positions 0..start_pos+i per query)
     gpu_attention_verify(scratch, kv, layer_idx, start_pos, config)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → attn_o_residual
 
     // O-projection + residual
     gpu_project_rows(device, &gpu_layer.attn_o, &gpu_layer.attn_o_meta,
@@ -1142,6 +1157,7 @@ pub fn gpu_verify_layer_forward(
         seq_len, h, q_size)?;
     add(scratch.hidden.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *const f32,
         scratch.hidden.as_ptr() as *mut f32, seq_len * h)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → ffn_norm
 
     // FFN: norm → gate → up → SiLU → mul → down → residual
     gpu_rms_norm_rows(
@@ -1150,6 +1166,8 @@ pub fn gpu_verify_layer_forward(
         scratch.normed.as_ptr() as *mut f32,
         seq_len, h, eps,
     )?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → ffn_gate_up_silu_mul
+
     gpu_project_rows(device, &gpu_layer.ffn_gate, &gpu_layer.ffn_gate_meta,
         scratch.normed.as_ptr() as *const f32, scratch.gate.as_ptr() as *mut f32,
         seq_len, ff_size, h)?;
@@ -1161,13 +1179,93 @@ pub fn gpu_verify_layer_forward(
     super::kernels::mul(scratch.gate.as_ptr() as *const f32,
         scratch.swiglu.as_ptr() as *const f32, scratch.swiglu.as_ptr() as *mut f32,
         seq_len * ff_size)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // → ffn_down_residual
+
     gpu_project_rows(device, &gpu_layer.ffn_down, &gpu_layer.ffn_down_meta,
         scratch.swiglu.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *mut f32,
         seq_len, h, ff_size)?;
     add(scratch.hidden.as_ptr() as *const f32, scratch.layer_out.as_ptr() as *const f32,
         scratch.hidden.as_ptr() as *mut f32, seq_len * h)?;
+    if let Some(ref mut t) = vt { t.mark()?; } // end
+
+    if let Some(t) = vt { t.finish()?; }
 
     Ok(())
+}
+
+/// Batched final norm + lm_head + argmax for verify.
+///
+/// Replaces the sequential per-position loop with:
+/// 1. Single batched RMS norm (all N positions)
+/// 2. Single batched GEMV (all N positions → N × vocab logits)
+/// 3. N argmax reductions (reusing partial scratch)
+/// 4. Single D2H copy + sync
+fn gpu_verify_lm_head_batched(
+    device: &GpuDevice,
+    gpu_weights: &GpuModelWeights,
+    prefill: &GpuPrefillScratch,
+    decode_scratch: &mut GpuForwardScratch,
+    config: &ModelConfig,
+    n: usize,
+) -> GpuResult<Vec<u32>> {
+    let h = config.hidden_size;
+    let v = config.vocab_size;
+
+    // Step 1: Batched RMS norm — all N positions at once
+    // Input: prefill.hidden (n × h), Output: prefill.normed (n × h)
+    rms_norm_batched(
+        prefill.hidden.as_ptr() as *const f32,
+        gpu_weights.output_norm.as_ptr() as *const f32,
+        prefill.normed.as_ptr() as *mut f32,
+        h,
+        config.rms_norm_eps,
+        n,
+    )?;
+
+    // Step 2: Batched GEMV — all N positions at once
+    // Input: prefill.normed (n × h), Output: logits_batch (n × v)
+    gpu_dispatch_gemm(
+        device,
+        &gpu_weights.lm_head,
+        &gpu_weights.lm_head_meta,
+        prefill.normed.as_ptr() as *const f32,
+        decode_scratch.logits_batch.as_ptr() as *mut f32,
+        v,
+        h,
+        n,
+    )?;
+
+    // Step 3: Argmax per position (N × 2 dispatches, no sync between)
+    for i in 0..n {
+        let logits_row = unsafe {
+            (decode_scratch.logits_batch.as_ptr() as *const f32).add(i * v)
+        };
+        let result_slot = unsafe {
+            (decode_scratch.argmax_batch_device.as_ptr() as *mut i32).add(i)
+        };
+        argmax_f32(
+            logits_row,
+            decode_scratch.argmax_partial_values_mut_ptr(),
+            decode_scratch.argmax_partial_indices_mut_ptr(),
+            result_slot,
+            v,
+        )?;
+    }
+
+    // Step 4: Single D2H copy of all N result indices + single sync
+    unsafe {
+        ffi::hip_memcpy_d2h_async(
+            decode_scratch.argmax_batch_host.as_ptr(),
+            decode_scratch.argmax_batch_device.as_ptr(),
+            n * std::mem::size_of::<i32>(),
+            device.stream(),
+        )?;
+    }
+    device.synchronize()?;
+
+    // Step 5: Read results from pinned host buffer
+    let results = decode_scratch.argmax_batch_host.as_slice::<i32>();
+    Ok((0..n).map(|i| results[i] as u32).collect())
 }
 
 /// Verify forward pass for speculative decoding.
@@ -1214,6 +1312,9 @@ pub fn gpu_verify_forward(
     let saved_seq_len = prefill.seq_len;
     prefill.seq_len = tokens.len();
 
+    // Mark verify step for sub-phase breakdown profiling
+    super::spec_step_profile::verify_breakdown_mark_step();
+
     // Embed tokens into prefill scratch
     gpu_embed_tokens_hybrid(tokens, gpu_weights, cpu_weights, prefill, config)?;
 
@@ -1234,8 +1335,32 @@ pub fn gpu_verify_forward(
     let h = config.hidden_size;
     let v = config.vocab_size;
     let n = tokens.len();
-    let mut result_tokens = Vec::with_capacity(n);
 
+    // Try batched path if enabled and n fits the fixed scratch.
+    if super::safety::batched_lm_head_enabled() && n <= MAX_VERIFY_BATCH {
+        match gpu_verify_lm_head_batched(device, gpu_weights, prefill, decode_scratch, config, n) {
+            Ok(result_tokens) => {
+                prefill.seq_len = saved_seq_len;
+                return Ok(result_tokens);
+            }
+            Err(GpuError::InvalidWeightLayout { .. })
+            | Err(GpuError::UnsupportedWeightType { .. }) => {
+                if std::env::var_os("ROCMFORGE_SPEC_DEBUG").is_some() {
+                    eprintln!(
+                        "[SPEC] batched lm_head: GPU weight type unsupported, falling back to sequential"
+                    );
+                }
+                // Fall through to sequential path below
+            }
+            Err(err) => {
+                prefill.seq_len = saved_seq_len;
+                return Err(err);
+            }
+        }
+    }
+
+    // Sequential fallback (default when flag disabled, or on unsupported weight types)
+    let mut result_tokens = Vec::with_capacity(n);
     for i in 0..n {
         let hidden_row = unsafe { (prefill.hidden.as_ptr() as *const f32).add(i * h) };
         rms_norm(
@@ -1328,6 +1453,11 @@ pub fn gpu_speculative_decode_step(
     spec_depth: usize,
     eog_ids: &[u32],
 ) -> GpuResult<SpecDecodeResult> {
+    use super::spec_step_profile::SpecStepTimer;
+
+    // ── Profiling: begin step timer (no-op if flag disabled) ────────────────
+    let mut timer = SpecStepTimer::begin(device)?;
+
     // ── Step 1: Draft N tokens with the small model ─────────────────────────
     // Stop early if the draft model produces an EOS token.
     let mut draft_tokens = Vec::with_capacity(spec_depth);
@@ -1353,6 +1483,11 @@ pub fn gpu_speculative_decode_step(
         }
     }
 
+    // ── Profiling: mark end of draft phase ──────────────────────────────────
+    if let Some(ref mut t) = timer {
+        t.mark_draft_end()?;
+    }
+
     let n_drafted = draft_tokens.len();
     let actual_depth = n_drafted;
 
@@ -1369,6 +1504,12 @@ pub fn gpu_speculative_decode_step(
         target_kv, _verify_scratch, target_scratch, target_host_scratch,
         &verify_tokens, target_pos, target_config,
     )?;
+
+    // ── Profiling: mark end of verify phase ─────────────────────────────────
+    if let Some(ref mut t) = timer {
+        t.mark_verify_end()?;
+        t.host_phase_begin();
+    }
 
     // ── Step 3: Accept/reject ───────────────────────────────────────────────
     // target_argmax[i] = target's prediction after processing verify_tokens[i]
@@ -1439,6 +1580,12 @@ pub fn gpu_speculative_decode_step(
             draft_kv, draft_scratch, draft_host_scratch,
             catchup_pos, draft_config, GpuLogitsMode::Skip,
         )?;
+    }
+
+    // ── Profiling: record accept/reject time and finalize ───────────────────
+    if let Some(mut t) = timer {
+        t.host_phase_end_accept_reject();
+        t.finish()?;
     }
 
     Ok(SpecDecodeResult {

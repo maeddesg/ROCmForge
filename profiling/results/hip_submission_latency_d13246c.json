@@ -1,0 +1,17 @@
+{
+  "git_sha": "d13246c",
+  "kernel": "add(n=64)",
+  "stream": "default",
+  "iterations": 10000,
+  "host_submit_us_per_dispatch": 1.001,
+  "host_total_with_sync_us_per_dispatch": 2.766,
+  "gpu_batched": [{"batch": 100, "us_per_dispatch": 2.730}, {"batch": 1000, "us_per_dispatch": 2.708}, {"batch": 10000, "us_per_dispatch": 2.693}],
+  "dispatch_plus_sync_us": 18.578,
+  "individual_event_pairs": {
+    "n": 1000,
+    "mean_us": 7.736,
+    "median_us": 7.720,
+    "p5_us": 7.520,
+    "p95_us": 7.960
+  }
+}
