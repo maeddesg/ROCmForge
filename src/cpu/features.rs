@@ -24,8 +24,10 @@ pub struct CpuFeatures {
     pub has_avx2: bool,
     /// AVX-512 (512-bit vectors)
     pub has_avx512: bool,
-    /// AVX-VNNI (vector neural network instructions)
+    /// AVX-VNNI (vector neural network instructions, AVX2 encoding — Intel-only)
     pub has_avxvnni: bool,
+    /// AVX-512 VNNI (_mm512_dpbusd_epi32 etc.) — Zen4+, Ice Lake+
+    pub has_avx512_vnni: bool,
     /// FMA (Fused Multiply-Add)
     pub has_fma: bool,
     /// ARM NEON (128-bit SIMD)
@@ -111,6 +113,8 @@ impl CpuFeatures {
                 has_avx: false,
                 has_avx2: false,
                 has_avx512: false,
+                has_avxvnni: false,
+                has_avx512_vnni: false,
                 has_fma: false,
                 has_neon: false,
                 has_sve: false,
@@ -183,8 +187,8 @@ impl CpuFeatures {
             has_avx2,
             has_avx512,
             // Report AVX-VNNI for AVX2 VNNI (Intel)
-            // AVX-512 VNNI is tracked separately via has_avx512_vnni in kernel selection
             has_avxvnni: has_avx2_vnni,
+            has_avx512_vnni,
             has_fma,
             has_neon: false,
             has_sve: false,
@@ -219,6 +223,7 @@ impl CpuFeatures {
             has_avx2: false,
             has_avx512: false,
             has_avxvnni: false,
+            has_avx512_vnni: false,
             has_fma: false,
             has_neon,
             has_sve,
