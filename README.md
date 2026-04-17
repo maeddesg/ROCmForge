@@ -20,11 +20,13 @@ rocmforge - LLM inference on AMD GPUs (HIP) with a CPU fallback path.
 
 ### Prefill throughput (tok/s)
 
-| Model | ROCmForge | llama.cpp ROCm |
-|-------|-----------|----------------|
-| Qwen2.5-7B Q4_0 (pp19) | 59 | 1,092 |
+| Model | ROCmForge WMMA (pp256) | ROCmForge hipBLAS (pp256) | ROCmForge baseline (pp19) | llama.cpp ROCm (pp19) |
+|-------|-----------------------:|--------------------------:|--------------------------:|----------------------:|
+| Qwen2.5-7B Q4_0 | 92.4 | 86.0 | 59 | 1,092 |
 
-Prefill is significantly slower because ROCmForge uses custom GEMV kernels while llama.cpp uses hipBLAS GEMM.
+Prefill now has a dedicated WMMA Q4_0 GEMM path using gfx1201 matrix cores (`__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12`), with inline Q4_0 dequant so there is no FP16 weight scratch round-trip. Isolated GEMM is 2.5× faster than hipBLAS (whose Tensile backend falls back to a VALU kernel on this hardware — confirmed via rocprofv3). End-to-end prefill gain at pp=256 is modest (+7-8 % over hipBLAS) because GEMM is only ~4 % of total prefill time; prefill attention dominates (~84 %) and is the next optimisation target. Full analysis in [`benches/results/prefill_wmma_e2e_analysis.md`](benches/results/prefill_wmma_e2e_analysis.md).
+
+Disable with `ROCMFORGE_DISABLE_WMMA_PREFILL=1` to fall through to the hipBLAS path, or also set `ROCMFORGE_DISABLE_HIPBLAS_PREFILL=1` to exercise the original custom-GEMM kernel.
 
 ### Speculative decoding (0.5B draft + 7B target)
 
@@ -129,6 +131,7 @@ CPU fallback:
 | `ROCMFORGE_DISABLE_TILED_GEMV=1` | Disable tiled batched GEMV for large FFN projections (default on) |
 | `ROCMFORGE_DISABLE_BATCHED_LM_HEAD=1` | Disable batched verify lm_head, fall back to sequential per-position dispatch |
 | `ROCMFORGE_DISABLE_AVX512=1` | Force the Q4_0 × Q8_0 CPU GEMV back to the AVX2 path (auto-enabled on Zen4+) |
+| `ROCMFORGE_DISABLE_WMMA_PREFILL=1` | Skip the WMMA Q4_0 prefill kernel and fall through to hipBLAS (auto-enabled on gfx12+) |
 
 ## Documentation
 

@@ -2,6 +2,60 @@
 
 ## [Unreleased]
 
+### WMMA Q4_0 Prefill GEMM (Phases 2a–2d)
+
+- **`__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12` works on gfx1201.**
+  Register layout derived from the AMD matrix-instruction calculator is
+  committed in `docs/wmma_register_layout_gfx12.md` + raw layout tables.
+  Phase 2a's 16×16 proof-of-concept kernel produced bit-identical output
+  against a CPU FP32 reference on three diagnostic tests (deterministic,
+  `B = I`, `A = I`).
+- **Tiled 64×64 WMMA GEMM** (`hip_kernels/wmma/wmma_gemm_tiled.hip`,
+  Phase 2a Step 2). 4 waves × 4 WMMA blocks, single-buffered 8 KB LDS,
+  no bank-conflict tuning yet. Isolated: 2.96–3.40× faster than hipBLAS
+  on the three Qwen2.5-7B projection shapes at pp=256, 62–75 % of FP16
+  theoretical peak.
+- **Inline Q4_0 dequant WMMA**
+  (`hip_kernels/wmma/wmma_gemm_q4_0.hip`, Phase 2b). K-loop steps in
+  chunks of 32 (one Q4_0 block) and runs two 16-wide WMMA K-iterations
+  per chunk; nibble unpacking and scale multiplication land straight in
+  LDS, so no FP16 weight scratch is ever materialised. Bit-identical to
+  Phase 2a + the existing dequant kernel across 5 shapes. 2.5× faster
+  than hipBLAS on the isolated GEMM and 28–36 % faster than Phase 2a +
+  separate dequant (the fair apples-to-apples comparison).
+- **Prefill dispatch integration** (Phase 2d). `gpu_dispatch_gemm`
+  prefers the WMMA path for Q4_0 tensors when `seq_len ≥ 64 &&
+  seq_len % 64 == 0 && out_dim % 64 == 0 && in_dim % 32 == 0`.
+  Dispatch order: WMMA → hipBLAS → custom GEMM → batched/tiled GEMV.
+  Opt-out: `ROCMFORGE_DISABLE_WMMA_PREFILL=1`.
+- **End-to-end prefill throughput** (Qwen2.5-7B Q4_0, greedy, single
+  forward; 64-aligned prompt lengths):
+
+  | pp  | Custom GEMM | hipBLAS | **WMMA Q4_0** | vs hipBLAS |
+  |----:|------------:|--------:|--------------:|-----------:|
+  |  64 |        61.8 |    77.0 |      **88.8** |    +15.5 % |
+  | 128 |        63.4 |    81.7 |      **90.3** |    +10.5 % |
+  | 256 |        63.7 |    86.0 |      **92.4** |     +7.4 % |
+  | 512 |        50.3 |    63.1 |      **67.2** |     +6.5 % |
+
+- **Correctness**
+  - `tests/wmma_16x16_correctness.rs` — 3 POC sub-tests, bit-exact.
+  - `tests/wmma_tiled_correctness.rs` — 5 shapes vs hipBLAS, within
+    FP16 accumulation envelope.
+  - `tests/wmma_q4_0_correctness.rs` — 5 shapes bit-identical to
+    Phase 2a + separate dequant.
+  - `tests/prefill_wmma_matches_hipblas.rs` — first decoded token
+    matches hipBLAS on a real model prompt.
+- **Verdict.** End-to-end gain at pp=256 is modest (+7.4 %) because
+  GEMM is only ~4 % of prefill time on this model size. Prefill
+  attention dominates (~84 %) and is the next optimisation target.
+  Full analysis in
+  `benches/results/prefill_wmma_e2e_analysis.md`.
+- **Phase 2c (LDS tuning, double-buffering, coalesced Q4_0 load)
+  deprioritised** — its ceiling contribution to end-to-end is ≤ 2 %.
+  Attention-tiling (FlashAttention-style) for prefill is the lever
+  worth pursuing next.
+
 ### hipBLAS Prefill GEMM (Phase 1 — north-star)
 
 - **hipBLAS-backed prefill path** for Q4_0 tensors with `seq_len >= 32`.

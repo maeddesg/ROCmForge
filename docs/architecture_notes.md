@@ -46,6 +46,22 @@ Concretely:
 - **Kernel fusion** is only worth it when it merges *different* memory-access patterns (e.g. elementwise + GEMV eliminating a store/load round-trip for non-cached addresses), not when it batches identical patterns or removes intermediates that already fit in L2.
 - **The real optimization levers are algorithmic** (GEMV → GEMM for prefill) and live at **compute patterns with unpredictable access patterns** (attention tiling at long context, where the KV cache spills out of L2). These differ qualitatively from the previous experiments because they have different memory-access patterns where the memory-controller pipelining effect is weaker.
 
+### WMMA matrix-core usage on RDNA 4 (gfx1201)
+
+hipBLAS / Tensile in ROCm 7.2 does **not** select matrix-core kernels for gfx1201 — confirmed by a `rocprofv3 --kernel-trace` on the hipBLAS prefill path: every projection dispatches a Tensile kernel whose mangled name carries `FMA` (VALU fused-multiply-add), not `MFMA` / `WMMA`. Zero wmma / mfma / xdlops kernels appear anywhere in the full 26-kernel trace. Full write-up in `profiling/results/hipblas_matrix_core_check.md`.
+
+ROCmForge works around this with a hand-written WMMA prefill kernel built on the `__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12` intrinsic. The kernel consumes Q4_0 weights directly — nibble unpack and scale multiplication happen inline into LDS, so no FP16 weight scratch is ever materialised. Register-layout reference (from the AMD matrix-instruction calculator): `docs/wmma_register_layout_gfx12.md`; kernel source: `hip_kernels/wmma/wmma_gemm_q4_0.hip`.
+
+Isolated GEMM throughput on the three Qwen2.5-7B prefill shapes (pp=256; 49 TFLOPS FP16 peak reference):
+
+| Shape                     | hipBLAS µs | WMMA Q4_0 µs | Speedup | % of peak |
+|---------------------------|-----------:|-------------:|--------:|----------:|
+| QKV/O (256×3584×3584)     |        644 |          254 |  2.54×  |   52.9 %  |
+| Gate/Up (256×18944×3584)  |      3,200 |        1,213 |  2.64×  |   58.5 %  |
+| Down (256×3584×18944)     |      3,328 |        1,294 |  2.57×  |   54.8 %  |
+
+End-to-end prefill on Qwen2.5-7B Q4_0 at pp=256 goes from 86 tok/s (hipBLAS) to 92.4 tok/s (WMMA). The modest 7–8 % headline gain reflects the fact that GEMM is already only ~4 % of prefill wall-clock at this model size — prefill attention dominates (~84 %) and is the next optimisation target. LDS bank-conflict tuning and double-buffering would push the WMMA kernel from 55 % toward 80 % of peak but contribute ≤ 2 % end-to-end; we parked them for that reason.
+
 ### Open questions
 
 - Whether this pipelining effect also occurs to the same degree on RDNA 3 (gfx1100, RX 7900 XT) has not been measured. The memory-controller architecture differs (Infinity Cache vs. no Infinity Cache on RDNA 4). A comparison experiment on gfx1100 would be informative.
