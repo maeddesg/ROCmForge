@@ -106,6 +106,17 @@ ROCmForge's CPU path on the Ryzen 9 7945HX vs. llama.cpp on the same machine:
 
 The gap is **not SIMD-bound** — AVX-512 VNNI is implemented and is 16–19% faster than AVX2 in isolation on 7B shapes. It lives in the entire CPU forward pipeline: Rayon overhead per GEMV call, scalar non-GEMV operations, missing kernel fusion, and apparently duplicate memory traversals (input quantization + GEMV). A competitive CPU path would be a standalone project — not a by-product of the GPU optimization work.
 
+## WMMA intrinsics — RDNA 4 (gfx12) only
+
+Every WMMA kernel in the repo uses `__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12`. This intrinsic is **gfx12-specific**. Porting any of these kernels to RDNA 3 (gfx11) is not a drop-in flag change; it requires:
+
+- **Different intrinsic name.** RDNA 3 uses `__builtin_amdgcn_wmma_f32_16x16x16_f16_w32` (no `_gfx12` suffix).
+- **Different A/B matrix register layout.** RDNA 3 holds each 16×16 operand in 8 VGPRs per lane with a duplication pattern; gfx12 packs it into 4 VGPRs with no duplication. Every operand-load sequence in the Q4_0 inline-dequant GEMM and the attention kernel assumes the gfx12 layout.
+- **Lane duplication.** RDNA 3 requires copying lanes 0–15 to lanes 16–31 for the B operand. gfx12 does not. Our kernels omit this step entirely.
+- **Different accumulator read-back.** The output lane-to-row/column mapping is derived from the AMD matrix-instruction calculator for gfx12; the mapping differs on gfx11 and has to be re-derived from the calculator output for that architecture.
+
+We verified the gfx12 layout via the calculator and confirmed bit-identical output vs. a CPU FP32 reference on three diagnostic tests (deterministic, `B = I`, `A = I`) before building on top of it. None of that validation transfers to gfx11.
+
 ## WMMA FlashAttention on RDNA 4 (Phase 3d)
 
 The prefill attention kernel uses the same `__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12` intrinsics as the GEMM kernel. FlashAttention-style with online softmax, 64 × 64 Q/KV tiles, and causal masking with zero-work elimination on tiles strictly above the diagonal.

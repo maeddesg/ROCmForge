@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### WMMA dispatch threshold lowered to `seq_len ≥ 1` (Phase 3.2)
+
+- `WMMA_PREFILL_MIN_M` dropped from 64 to 1 in `gpu_dispatch_gemm`,
+  and the WMMA prefill attention gate dropped from `seq_len >= 64` to
+  `seq_len >= 1`. Every prompt now engages WMMA via Phase 3.1 padding.
+- `GpuPrefillScratch` now always pads `buffer_seq_len` to a multiple
+  of 64 (minimum 64 rows). Previously only `seq_len ≥ 64` got the
+  oversized buffers; the verify path's short scratch and any
+  sub-64-token prefill were exact-sized and would OOB if WMMA fired.
+- `decode_scratch.logits_batch` oversized from `MAX_VERIFY_BATCH × v`
+  to `max(MAX_VERIFY_BATCH, 64) × v` (+32 MB) so the batched verify
+  lm_head GEMM at `n ≤ 9` can safely dispatch at `padded_M = 64`.
+- Measured on 15 real prompts (5 code / 5 chat / 5 prose, 19–41
+  prompt tokens, 128 decoded tokens, greedy, Qwen2.5-7B Q4_0, median
+  of 3):
+
+  | Metric | Before (≥ 64 gate) | After (≥ 1 gate) | Δ |
+  |---|---:|---:|---:|
+  | Prefill tok/s (median) | 60.6 | **356.2** | **5.9×** |
+  | TTFT ms (median) | 396 | **67** | 5.9× faster |
+  | Decode tok/s (median) | 102.3 | 102.0 | ±0 |
+  | Wall-clock 128-token completion (median) | 1,648 ms | **1,319 ms** | 20 % shorter |
+  | Gap vs. llama.cpp prefill (median) | 8.7× | **1.48×** | −83 % |
+
+- Answer quality on the same 15 prompts: 5/15 byte-identical to the
+  scalar baseline, 10/15 diverge between words 7 and 109 (expected
+  FP16 WMMA accumulation drift). No semantic regressions.
+
 ### WMMA prefill path accepts arbitrary `seq_len ≥ 64` (Phase 3.1)
 
 - `GpuPrefillScratch` oversizes all activation buffers to the next
