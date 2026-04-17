@@ -1,0 +1,14 @@
+[Draft] Prefilling KV cache... done in 108.3ms
+ The function should also handle cases where the key is not present in some of the objects in the input array.
+
+Example usage:
+```javascript
+const input = [
+  { id: 1, name: 'John' },
+  { id: 2, name: 'Jane' },
+  { id: 3, name: 'John' },
+  { id: 4, name: 'Bob' }
+];
+
+console.log(groupBy(input, 'name'));
+// Output: { John: [{ id: 1, name: 'John' }, { id: 3, name: 'John' }], Jane: [{ id

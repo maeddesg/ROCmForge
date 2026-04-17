@@ -1,0 +1,366 @@
+{
+  "git_sha": "2c28857",
+  "timestamp": 1776430954,
+  "model": "Qwen2.5-7B-Instruct-Q4_0",
+  "runs": [
+    {"prompt": "code_01", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 28, "prefill_ms": 462.1, "prefill_tps": 60.6, "decode_ms": 1251.1, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "code_01", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 28, "prefill_ms": 458.7, "prefill_tps": 61.0, "decode_ms": 1252.3, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_01", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 28, "prefill_ms": 458.7, "prefill_tps": 61.0, "decode_ms": 1250.9, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "code_01", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 28, "prefill_ms": 458.2, "prefill_tps": 61.1, "decode_ms": 1617.6, "decode_tps": 79.1, "alpha_pct": 74.0}
+    ,
+    {"prompt": "code_01", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 28, "prefill_ms": 457.9, "prefill_tps": 61.1, "decode_ms": 1616.9, "decode_tps": 79.2, "alpha_pct": 74.0}
+    ,
+    {"prompt": "code_01", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 28, "prefill_ms": 458.6, "prefill_tps": 61.1, "decode_ms": 1615.9, "decode_tps": 79.2, "alpha_pct": 74.0}
+    ,
+    {"prompt": "code_01", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 28, "prefill_ms": 458.7, "prefill_tps": 61.0, "decode_ms": 1252.0, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_01", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 28, "prefill_ms": 458.6, "prefill_tps": 61.1, "decode_ms": 1252.3, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_01", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 28, "prefill_ms": 459.1, "prefill_tps": 61.0, "decode_ms": 1252.2, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_01", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 28, "prefill_tps": 627.55, "decode_tps": 121.30}
+    ,
+    {"prompt": "code_01", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 28, "prefill_tps": 606.18, "decode_tps": 121.42}
+    ,
+    {"prompt": "code_01", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 28, "prefill_tps": 615.43, "decode_tps": 121.33}
+    ,
+    {"prompt": "code_02", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 28, "prefill_ms": 458.9, "prefill_tps": 61.0, "decode_ms": 1252.1, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_02", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 28, "prefill_ms": 458.5, "prefill_tps": 61.1, "decode_ms": 1252.6, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_02", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 28, "prefill_ms": 458.8, "prefill_tps": 61.0, "decode_ms": 1252.5, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_02", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 28, "prefill_ms": 458.1, "prefill_tps": 61.1, "decode_ms": 1716.1, "decode_tps": 74.6, "alpha_pct": 62.8}
+    ,
+    {"prompt": "code_02", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 28, "prefill_ms": 458.6, "prefill_tps": 61.1, "decode_ms": 1717.1, "decode_tps": 74.5, "alpha_pct": 62.8}
+    ,
+    {"prompt": "code_02", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 28, "prefill_ms": 458.8, "prefill_tps": 61.0, "decode_ms": 1719.0, "decode_tps": 74.5, "alpha_pct": 62.8}
+    ,
+    {"prompt": "code_02", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 28, "prefill_ms": 458.8, "prefill_tps": 61.0, "decode_ms": 1251.7, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "code_02", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 28, "prefill_ms": 458.8, "prefill_tps": 61.0, "decode_ms": 1252.5, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_02", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 28, "prefill_ms": 458.9, "prefill_tps": 61.0, "decode_ms": 1252.1, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_02", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 28, "prefill_tps": 621.26, "decode_tps": 121.36}
+    ,
+    {"prompt": "code_02", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 28, "prefill_tps": 632.53, "decode_tps": 121.33}
+    ,
+    {"prompt": "code_02", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 28, "prefill_tps": 601.70, "decode_tps": 121.42}
+    ,
+    {"prompt": "code_03", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 41, "prefill_ms": 578.5, "prefill_tps": 70.9, "decode_ms": 1254.1, "decode_tps": 102.1, "alpha_pct": 0}
+    ,
+    {"prompt": "code_03", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 41, "prefill_ms": 579.9, "prefill_tps": 70.7, "decode_ms": 1253.9, "decode_tps": 102.1, "alpha_pct": 0}
+    ,
+    {"prompt": "code_03", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 41, "prefill_ms": 579.3, "prefill_tps": 70.8, "decode_ms": 1254.7, "decode_tps": 102.0, "alpha_pct": 0}
+    ,
+    {"prompt": "code_03", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 41, "prefill_ms": 578.6, "prefill_tps": 70.9, "decode_ms": 1609.4, "decode_tps": 80.2, "alpha_pct": 77.8}
+    ,
+    {"prompt": "code_03", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 41, "prefill_ms": 578.3, "prefill_tps": 70.9, "decode_ms": 1609.8, "decode_tps": 80.1, "alpha_pct": 77.8}
+    ,
+    {"prompt": "code_03", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 41, "prefill_ms": 578.0, "prefill_tps": 70.9, "decode_ms": 1609.7, "decode_tps": 80.1, "alpha_pct": 77.8}
+    ,
+    {"prompt": "code_03", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 41, "prefill_ms": 661.9, "prefill_tps": 61.9, "decode_ms": 1252.1, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_03", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 41, "prefill_ms": 662.2, "prefill_tps": 61.9, "decode_ms": 1252.3, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_03", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 41, "prefill_ms": 661.7, "prefill_tps": 62.0, "decode_ms": 1252.8, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_03", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 41, "prefill_tps": 890.82, "decode_tps": 121.52}
+    ,
+    {"prompt": "code_03", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 41, "prefill_tps": 872.41, "decode_tps": 121.44}
+    ,
+    {"prompt": "code_03", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 41, "prefill_tps": 862.50, "decode_tps": 121.38}
+    ,
+    {"prompt": "code_04", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 23, "prefill_ms": 379.4, "prefill_tps": 60.6, "decode_ms": 1252.2, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_04", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 23, "prefill_ms": 379.4, "prefill_tps": 60.6, "decode_ms": 1250.9, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "code_04", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 23, "prefill_ms": 379.5, "prefill_tps": 60.6, "decode_ms": 1251.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "code_04", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 23, "prefill_ms": 379.2, "prefill_tps": 60.7, "decode_ms": 1796.9, "decode_tps": 71.8, "alpha_pct": 54.2}
+    ,
+    {"prompt": "code_04", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 23, "prefill_ms": 379.0, "prefill_tps": 60.7, "decode_ms": 1800.5, "decode_tps": 71.6, "alpha_pct": 54.2}
+    ,
+    {"prompt": "code_04", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 23, "prefill_ms": 379.2, "prefill_tps": 60.7, "decode_ms": 1799.5, "decode_tps": 71.7, "alpha_pct": 54.2}
+    ,
+    {"prompt": "code_04", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 23, "prefill_ms": 379.2, "prefill_tps": 60.6, "decode_ms": 1251.1, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "code_04", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 23, "prefill_ms": 379.6, "prefill_tps": 60.6, "decode_ms": 1251.5, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "code_04", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 23, "prefill_ms": 379.8, "prefill_tps": 60.6, "decode_ms": 1251.9, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_04", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 23, "prefill_tps": 510.74, "decode_tps": 121.30}
+    ,
+    {"prompt": "code_04", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 23, "prefill_tps": 518.78, "decode_tps": 121.30}
+    ,
+    {"prompt": "code_04", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 23, "prefill_tps": 518.81, "decode_tps": 121.51}
+    ,
+    {"prompt": "code_05", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 31, "prefill_ms": 504.7, "prefill_tps": 61.4, "decode_ms": 1252.8, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_05", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 31, "prefill_ms": 504.3, "prefill_tps": 61.5, "decode_ms": 1251.6, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "code_05", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 31, "prefill_ms": 504.5, "prefill_tps": 61.4, "decode_ms": 1251.9, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_05", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 31, "prefill_ms": 505.3, "prefill_tps": 61.4, "decode_ms": 1668.4, "decode_tps": 76.7, "alpha_pct": 69.3}
+    ,
+    {"prompt": "code_05", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 31, "prefill_ms": 505.1, "prefill_tps": 61.4, "decode_ms": 1666.6, "decode_tps": 76.8, "alpha_pct": 69.3}
+    ,
+    {"prompt": "code_05", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 31, "prefill_ms": 505.5, "prefill_tps": 61.3, "decode_ms": 1667.7, "decode_tps": 76.8, "alpha_pct": 69.3}
+    ,
+    {"prompt": "code_05", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 31, "prefill_ms": 505.2, "prefill_tps": 61.4, "decode_ms": 1251.5, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "code_05", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 31, "prefill_ms": 504.7, "prefill_tps": 61.4, "decode_ms": 1252.1, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "code_05", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 31, "prefill_ms": 504.8, "prefill_tps": 61.4, "decode_ms": 1251.1, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "code_05", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 31, "prefill_tps": 676.75, "decode_tps": 121.34}
+    ,
+    {"prompt": "code_05", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 31, "prefill_tps": 669.94, "decode_tps": 121.40}
+    ,
+    {"prompt": "code_05", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 31, "prefill_tps": 693.17, "decode_tps": 121.46}
+    ,
+    {"prompt": "chat_01", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 22, "prefill_ms": 364.2, "prefill_tps": 60.4, "decode_ms": 1251.1, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_01", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 22, "prefill_ms": 363.7, "prefill_tps": 60.5, "decode_ms": 1251.6, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_01", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 22, "prefill_ms": 363.9, "prefill_tps": 60.5, "decode_ms": 1251.9, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_01", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 22, "prefill_ms": 363.6, "prefill_tps": 60.5, "decode_ms": 1689.0, "decode_tps": 75.8, "alpha_pct": 62.8}
+    ,
+    {"prompt": "chat_01", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 22, "prefill_ms": 363.6, "prefill_tps": 60.5, "decode_ms": 1688.6, "decode_tps": 75.8, "alpha_pct": 62.8}
+    ,
+    {"prompt": "chat_01", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 22, "prefill_ms": 363.5, "prefill_tps": 60.5, "decode_ms": 1780.6, "decode_tps": 71.9, "alpha_pct": 62.8}
+    ,
+    {"prompt": "chat_01", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 22, "prefill_ms": 363.6, "prefill_tps": 60.5, "decode_ms": 1251.6, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_01", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 22, "prefill_ms": 364.2, "prefill_tps": 60.4, "decode_ms": 1251.1, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_01", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 22, "prefill_ms": 363.9, "prefill_tps": 60.5, "decode_ms": 1251.3, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_01", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 22, "prefill_tps": 487.61, "decode_tps": 121.29}
+    ,
+    {"prompt": "chat_01", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 22, "prefill_tps": 484.56, "decode_tps": 121.64}
+    ,
+    {"prompt": "chat_01", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 22, "prefill_tps": 479.68, "decode_tps": 121.41}
+    ,
+    {"prompt": "chat_02", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 24, "prefill_ms": 396.1, "prefill_tps": 60.6, "decode_ms": 1251.2, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_02", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 24, "prefill_ms": 396.0, "prefill_tps": 60.6, "decode_ms": 1252.0, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_02", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 24, "prefill_ms": 396.3, "prefill_tps": 60.6, "decode_ms": 1251.7, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_02", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 24, "prefill_ms": 395.9, "prefill_tps": 60.6, "decode_ms": 1721.6, "decode_tps": 74.4, "alpha_pct": 60.8}
+    ,
+    {"prompt": "chat_02", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 24, "prefill_ms": 396.3, "prefill_tps": 60.6, "decode_ms": 1724.4, "decode_tps": 74.2, "alpha_pct": 60.8}
+    ,
+    {"prompt": "chat_02", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 24, "prefill_ms": 395.9, "prefill_tps": 60.6, "decode_ms": 1724.9, "decode_tps": 74.2, "alpha_pct": 60.8}
+    ,
+    {"prompt": "chat_02", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 24, "prefill_ms": 396.5, "prefill_tps": 60.5, "decode_ms": 1253.0, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_02", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 24, "prefill_ms": 395.9, "prefill_tps": 60.6, "decode_ms": 1252.0, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_02", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 24, "prefill_ms": 396.3, "prefill_tps": 60.6, "decode_ms": 1250.9, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_02", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 24, "prefill_tps": 527.00, "decode_tps": 121.37}
+    ,
+    {"prompt": "chat_02", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 24, "prefill_tps": 538.45, "decode_tps": 121.28}
+    ,
+    {"prompt": "chat_02", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 24, "prefill_tps": 527.53, "decode_tps": 121.27}
+    ,
+    {"prompt": "chat_03", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 22, "prefill_ms": 363.5, "prefill_tps": 60.5, "decode_ms": 1252.1, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_03", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 22, "prefill_ms": 363.8, "prefill_tps": 60.5, "decode_ms": 1250.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_03", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 22, "prefill_ms": 363.6, "prefill_tps": 60.5, "decode_ms": 1250.7, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_03", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 22, "prefill_ms": 363.6, "prefill_tps": 60.5, "decode_ms": 1753.2, "decode_tps": 73.6, "alpha_pct": 58.0}
+    ,
+    {"prompt": "chat_03", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 22, "prefill_ms": 363.9, "prefill_tps": 60.5, "decode_ms": 1753.5, "decode_tps": 73.6, "alpha_pct": 58.0}
+    ,
+    {"prompt": "chat_03", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 22, "prefill_ms": 363.5, "prefill_tps": 60.5, "decode_ms": 1752.3, "decode_tps": 73.6, "alpha_pct": 58.0}
+    ,
+    {"prompt": "chat_03", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 22, "prefill_ms": 363.6, "prefill_tps": 60.5, "decode_ms": 1251.2, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_03", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 22, "prefill_ms": 363.9, "prefill_tps": 60.5, "decode_ms": 1251.4, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_03", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 22, "prefill_ms": 363.7, "prefill_tps": 60.5, "decode_ms": 1252.6, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_03", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 22, "prefill_tps": 481.73, "decode_tps": 121.31}
+    ,
+    {"prompt": "chat_03", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 22, "prefill_tps": 487.28, "decode_tps": 121.29}
+    ,
+    {"prompt": "chat_03", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 22, "prefill_tps": 485.18, "decode_tps": 121.36}
+    ,
+    {"prompt": "chat_04", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 24, "prefill_ms": 396.4, "prefill_tps": 60.5, "decode_ms": 1251.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_04", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 24, "prefill_ms": 396.1, "prefill_tps": 60.6, "decode_ms": 1251.6, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_04", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 24, "prefill_ms": 396.9, "prefill_tps": 60.5, "decode_ms": 1251.4, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_04", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 24, "prefill_ms": 396.1, "prefill_tps": 60.6, "decode_ms": 1797.9, "decode_tps": 71.2, "alpha_pct": 53.0}
+    ,
+    {"prompt": "chat_04", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 24, "prefill_ms": 395.3, "prefill_tps": 60.7, "decode_ms": 1802.3, "decode_tps": 71.0, "alpha_pct": 53.0}
+    ,
+    {"prompt": "chat_04", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 24, "prefill_ms": 395.8, "prefill_tps": 60.6, "decode_ms": 1800.3, "decode_tps": 71.1, "alpha_pct": 53.0}
+    ,
+    {"prompt": "chat_04", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 24, "prefill_ms": 396.1, "prefill_tps": 60.6, "decode_ms": 1252.2, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_04", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 24, "prefill_ms": 396.6, "prefill_tps": 60.5, "decode_ms": 1251.5, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_04", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 24, "prefill_ms": 396.1, "prefill_tps": 60.6, "decode_ms": 1251.2, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_04", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 24, "prefill_tps": 536.76, "decode_tps": 121.34}
+    ,
+    {"prompt": "chat_04", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 24, "prefill_tps": 547.25, "decode_tps": 121.32}
+    ,
+    {"prompt": "chat_04", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 24, "prefill_tps": 543.17, "decode_tps": 121.41}
+    ,
+    {"prompt": "chat_05", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 24, "prefill_ms": 396.4, "prefill_tps": 60.5, "decode_ms": 1251.6, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_05", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 24, "prefill_ms": 396.3, "prefill_tps": 60.6, "decode_ms": 1251.3, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_05", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 24, "prefill_ms": 396.0, "prefill_tps": 60.6, "decode_ms": 1251.0, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_05", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 24, "prefill_ms": 395.9, "prefill_tps": 60.6, "decode_ms": 1923.7, "decode_tps": 67.1, "alpha_pct": 43.8}
+    ,
+    {"prompt": "chat_05", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 24, "prefill_ms": 396.0, "prefill_tps": 60.6, "decode_ms": 1924.0, "decode_tps": 67.0, "alpha_pct": 43.8}
+    ,
+    {"prompt": "chat_05", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 24, "prefill_ms": 396.4, "prefill_tps": 60.5, "decode_ms": 1923.3, "decode_tps": 67.1, "alpha_pct": 43.8}
+    ,
+    {"prompt": "chat_05", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 24, "prefill_ms": 396.0, "prefill_tps": 60.6, "decode_ms": 1251.4, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_05", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 24, "prefill_ms": 395.9, "prefill_tps": 60.6, "decode_ms": 1252.1, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_05", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 24, "prefill_ms": 396.2, "prefill_tps": 60.6, "decode_ms": 1252.0, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "chat_05", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 24, "prefill_tps": 526.35, "decode_tps": 121.33}
+    ,
+    {"prompt": "chat_05", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 24, "prefill_tps": 536.67, "decode_tps": 121.31}
+    ,
+    {"prompt": "chat_05", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 24, "prefill_tps": 529.21, "decode_tps": 121.29}
+    ,
+    {"prompt": "prose_01", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 23, "prefill_ms": 379.6, "prefill_tps": 60.6, "decode_ms": 1251.6, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_01", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 23, "prefill_ms": 379.5, "prefill_tps": 60.6, "decode_ms": 1252.0, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_01", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 23, "prefill_ms": 379.5, "prefill_tps": 60.6, "decode_ms": 1251.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_01", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 23, "prefill_ms": 379.0, "prefill_tps": 60.7, "decode_ms": 1880.0, "decode_tps": 68.1, "alpha_pct": 46.0}
+    ,
+    {"prompt": "prose_01", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 23, "prefill_ms": 379.0, "prefill_tps": 60.7, "decode_ms": 1880.1, "decode_tps": 68.1, "alpha_pct": 46.0}
+    ,
+    {"prompt": "prose_01", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 23, "prefill_ms": 379.0, "prefill_tps": 60.7, "decode_ms": 1879.1, "decode_tps": 68.1, "alpha_pct": 46.0}
+    ,
+    {"prompt": "prose_01", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 23, "prefill_ms": 379.4, "prefill_tps": 60.6, "decode_ms": 1252.0, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_01", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 23, "prefill_ms": 379.5, "prefill_tps": 60.6, "decode_ms": 1252.1, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_01", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 23, "prefill_ms": 379.4, "prefill_tps": 60.6, "decode_ms": 1251.9, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_01", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 23, "prefill_tps": 520.17, "decode_tps": 121.20}
+    ,
+    {"prompt": "prose_01", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 23, "prefill_tps": 511.28, "decode_tps": 121.31}
+    ,
+    {"prompt": "prose_01", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 23, "prefill_tps": 518.18, "decode_tps": 121.30}
+    ,
+    {"prompt": "prose_02", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 21, "prefill_ms": 348.2, "prefill_tps": 60.3, "decode_ms": 1251.5, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_02", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 21, "prefill_ms": 347.6, "prefill_tps": 60.4, "decode_ms": 1252.0, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_02", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 21, "prefill_ms": 347.9, "prefill_tps": 60.4, "decode_ms": 1251.0, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_02", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 21, "prefill_ms": 347.6, "prefill_tps": 60.4, "decode_ms": 1779.4, "decode_tps": 72.5, "alpha_pct": 54.2}
+    ,
+    {"prompt": "prose_02", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 21, "prefill_ms": 347.5, "prefill_tps": 60.4, "decode_ms": 1780.4, "decode_tps": 72.5, "alpha_pct": 54.2}
+    ,
+    {"prompt": "prose_02", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 21, "prefill_ms": 347.4, "prefill_tps": 60.5, "decode_ms": 1781.3, "decode_tps": 72.4, "alpha_pct": 54.2}
+    ,
+    {"prompt": "prose_02", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 21, "prefill_ms": 347.8, "prefill_tps": 60.4, "decode_ms": 1250.7, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_02", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 21, "prefill_ms": 347.9, "prefill_tps": 60.4, "decode_ms": 1252.1, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_02", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 21, "prefill_ms": 347.5, "prefill_tps": 60.4, "decode_ms": 1250.2, "decode_tps": 102.4, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_02", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 21, "prefill_tps": 464.95, "decode_tps": 121.30}
+    ,
+    {"prompt": "prose_02", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 21, "prefill_tps": 463.18, "decode_tps": 121.28}
+    ,
+    {"prompt": "prose_02", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 21, "prefill_tps": 470.76, "decode_tps": 121.34}
+    ,
+    {"prompt": "prose_03", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 24, "prefill_ms": 396.2, "prefill_tps": 60.6, "decode_ms": 1250.3, "decode_tps": 102.4, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_03", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 24, "prefill_ms": 396.3, "prefill_tps": 60.6, "decode_ms": 1251.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_03", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 24, "prefill_ms": 396.3, "prefill_tps": 60.6, "decode_ms": 1251.6, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_03", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 24, "prefill_ms": 396.1, "prefill_tps": 60.6, "decode_ms": 1825.5, "decode_tps": 70.7, "alpha_pct": 52.4}
+    ,
+    {"prompt": "prose_03", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 24, "prefill_ms": 396.6, "prefill_tps": 60.5, "decode_ms": 1826.4, "decode_tps": 70.6, "alpha_pct": 52.4}
+    ,
+    {"prompt": "prose_03", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 24, "prefill_ms": 396.5, "prefill_tps": 60.5, "decode_ms": 1823.4, "decode_tps": 70.7, "alpha_pct": 52.4}
+    ,
+    {"prompt": "prose_03", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 24, "prefill_ms": 396.6, "prefill_tps": 60.5, "decode_ms": 1252.6, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_03", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 24, "prefill_ms": 395.8, "prefill_tps": 60.6, "decode_ms": 1251.2, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_03", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 24, "prefill_ms": 395.3, "prefill_tps": 60.7, "decode_ms": 1252.2, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_03", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 24, "prefill_tps": 528.05, "decode_tps": 121.37}
+    ,
+    {"prompt": "prose_03", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 24, "prefill_tps": 527.15, "decode_tps": 121.37}
+    ,
+    {"prompt": "prose_03", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 24, "prefill_tps": 508.83, "decode_tps": 121.36}
+    ,
+    {"prompt": "prose_04", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 19, "prefill_ms": 316.1, "prefill_tps": 60.1, "decode_ms": 1251.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_04", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 19, "prefill_ms": 316.3, "prefill_tps": 60.1, "decode_ms": 1252.1, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_04", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 19, "prefill_ms": 316.2, "prefill_tps": 60.1, "decode_ms": 1252.1, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_04", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 19, "prefill_ms": 315.7, "prefill_tps": 60.2, "decode_ms": 1840.0, "decode_tps": 70.1, "alpha_pct": 48.8}
+    ,
+    {"prompt": "prose_04", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 19, "prefill_ms": 315.8, "prefill_tps": 60.2, "decode_ms": 1842.1, "decode_tps": 70.0, "alpha_pct": 48.8}
+    ,
+    {"prompt": "prose_04", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 19, "prefill_ms": 315.7, "prefill_tps": 60.2, "decode_ms": 1842.6, "decode_tps": 70.0, "alpha_pct": 48.8}
+    ,
+    {"prompt": "prose_04", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 19, "prefill_ms": 316.1, "prefill_tps": 60.1, "decode_ms": 1251.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_04", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 19, "prefill_ms": 316.1, "prefill_tps": 60.1, "decode_ms": 1251.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_04", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 19, "prefill_ms": 316.1, "prefill_tps": 60.1, "decode_ms": 1251.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_04", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 19, "prefill_tps": 416.46, "decode_tps": 121.26}
+    ,
+    {"prompt": "prose_04", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 19, "prefill_tps": 419.22, "decode_tps": 121.25}
+    ,
+    {"prompt": "prose_04", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 19, "prefill_tps": 415.49, "decode_tps": 121.23}
+    ,
+    {"prompt": "prose_05", "engine": "rocmforge", "mode": "A", "run": 1, "prompt_tokens": 26, "prefill_ms": 427.0, "prefill_tps": 60.9, "decode_ms": 1251.6, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_05", "engine": "rocmforge", "mode": "A", "run": 2, "prompt_tokens": 26, "prefill_ms": 427.4, "prefill_tps": 60.8, "decode_ms": 1251.7, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_05", "engine": "rocmforge", "mode": "A", "run": 3, "prompt_tokens": 26, "prefill_ms": 426.8, "prefill_tps": 60.9, "decode_ms": 1251.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_05", "engine": "rocmforge", "mode": "B", "run": 1, "prompt_tokens": 26, "prefill_ms": 427.4, "prefill_tps": 60.8, "decode_ms": 1873.1, "decode_tps": 68.3, "alpha_pct": 47.7}
+    ,
+    {"prompt": "prose_05", "engine": "rocmforge", "mode": "B", "run": 2, "prompt_tokens": 26, "prefill_ms": 426.8, "prefill_tps": 60.9, "decode_ms": 1872.2, "decode_tps": 68.4, "alpha_pct": 47.7}
+    ,
+    {"prompt": "prose_05", "engine": "rocmforge", "mode": "B", "run": 3, "prompt_tokens": 26, "prefill_ms": 426.8, "prefill_tps": 60.9, "decode_ms": 1872.5, "decode_tps": 68.4, "alpha_pct": 47.7}
+    ,
+    {"prompt": "prose_05", "engine": "rocmforge", "mode": "C", "run": 1, "prompt_tokens": 26, "prefill_ms": 426.9, "prefill_tps": 60.9, "decode_ms": 1251.9, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_05", "engine": "rocmforge", "mode": "C", "run": 2, "prompt_tokens": 26, "prefill_ms": 427.3, "prefill_tps": 60.9, "decode_ms": 1252.0, "decode_tps": 102.2, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_05", "engine": "rocmforge", "mode": "C", "run": 3, "prompt_tokens": 26, "prefill_ms": 427.5, "prefill_tps": 60.8, "decode_ms": 1251.8, "decode_tps": 102.3, "alpha_pct": 0}
+    ,
+    {"prompt": "prose_05", "engine": "llamacpp", "mode": "raw", "run": 1, "prompt_tokens": 26, "prefill_tps": 578.73, "decode_tps": 121.27}
+    ,
+    {"prompt": "prose_05", "engine": "llamacpp", "mode": "raw", "run": 2, "prompt_tokens": 26, "prefill_tps": 567.85, "decode_tps": 121.61}
+    ,
+    {"prompt": "prose_05", "engine": "llamacpp", "mode": "raw", "run": 3, "prompt_tokens": 26, "prefill_tps": 563.17, "decode_tps": 121.38}
+  ]
+}

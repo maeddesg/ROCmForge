@@ -1,1 +1,1 @@
-What's the best way to learn a new programming language? I already know Python and want to learn Rust.
+What is the best way to learn a new programming language from scratch? I already know Python and want to learn Rust.

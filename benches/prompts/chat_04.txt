@@ -1,1 +1,1 @@
-Can you explain quantum computing to someone who only knows basic physics? Keep it simple and use analogies.
+Explain quantum computing to me in simple terms. I have a basic understanding of classical computers but nothing about quantum mechanics.

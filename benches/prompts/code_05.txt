@@ -1,1 +1,1 @@
-Write a SQL query that finds the top 5 customers by total purchase amount in the last 30 days, including their order count.
+Write a SQL query that finds the top 5 customers by total order amount from a database with customers and orders tables, including their name and total spent.

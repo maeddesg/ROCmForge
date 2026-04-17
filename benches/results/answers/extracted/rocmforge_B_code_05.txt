@@ -1,0 +1,21 @@
+[Draft] Prefilling KV cache... done in 123.5ms
+ Assume the database schema includes a `customers` table with columns `id` and `name`, and an `orders` table with columns `customer_id` and `amount`. The `customer_id` in the `orders` table references the `id` in the `customers` table.
+
+### SQL Query
+
+```sql
+SELECT 
+    c.name,
+    SUM(o.amount) AS total_spent
+FROM 
+    customers c
+JOIN 
+    orders o ON c.id = o.customer_id
+GROUP BY 
+    c.id, c.name
+ORDER BY 
+    total_spent DESC
+LIMIT 5;
+```
+
+### Explanation
