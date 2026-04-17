@@ -212,6 +212,7 @@ mod gpu_build {
                             ("libwmma_gemm_16x16.a", "wmma_gemm_16x16"),
                             ("libwmma_gemm_tiled.a", "wmma_gemm_tiled"),
                             ("libwmma_gemm_q4_0.a", "wmma_gemm_q4_0"),
+                            ("libwmma_attention_prefill.a", "wmma_attention_prefill"),
                             ("libq4_0_verify.a", "q4_0_verify"),
                             ("libq4_0_gemv.a", "q4_0_gemv"),
                             ("libq4_0_gemv_batched.a", "q4_0_gemv_batched"),

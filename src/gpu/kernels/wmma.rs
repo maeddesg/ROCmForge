@@ -39,6 +39,15 @@ unsafe extern "C" {
         k: i32,
         stream: hipStream_t,
     ) -> hipError_t;
+
+    fn wmma_attention_prefill_64_launch(
+        q: *const c_void,
+        k: *const c_void,
+        v: *const c_void,
+        o: *mut f32,
+        scale: f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
 }
 
 /// Launch the 16×16 WMMA kernel on the device's default stream.
@@ -65,6 +74,44 @@ pub fn launch_wmma_gemm_16x16(
         Err(GpuError::HipApiError {
             code: code as i32,
             description: format!("wmma_gemm_16x16_launch failed: {:?}", code),
+        })
+    }
+}
+
+/// Launch the Phase 3a PoC WMMA prefill-attention kernel.
+///
+/// Computes `O = softmax(Q · K^T / sqrt(head_dim)) · V` for a single
+/// head with fixed `seq_len = 64` and `head_dim = 128`. No causal
+/// mask, no GQA, no online softmax — those are Phases 3b / 3c.
+///
+/// Inputs Q, K, V are FP16 row-major `[64 × 128]`. Output O is FP32
+/// row-major `[64 × 128]`. All pointers must live on the device.
+///
+/// `scale` is typically `1.0 / sqrt(head_dim)`.
+pub fn launch_wmma_attention_prefill_64(
+    q: *const u16,
+    k: *const u16,
+    v: *const u16,
+    o: *mut f32,
+    scale: f32,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    let code = unsafe {
+        wmma_attention_prefill_64_launch(
+            q as *const c_void,
+            k as *const c_void,
+            v as *const c_void,
+            o,
+            scale,
+            stream,
+        )
+    };
+    if code == hipError_t::hipSuccess {
+        Ok(())
+    } else {
+        Err(GpuError::HipApiError {
+            code: code as i32,
+            description: format!("wmma_attention_prefill_64_launch failed: {:?}", code),
         })
     }
 }
