@@ -72,6 +72,19 @@ unsafe extern "C" {
         scale: f32,
         stream: hipStream_t,
     ) -> hipError_t;
+
+    fn wmma_attention_prefill_gqa_causal_launch(
+        q: *const c_void,
+        k: *const c_void,
+        v: *const c_void,
+        o: *mut f32,
+        seq_len: i32,
+        num_q_heads: i32,
+        num_kv_heads: i32,
+        causal: i32,
+        scale: f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
 }
 
 /// Launch the 16×16 WMMA kernel on the device's default stream.
@@ -240,6 +253,74 @@ pub fn launch_wmma_attention_prefill_online(
             code: code as i32,
             description: format!(
                 "wmma_attention_prefill_online_launch failed: {:?}",
+                code
+            ),
+        })
+    }
+}
+
+/// Launch the Phase 3c WMMA prefill attention with GQA + optional
+/// causal mask.
+///
+/// Layout:
+///   Q: row-major [seq_len × num_q_heads  × head_dim]  FP16
+///   K: row-major [seq_len × num_kv_heads × head_dim]  FP16
+///   V: row-major [seq_len × num_kv_heads × head_dim]  FP16
+///   O: row-major [seq_len × num_q_heads  × head_dim]  FP32
+///
+///   num_q_heads must be a multiple of num_kv_heads. `head_dim = 128`
+///   is baked in. seq_len must be a multiple of 64.
+pub fn launch_wmma_attention_prefill_gqa_causal(
+    q: *const u16,
+    k: *const u16,
+    v: *const u16,
+    o: *mut f32,
+    seq_len: usize,
+    num_q_heads: usize,
+    num_kv_heads: usize,
+    causal: bool,
+    scale: f32,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if seq_len % 64 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "wmma_attention_prefill_gqa_causal: seq_len {} must be a multiple of 64",
+                seq_len
+            ),
+        });
+    }
+    if num_q_heads == 0 || num_kv_heads == 0 || num_q_heads % num_kv_heads != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "wmma_attention_prefill_gqa_causal: num_q_heads ({}) must be a positive multiple of num_kv_heads ({})",
+                num_q_heads, num_kv_heads
+            ),
+        });
+    }
+    let code = unsafe {
+        wmma_attention_prefill_gqa_causal_launch(
+            q as *const c_void,
+            k as *const c_void,
+            v as *const c_void,
+            o,
+            seq_len as i32,
+            num_q_heads as i32,
+            num_kv_heads as i32,
+            if causal { 1 } else { 0 },
+            scale,
+            stream,
+        )
+    };
+    if code == hipError_t::hipSuccess {
+        Ok(())
+    } else {
+        Err(GpuError::HipApiError {
+            code: code as i32,
+            description: format!(
+                "wmma_attention_prefill_gqa_causal_launch failed: {:?}",
                 code
             ),
         })

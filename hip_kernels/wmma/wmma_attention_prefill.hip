@@ -359,19 +359,48 @@ extern "C" hipError_t wmma_attention_prefill_64_launch(
 
 #define TILE_KV 64
 
+// ====================================================================
+// Phase 3c — GQA + causal mask extension of the online-softmax kernel.
+//
+// Layout additions vs. Phase 3b:
+//   Q row_stride = num_q_heads  · head_dim      (activation-side stride)
+//   KV row_stride = num_kv_heads · head_dim     (KV-side stride, smaller)
+//   For each Q head q_head:
+//     kv_head   = q_head / gqa_ratio
+//     q_offset  = q_head  * head_dim            (into Q / O rows)
+//     kv_offset = kv_head * head_dim            (into K / V rows)
+//
+// Causal mask:
+//   * q_row_base is this query tile's first token index.
+//   * For each KV tile with kv_row_base > q_row_base + 63: break
+//     (all keys in that tile are strictly after the last query in the
+//     tile, so every masked value would be -INF and contribute nothing).
+//   * The diagonal tile (kv_row_base ≤ q_row_base < kv_row_base + 64)
+//     has a triangular mask: row i, col j is masked iff
+//         kv_row_base + j > q_row_base + i.
+//     We set those S positions to -INFINITY before the softmax step.
+//
+// Shared Phase 3b kernel body follows unchanged.
+// ====================================================================
+
 __global__ void wmma_attention_prefill_online_kernel(
     const __half* __restrict__ Q,
     const __half* __restrict__ K,
     const __half* __restrict__ V,
     float*        __restrict__ O,
     int seq_len,
-    int row_stride,
+    int q_row_stride,        // num_q_heads  · HEAD_DIM
+    int kv_row_stride,       // num_kv_heads · HEAD_DIM
+    int gqa_ratio,           // num_q_heads / num_kv_heads  (1 = no GQA)
+    int causal,              // 0 = no mask, 1 = causal mask
     float scale)
 {
-    const int head_idx    = blockIdx.x;
-    const int q_tile      = blockIdx.y;
-    const int q_row_base  = q_tile * TILE_M;
-    const int head_offset = head_idx * HEAD_DIM;
+    const int head_idx      = blockIdx.x;           // Q head
+    const int kv_head_idx   = head_idx / gqa_ratio;
+    const int q_tile        = blockIdx.y;
+    const int q_row_base    = q_tile * TILE_M;
+    const int q_head_off    = head_idx    * HEAD_DIM;
+    const int kv_head_off   = kv_head_idx * HEAD_DIM;
 
     const int tid     = threadIdx.x;
     const int wave_id = tid >> 5;
@@ -414,8 +443,25 @@ __global__ void wmma_attention_prefill_online_kernel(
     constexpr int N_K_TILES_Q = HEAD_DIM / TILE_K;        // 8
     constexpr int N_K_TILES_V = TILE_KV / TILE_K;         // 4
 
-    for (int kv_tile = 0; kv_tile < num_kv_tiles; ++kv_tile) {
+    // Causal upper bound: the last query token in this tile is at
+    // position `q_row_base + TILE_M - 1`. Any KV tile whose first key
+    // position is strictly greater than this can be skipped entirely
+    // (every value would be masked to -INF). We compute the bound
+    // outside the loop so the compiler can constant-fold it when
+    // `causal == 0`.
+    const int kv_tile_bound = causal
+        ? (q_row_base + TILE_M + TILE_KV - 1) / TILE_KV
+        : num_kv_tiles;
+    const int num_kv_tiles_eff = (kv_tile_bound < num_kv_tiles)
+        ? kv_tile_bound : num_kv_tiles;
+
+    for (int kv_tile = 0; kv_tile < num_kv_tiles_eff; ++kv_tile) {
         const int kv_row_base = kv_tile * TILE_KV;
+        // Is this the diagonal tile? i.e. some Q rows in this tile see
+        // some K cols but not all.
+        const bool is_diagonal = causal &&
+            (kv_row_base + TILE_KV > q_row_base) &&
+            (kv_row_base            <= q_row_base + TILE_M - 1);
 
         // ----- GEMM #1: S_tile = Q_tile · K_tile^T -----
         float8 acc_s[COL_BLOCKS];
@@ -427,23 +473,23 @@ __global__ void wmma_attention_prefill_online_kernel(
         for (int kt = 0; kt < N_K_TILES_Q; ++kt) {
             const int k_start = kt * TILE_K;
 
-            // Q tile [64×16]
+            // Q tile [64×16] — uses Q-head offset and Q row stride
             cooperative_load_rows_half(
                 lds_q, Q,
-                q_row_base, head_offset + k_start,
+                q_row_base, q_head_off + k_start,
                 TILE_M, TILE_K,
-                row_stride,
+                q_row_stride,
                 tid, THREADS);
 
-            // K^T tile: lds_k[k_in_tile][j] = K[kv_row_base + j][head_offset + k_start + k_in_tile]
+            // K^T tile: lds_k[k_in_tile][j] = K[kv_row_base + j][kv_head_off + k_start + k_in_tile]
             {
                 const int total = TILE_K * TILE_KV;
                 for (int flat = tid; flat < total; flat += THREADS) {
                     const int k_in_tile = flat >> 6;
                     const int j         = flat & 63;
                     lds_k[k_in_tile * TILE_KV + j] =
-                        K[(kv_row_base + j) * row_stride +
-                          head_offset + k_start + k_in_tile];
+                        K[(kv_row_base + j) * kv_row_stride +
+                          kv_head_off + k_start + k_in_tile];
                 }
             }
             __syncthreads();
@@ -480,14 +526,25 @@ __global__ void wmma_attention_prefill_online_kernel(
             __syncthreads();
         }
 
-        // Store scaled S_tile to LDS.
+        // Store scaled S_tile to LDS, applying the causal mask on the
+        // diagonal tile.  We use -1e30 rather than -INFINITY — the
+        // subsequent softmax does `expf(S - m_new)` which is stable for
+        // any finite large-negative value, and -1e30 sidesteps potential
+        // NaN propagation paths that compilers occasionally introduce
+        // for +/- infinity arithmetic.
         #pragma unroll
         for (int cb = 0; cb < COL_BLOCKS; ++cb) {
             const int col = cb * 16 + lane_col_in_block;
             #pragma unroll
             for (int v = 0; v < 8; ++v) {
                 const int row = wave_row_base + lane_row_start + v;
-                lds_s[row * TILE_KV + col] = acc_s[cb][v] * scale;
+                float val = acc_s[cb][v] * scale;
+                if (is_diagonal) {
+                    const int q_pos  = q_row_base  + row;
+                    const int kv_pos = kv_row_base + col;
+                    if (kv_pos > q_pos) val = -1.0e30f;
+                }
+                lds_s[row * TILE_KV + col] = val;
             }
         }
         __syncthreads();
@@ -544,14 +601,15 @@ __global__ void wmma_attention_prefill_online_kernel(
                 const int k_start = kt * TILE_K;
 
                 // V tile [16 × 64]: rows (kv_row_base + k_start..) × cols (v_col_base..+64)
+                // Uses KV head offset and KV row stride (same as K).
                 {
                     const int total = TILE_K * TILE_KV;
                     for (int flat = tid; flat < total; flat += THREADS) {
                         const int k_in_tile = flat >> 6;
                         const int j         = flat & 63;
                         lds_v[k_in_tile * TILE_KV + j] =
-                            V[(kv_row_base + k_start + k_in_tile) * row_stride +
-                              head_offset + v_col_base + j];
+                            V[(kv_row_base + k_start + k_in_tile) * kv_row_stride +
+                              kv_head_off + v_col_base + j];
                     }
                 }
                 __syncthreads();
@@ -591,23 +649,29 @@ __global__ void wmma_attention_prefill_online_kernel(
     }
 
     // ----- Final normalisation and store -----
+    // Output layout matches Q's: q_row_stride, q_head_off.
     #pragma unroll
     for (int c = 0; c < N_O_COL_CHUNKS; ++c) {
         const int v_col_base = c * TILE_KV;
         #pragma unroll
         for (int cb = 0; cb < COL_BLOCKS; ++cb) {
-            const int out_col = head_offset + v_col_base + cb * 16 + lane_col_in_block;
+            const int out_col = q_head_off + v_col_base + cb * 16 + lane_col_in_block;
             #pragma unroll
             for (int v = 0; v < 8; ++v) {
                 const int row = wave_row_base + lane_row_start + v;
                 const int global_row = q_row_base + row;
-                const float inv_l = 1.0f / lds_l[row];
-                O[global_row * row_stride + out_col] = acc_o[c][cb][v] * inv_l;
+                const float l_val = lds_l[row];
+                // Guard against row-sum == 0 (happens on fully-masked
+                // rows; they are undefined but must not produce NaN).
+                const float inv_l = (l_val > 0.0f) ? (1.0f / l_val) : 0.0f;
+                O[global_row * q_row_stride + out_col] = acc_o[c][cb][v] * inv_l;
             }
         }
     }
 }
 
+// Phase 3b-compatible launcher (no GQA, no mask). Thin wrapper that
+// forwards to the GQA/causal kernel with gqa_ratio=1 and causal=0.
 extern "C" hipError_t wmma_attention_prefill_online_launch(
     const void* Q,
     const void* K,
@@ -635,7 +699,54 @@ extern "C" hipError_t wmma_attention_prefill_online_launch(
         reinterpret_cast<const __half*>(K),
         reinterpret_cast<const __half*>(V),
         O,
-        seq_len, row_stride, scale);
+        seq_len,
+        /* q_row_stride  */ row_stride,
+        /* kv_row_stride */ row_stride,
+        /* gqa_ratio     */ 1,
+        /* causal        */ 0,
+        scale);
+    return hipGetLastError();
+}
+
+// Phase 3c launcher — full GQA + optional causal mask.
+extern "C" hipError_t wmma_attention_prefill_gqa_causal_launch(
+    const void* Q,
+    const void* K,
+    const void* V,
+    float*      O,
+    int seq_len,
+    int num_q_heads,
+    int num_kv_heads,
+    int causal,
+    float scale,
+    hipStream_t stream)
+{
+    if (num_q_heads <= 0 || num_kv_heads <= 0) return hipErrorInvalidValue;
+    if (num_q_heads % num_kv_heads != 0)       return hipErrorInvalidValue;
+    if (seq_len <= 0)                          return hipErrorInvalidValue;
+    if ((seq_len % TILE_KV) != 0)              return hipErrorInvalidValue;
+    if ((seq_len % TILE_M)  != 0)              return hipErrorInvalidValue;
+
+    const int gqa_ratio     = num_q_heads / num_kv_heads;
+    const int q_row_stride  = num_q_heads  * HEAD_DIM;
+    const int kv_row_stride = num_kv_heads * HEAD_DIM;
+
+    dim3 grid(num_q_heads, seq_len / TILE_M, 1);
+    dim3 block(THREADS, 1, 1);
+
+    hipLaunchKernelGGL(
+        wmma_attention_prefill_online_kernel,
+        grid, block, 0, stream,
+        reinterpret_cast<const __half*>(Q),
+        reinterpret_cast<const __half*>(K),
+        reinterpret_cast<const __half*>(V),
+        O,
+        seq_len,
+        q_row_stride,
+        kv_row_stride,
+        gqa_ratio,
+        causal,
+        scale);
     return hipGetLastError();
 }
 
