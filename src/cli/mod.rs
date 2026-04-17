@@ -7,4 +7,5 @@
 //! Inference arrives in Step 2.
 
 pub mod chat;
+pub mod template;
 pub mod validate;
