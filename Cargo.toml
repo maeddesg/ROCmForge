@@ -53,6 +53,11 @@ name = "bench_wmma_tiled"
 path = "profiling/wmma_poc/bench_wmma_tiled.rs"
 required-features = ["gpu"]
 
+[[bin]]
+name = "bench_wmma_q4_0"
+path = "profiling/wmma_poc/bench_wmma_q4_0.rs"
+required-features = ["gpu"]
+
 [[bench]]
 name = "kernels"
 harness = false
