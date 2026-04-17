@@ -1,0 +1,113 @@
+{
+  "device": "AMD Radeon RX 9070 XT",
+  "arch": "gfx1201",
+  "cooperative_launch": 1,
+  "config": {
+    "hidden_size": 3584,
+    "intermediate_size": 17920,
+    "ratio": 5,
+    "n_layers": 28,
+    "chunk": 128,
+    "block": 256,
+    "b1_block": 128,
+    "warmup": 10,
+    "iters": 100,
+    "element_type": "f32"
+  },
+  "batch2_depth1": {
+    "batch": 2,
+    "fma_depth": 1,
+    "b2_coop_grid": 140,
+    "variant_a_separate_us": {"mean":323.49,"median":320.69,"p95":336.69,"stdev":6.96},
+    "variant_b2_single_dispatch_us": {"mean":389.50,"median":389.41,"p95":392.85,"stdev":2.98},
+    "variant_b1_tiled_fused_us": {"mean":96.99,"median":96.56,"p95":100.80,"stdev":1.42},
+    "delta_a_minus_b2_us": -68.72,
+    "delta_b2_minus_b1_us": 292.85,
+    "delta_a_minus_b1_us": 224.12,
+    "buffer_traffic_percent_of_a": 69.89
+  },
+  "batch2_depth16": {
+    "batch": 2,
+    "fma_depth": 16,
+    "b2_coop_grid": 140,
+    "variant_a_separate_us": {"mean":325.13,"median":324.53,"p95":330.17,"stdev":2.74},
+    "variant_b2_single_dispatch_us": {"mean":392.90,"median":392.69,"p95":397.33,"stdev":2.43},
+    "variant_b1_tiled_fused_us": {"mean":112.35,"median":112.12,"p95":116.56,"stdev":1.83},
+    "delta_a_minus_b2_us": -68.16,
+    "delta_b2_minus_b1_us": 280.56,
+    "delta_a_minus_b1_us": 212.40,
+    "buffer_traffic_percent_of_a": 65.45
+  },
+  "batch2_depth128": {
+    "batch": 2,
+    "fma_depth": 128,
+    "b2_coop_grid": 140,
+    "variant_a_separate_us": {"mean":376.64,"median":375.21,"p95":382.85,"stdev":3.02},
+    "variant_b2_single_dispatch_us": {"mean":440.17,"median":439.73,"p95":444.77,"stdev":2.57},
+    "variant_b1_tiled_fused_us": {"mean":241.49,"median":241.93,"p95":244.37,"stdev":2.16},
+    "delta_a_minus_b2_us": -64.52,
+    "delta_b2_minus_b1_us": 197.80,
+    "delta_a_minus_b1_us": 133.28,
+    "buffer_traffic_percent_of_a": 35.52
+  },
+  "batch2_depth1024": {
+    "batch": 2,
+    "fma_depth": 1024,
+    "b2_coop_grid": 140,
+    "variant_a_separate_us": {"mean":845.79,"median":845.22,"p95":857.62,"stdev":6.78},
+    "variant_b2_single_dispatch_us": {"mean":847.92,"median":847.18,"p95":853.30,"stdev":3.48},
+    "variant_b1_tiled_fused_us": {"mean":1859.82,"median":1865.12,"p95":1889.88,"stdev":25.01},
+    "delta_a_minus_b2_us": -1.96,
+    "delta_b2_minus_b1_us": -1017.94,
+    "delta_a_minus_b1_us": -1019.90,
+    "buffer_traffic_percent_of_a": -120.67
+  },
+  "batch4_depth1": {
+    "batch": 4,
+    "fma_depth": 1,
+    "b2_coop_grid": 256,
+    "variant_a_separate_us": {"mean":334.98,"median":333.41,"p95":341.13,"stdev":2.95},
+    "variant_b2_single_dispatch_us": {"mean":603.97,"median":603.65,"p95":607.61,"stdev":2.11},
+    "variant_b1_tiled_fused_us": {"mean":97.44,"median":97.08,"p95":100.80,"stdev":1.45},
+    "delta_a_minus_b2_us": -270.24,
+    "delta_b2_minus_b1_us": 506.57,
+    "delta_a_minus_b1_us": 236.33,
+    "buffer_traffic_percent_of_a": 70.88
+  },
+  "batch4_depth16": {
+    "batch": 4,
+    "fma_depth": 16,
+    "b2_coop_grid": 256,
+    "variant_a_separate_us": {"mean":341.46,"median":340.01,"p95":345.41,"stdev":2.73},
+    "variant_b2_single_dispatch_us": {"mean":603.24,"median":602.93,"p95":607.21,"stdev":2.64},
+    "variant_b1_tiled_fused_us": {"mean":112.59,"median":112.36,"p95":115.60,"stdev":1.63},
+    "delta_a_minus_b2_us": -262.92,
+    "delta_b2_minus_b1_us": 490.57,
+    "delta_a_minus_b1_us": 227.65,
+    "buffer_traffic_percent_of_a": 66.95
+  },
+  "batch4_depth128": {
+    "batch": 4,
+    "fma_depth": 128,
+    "b2_coop_grid": 256,
+    "variant_a_separate_us": {"mean":424.09,"median":422.81,"p95":437.05,"stdev":6.39},
+    "variant_b2_single_dispatch_us": {"mean":602.33,"median":602.09,"p95":606.77,"stdev":2.40},
+    "variant_b1_tiled_fused_us": {"mean":243.46,"median":243.56,"p95":247.12,"stdev":3.16},
+    "delta_a_minus_b2_us": -179.28,
+    "delta_b2_minus_b1_us": 358.53,
+    "delta_a_minus_b1_us": 179.24,
+    "buffer_traffic_percent_of_a": 42.39
+  },
+  "batch4_depth1024": {
+    "batch": 4,
+    "fma_depth": 1024,
+    "b2_coop_grid": 256,
+    "variant_a_separate_us": {"mean":1089.43,"median":1089.26,"p95":1098.74,"stdev":5.43},
+    "variant_b2_single_dispatch_us": {"mean":1088.08,"median":1060.62,"p95":1188.90,"stdev":55.69},
+    "variant_b1_tiled_fused_us": {"mean":1890.42,"median":1895.60,"p95":1920.40,"stdev":27.87},
+    "delta_a_minus_b2_us": 28.64,
+    "delta_b2_minus_b1_us": -834.98,
+    "delta_a_minus_b1_us": -806.34,
+    "buffer_traffic_percent_of_a": -74.03
+  }
+}
