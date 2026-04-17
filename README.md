@@ -119,6 +119,7 @@ CPU fallback:
 | `ROCMFORGE_PROFILE_VERIFY_BREAKDOWN=1` | Sub-phase timing within verify layers (requires PROFILE_SPEC_STEP) |
 | `ROCMFORGE_DISABLE_TILED_GEMV=1` | Disable tiled batched GEMV for large FFN projections (default on) |
 | `ROCMFORGE_DISABLE_BATCHED_LM_HEAD=1` | Disable batched verify lm_head, fall back to sequential per-position dispatch |
+| `ROCMFORGE_DISABLE_AVX512=1` | Force the Q4_0 × Q8_0 CPU GEMV back to the AVX2 path (auto-enabled on Zen4+) |
 
 ## Documentation
 

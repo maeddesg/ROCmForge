@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### AVX-512 VNNI Q4_0 GEMV Kernel (CPU Fallback Path)
+
+- **AVX-512 VNNI dot-product kernel** for Q4_0 × Q8_0 GEMV on Zen4+
+  CPUs (`src/cpu/ops.rs::dot_q4_0_q8_0_2blocks_avx512_vnni`). Single
+  `_mm512_dpbusd_epi32` processes 2 Q4_0 blocks (64 bytes) per call,
+  bias-correction via `dot - 8 × sum(q8)`. Single-block AVX-512-VL-256
+  variant for odd-count leftover blocks.
+- **CPU feature detection** (`src/cpu/features.rs`) now exposes
+  `has_avx512_vnni` as a public field (previously computed internally
+  but not visible to the GEMV dispatch).
+- **Dispatch** in `gemv_q4_0_q8_0` prefers AVX-512 VNNI when available,
+  falls back to AVX2 then scalar.
+- **Opt-out:** `ROCMFORGE_DISABLE_AVX512=1` forces the AVX2/scalar path.
+- **Correctness:** `tests/cpu_avx512_matches_reference.rs` asserts
+  byte-identical output between AVX-512 and AVX2 paths.
+- **Micro-benchmark:** `src/bench_gemv.rs` extended to measure isolated
+  GEMV speedup at Qwen2.5-0.5B and -7B shapes.
+- **Measured isolated kernel speedup:** 1–7% on 0.5B shapes, 16–19% on
+  7B shapes (compute-heavier).
+- **Measured end-to-end on 0.5B:** ~0% (12.1 tok/s with or without
+  AVX-512 VNNI). Rayon task-dispatch overhead and un-SIMDified
+  attention/norm/SiLU ops dominate the forward path at this model
+  size. See `benches/results/cpu_avx512_analysis.md`.
+- **Verdict:** ≥40 tok/s threshold for heterogeneous spec-decode is
+  not reached. Kernel retained as a clean, tested foundation; next
+  milestone pivots to Prefill-GEMM (hipBLAS / WMMA).
+
 ### Speculative-Decode Milestone Summary
 
 - **Milestone summary** (`docs/spec_decode_milestone_summary.md`): compact
