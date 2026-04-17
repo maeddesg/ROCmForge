@@ -110,7 +110,7 @@ tok/s  0       100      200      300      400      500      600      700
 
 2. **Kernel fusion** reduced graph nodes by 43% (219 → 124) and hipGraphLaunch time by 51%. The GPU kernel compute itself barely changed — the win was host-side launch overhead.
 
-3. **7B is memory-bandwidth-bound** at ~614 GB/s. Kernel fusion, ALU optimizations (udot4), and graph capture all showed ~0% improvement. The only path to faster 7B decode is algorithmic: speculative decoding with batched verify.
+3. **7B is memory-bandwidth-bound** at ~614 GB/s measured effective (640 GB/s RX 9070 XT spec). Kernel fusion, ALU optimizations (udot4), and graph capture all showed ~0% improvement. The only path to faster 7B decode is algorithmic: speculative decoding with batched verify.
 
 4. **Speculative decoding** needs batched verify to be useful. Token-by-token verify makes it 2-4x slower than baseline regardless of acceptance rate.
 

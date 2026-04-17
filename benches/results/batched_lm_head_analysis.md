@@ -80,7 +80,7 @@ Batching eliminates:
 - (N-1) syncs: saves (N-1) × ~19 μs = **57 μs at N=4**
 
 But batching does **NOT** save:
-- **lm_head weight matrix loads.** The Q4_0 weight matrix is ~307 MB. At ~900 GB/s VRAM bandwidth, each GEMV call takes ~341 μs of bandwidth-limited execution. The batched kernel loads the matrix once but the work per output row is the same. However, the sequential calls also benefit from VRAM prefetching — the GPU's memory controller can overlap weight loads between consecutive dispatches because they access the same addresses. The **effective** savings from batching a bandwidth-bound kernel are much smaller than the theoretical "load once instead of N times" model suggests.
+- **lm_head weight matrix loads.** The Q4_0 weight matrix is ~307 MB. At ~640 GB/s VRAM bandwidth (RX 9070 XT spec, 256-bit × 20 Gbps GDDR6), each GEMV call takes ~480 μs of bandwidth-limited execution. The batched kernel loads the matrix once but the work per output row is the same. However, the sequential calls also benefit from VRAM prefetching — the GPU's memory controller can overlap weight loads between consecutive dispatches because they access the same addresses. The **effective** savings from batching a bandwidth-bound kernel are much smaller than the theoretical "load once instead of N times" model suggests.
 - **Argmax dispatches.** Still N × 2 dispatches (unchanged).
 - **Embedding.** Runs before the lm_head phase (unchanged).
 

@@ -19,7 +19,7 @@ Kompakte Rekapitulation des Spec-Decode-Optimierungszyklus. Zielgruppe: ich selb
 | # | Experiment                        | Erwarteter Gewinn   | Gemessener Gewinn | Befund |
 |---|-----------------------------------|---------------------|-------------------|--------|
 | 1 | Spec-Step Cost Breakdown          | — (Profiling)       | —                 | Target-Verify = 88.6 % der Step-Zeit; FFN dominiert Verify (67.3 %) |
-| 2 | Tiled Batched GEMV (FFN-Down)     | 2.000–4.000 µs/Step | ~250 µs (~1.5 %)  | Memory-Controller pipelined sequentielle Zugriffe; Bandbreiten-Modell überschätzt um ~17× |
+| 2 | Tiled Batched GEMV (FFN-Down)     | 2–4 ms/Step         | ~250 µs (~1.5 %)  | Memory-Controller pipelined sequentielle Zugriffe; Bandbreiten-Modell überschätzt um ~12× |
 | 3 | Adaptive-Depth Threshold Sweep    | Threshold < 1.2 besser | Threshold 1.2 optimal | Superlineare Verify-Kosten mit Batch-Grösse überwiegen; niedrigere Schwellen net negativ |
 | 4 | Batched lm_head                   | ~2.500 µs/Step      | ~114 µs (~0.4 %)  | Selber Pipelining-Effekt wie #2; GEMV auf gleicher Matrix pipelined auch ohne Batching |
 | 5 | Buffer-Traffic-Validierung (FFN)  | 1.500–2.500 µs/Step | ~200 µs (~1.2 %)  | Hypothese falsifiziert; Fused FFN nicht wirtschaftlich; Gewichtsmatrix-Traffic dominiert Intermediate um Faktor 500 |
@@ -40,7 +40,7 @@ Details je Experiment:
 - **Profiling-Infrastruktur** — `ROCMFORGE_PROFILE_SPEC_STEP=1` (5-Phasen-Breakdown), `ROCMFORGE_PROFILE_VERIFY_BREAKDOWN=1` (Verify-Sub-Phasen).
 - **Scratch-Buffer-Infrastruktur** — `MAX_SPEC_DEPTH=8` → `MAX_VERIFY_BATCH=9`; dedizierte `logits_batch`/`argmax_batch_device`/`argmax_batch_host`-Buffer in `GpuForwardScratch`.
 - **Benchmark-Suite** — `benches/bench_spec.sh`, `benches/bench_batched_lm_head.fish` mit strukturierten JSON-Outputs.
-- **Korrektheitstests** — `tests/batched_lm_head_matches_sequential.rs` (byte-identical Output depth 1/3/5), `--spec-depth`-Validierung (max 8).
+- **Korrektheitstests** — `tests/spec_greedy_matches_baseline.rs` (greedy Spec-Decode-Output = direktes Greedy-Decode), `tests/batched_lm_head_matches_sequential.rs` (byte-identical Output depth 1/3/5), `--spec-depth`-Validierung (max 8).
 - **Architecture Notes** — `docs/architecture_notes.md` mit dem Memory-Controller-Pipelining-Befund als projektübergreifende Erkenntnis.
 - **Micro-Benchmark** — `profiling/buffer_traffic/bench.hip` (standalone HIP, A/B1/B2-Varianten, fma-depth-Sweep).
 
@@ -76,6 +76,7 @@ Keine Implementierungs-Pläne, nur Richtung:
 2. **Attention-Optimierung bei langem Kontext.** Bei K=4096 sinkt der Decode-Durchsatz von 115 auf 78 tok/s (−32%), Attention erreicht 34% der Decode-Zeit. KV-Cache fällt aus L2 — anderes Memory-Pattern, Tiling-Strategien (FlashAttention-artig) könnten hier echten Throughput bringen.
 3. **14B-Target als Benchmark-Validation.** Kein Code-Aufwand. Validiert die Break-Even-These und zeigt, ob Spec-Decode bei grösseren Target-Modellen (grösseres Kostenverhältnis Draft:Target) profitabel wird. VRAM-limitiert auf 16 GB, aktuell knapp.
 4. **Rejection Sampling.** Erst relevant, wenn Prefill und Attention gelöst sind. Würde greedy-Constraint aufheben und Acceptance-Rate auf Chat/Prose erhöhen, aber die Draft-Forward-Kosten (10% der Step-Zeit) bleiben — der grosse Hebel liegt woanders.
+5. **CPU-Optimierung (Zen4+ / AVX-512).** Der CPU-Fallback-Pfad ist aktuell nicht SIMD-optimiert. AVX-512-VNNI-Kernels für Q4_0-GEMV auf Zen4 (7945HX, 16C/32T) sind der grösste Einzelhebel für die CPU-Inference. Langfristig: **heterogenes Spec-Decode** — Draft (0.5B) auf CPU, Target (7B) auf GPU, parallel. Das eliminiert die ~10% Draft-GPU-Overhead aus der Spec-Step-Kostenanalyse. Voraussetzung: CPU-Pfad muss schnell genug sein, um die GPU nicht zu blockieren. Details in `docs/architecture_notes.md` (Abschnitt "CPU-Zielplattform").
 
 ## 7. Was explizit nicht gemacht werden sollte
 

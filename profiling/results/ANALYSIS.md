@@ -25,7 +25,7 @@
 
 **Verdict:** Draft forward accounts for only **10.2%** (1,984 μs) of the total step time.
 At depth=1, the draft model runs a single decode step (embed + 24 layers + logits).
-The 0.5B model's GEMV operations are memory-bandwidth-cheap on the 9070 XT (256 GB/s).
+The 0.5B model's GEMV operations are memory-bandwidth-cheap on the 9070 XT (640 GB/s spec).
 Even at depth=5, draft would be ~10,000 μs — still well below target verify.
 
 **Conclusion:** Draft compute is **not** the bottleneck. Increasing draft depth up to ~3-5 
