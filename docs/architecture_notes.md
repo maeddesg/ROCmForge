@@ -1,91 +1,91 @@
 # Architecture Notes
 
-Empirische Befunde zur GPU-Mikroarchitektur, die projektübergreifend relevant sind und Optimierungsentscheidungen leiten.
+Empirical findings about the GPU/CPU micro-architecture that are relevant across the whole project and drive optimization decisions.
 
-## Memory-Controller-Pipelining bei sequentiellen GEMV-Dispatches (RDNA 4)
+## Memory-controller pipelining on sequential GEMV dispatches (RDNA 4)
 
 **Hardware:** RX 9070 XT (gfx1201, RDNA 4), ROCm 7.2.1
 
-Auf RX 9070 XT (gfx1201, RDNA 4) pipelined der Memory-Controller sequentielle GEMV-Dispatches auf dieselbe Gewichtsmatrix so effizient, dass batched Dispatches keinen messbaren Bandbreitenvorteil bringen.
+On the RX 9070 XT (gfx1201, RDNA 4) the memory controller pipelines sequential GEMV dispatches against the same weight matrix so efficiently that batched dispatches deliver no measurable bandwidth advantage.
 
-Bestätigt durch drei unabhängige Experimente:
+Confirmed by three independent experiments:
 
-1. **Tiled GEMV FFN-Down** (~1.5% Throughput-Gewinn statt erwarteter ~15%): Die FFN-Down-Projektion (18944→3584, ~135 MB Q4_0) lädt die Gewichtsmatrix bei sequentiellem Fallback N-mal. Der Tiled-Kernel lädt sie 1×. Erwartet wurde ein Gewinn proportional zur eingesparten Bandbreite — gemessen wurden nur ~9 μs/Layer statt ~150 μs/Layer. Dokumentiert in `docs/batched_verify.md` (Abschnitt "Memory-Controller Pipelining").
+1. **Tiled GEMV FFN-Down** (~1.5% throughput gain vs. an expected ~15%): The FFN-down projection (18944→3584, ~135 MB Q4_0) reads the weight matrix N times in the sequential fallback. The tiled kernel reads it once. The expected gain was proportional to the bandwidth saved — actual measurement: ~9 μs/layer instead of the predicted ~150 μs/layer. Documented in `docs/batched_verify.md` (section "Memory-Controller Pipelining").
 
-2. **Batched lm_head** (~0.4% Verify-Overhead-Reduktion statt erwarteter ~8%): Die lm_head-Projektion (3584→152064, ~307 MB Q4_0) wurde von N sequentiellen Dispatches auf 1 batched Dispatch umgestellt. Non-layer-overhead sank um ~114 μs/Step statt der vorhergesagten ~2.500 μs. Dokumentiert in `benches/results/batched_lm_head_analysis.md`.
+2. **Batched lm_head** (~0.4% verify-overhead reduction vs. expected ~8%): The lm_head projection (3584→152064, ~307 MB Q4_0) was converted from N sequential dispatches to 1 batched dispatch. Non-layer overhead dropped by ~114 μs/step instead of the predicted ~2,500 μs. Documented in `benches/results/batched_lm_head_analysis.md`.
 
-3. **Buffer-Traffic-Validierung (Fused FFN)** (~1.2% Verify-Overhead-Reduktion statt erwarteter 8–14%): Micro-Benchmark simulierte die FFN-Kette in drei Varianten — separate Kernels mit VRAM-Zwischenpuffern, single Dispatch mit VRAM-Roundtrips, und tiled Fusion mit Registern/LDS. Maximaler erreichbarer Gewinn: ~224 µs/Step. Die intermediate-Buffer-Traffic (~150 KB/Layer) wird vom Gewichtsmatrix-Traffic (~150 MB/Layer) um Faktor 500 überdeckt. Dokumentiert in `profiling/results/BUFFER_TRAFFIC_ANALYSIS.md`.
+3. **Buffer-traffic validation (Fused FFN)** (~1.2% verify-overhead reduction vs. expected 8–14%): A micro-benchmark simulated the FFN chain in three variants — separate kernels with VRAM intermediates, a single dispatch with VRAM round-trips, and a tiled fusion keeping the intermediate in registers/LDS. Maximum achievable gain: ~224 µs/step. The intermediate-buffer traffic (~150 KB/layer) is overshadowed by the weight-matrix traffic (~150 MB/layer) by a factor of ~500. Documented in `profiling/results/BUFFER_TRAFFIC_ANALYSIS.md`.
 
-### Mechanismus
+### Mechanism
 
-Der GPU Command Processor überlappt den Tail eines GEMV-Kernels mit dem Head des nächsten, wenn beide auf dieselbe Adressbereiche zugreifen und keine explizite Synchronisation dazwischen liegt. Der Memory-Controller hält dabei nahezu volle Bandbreitenauslastung über Kernel-Grenzen hinweg aufrecht. Das "Load once instead of N times"-Modell überschätzt den Gewinn um Faktor ~20×.
+The GPU command processor overlaps the tail of one GEMV kernel with the head of the next whenever both touch the same address ranges and no explicit synchronization sits between them. The memory controller holds near-full bandwidth utilization across kernel boundaries. The "load once instead of N times" model overestimates the gain by a factor of ~20×.
 
-### Konsistentes Überschätzungsmuster bei Bandbreiten-Modellierung
+### Consistent overshoot pattern in bandwidth modelling
 
-Die drei Experimente zeigen dasselbe Muster: naive Bandbreiten-Rechnungen überschätzen den Gewinn auf RDNA 4 konsistent um eine Grössenordnung.
+All three experiments exhibit the same pattern: naive bandwidth arithmetic overestimates the real gain on RDNA 4 by about an order of magnitude.
 
-| Experiment                    | Erwarteter Gewinn    | Gemessener Gewinn | Überschätzungsfaktor |
-|-------------------------------|---------------------:|------------------:|---------------------:|
-| Tiled GEMV FFN-Down           |         2–4 ms/Step  |      ~250 µs/Step |                 ~12× |
-| Batched lm_head               |       ~2.500 µs/Step |      ~114 µs/Step |                 ~22× |
-| Buffer-Traffic-Validierung    | ~1.500–2.500 µs/Step |      ~200 µs/Step |                 ~10× |
+| Experiment                    | Expected gain        | Measured gain     | Overshoot factor |
+|-------------------------------|---------------------:|------------------:|-----------------:|
+| Tiled GEMV FFN-Down           |          2–4 ms/step |     ~250 µs/step  |             ~12× |
+| Batched lm_head               |       ~2,500 µs/step |     ~114 µs/step  |             ~22× |
+| Buffer-traffic validation     | ~1,500–2,500 µs/step |     ~200 µs/step  |             ~10× |
 
-Das ist kein Messfehler, sondern eine stabile Eigenschaft der Memory-Pipeline auf dieser Architektur. Das naive Modell behandelt Memory-Traffic wie einen seriellen Kostenblock, der proportional zur Anzahl Dispatches skaliert. Tatsächlich pipelined der Memory-Controller die Zugriffe so, dass der zweite, dritte, … N-te Zugriff auf dieselben Adressen nahezu kostenlos wird (L2/L3-Hits, überlappendes Streaming, keine erneute Memory-Request-Latenz).
+This is not measurement noise — it is a stable property of the memory pipeline on this architecture. The naive model treats memory traffic as a serial cost that scales linearly with the number of dispatches. In reality the memory controller pipelines the accesses such that the second, third, …, Nth access to the same addresses is nearly free (L2/L3 hits, overlapped streaming, no repeat memory-request latency).
 
-Konsequenz: **"Load N times" ist auf RDNA 4 fast gleich teuer wie "Load once", solange die Zugriffe auf dieselben Adressbereiche ohne explizite Synchronisation erfolgen.** Optimierungen, die ausschliesslich N-fache Lasten auf 1× reduzieren, bringen keinen messbaren Gewinn.
+Consequence: **"Load N times" costs almost the same as "load once" on RDNA 4, provided the accesses hit the same address ranges without explicit synchronization in between.** Optimizations whose only effect is reducing N-fold loads to a single load do not produce a measurable gain.
 
-### Konsequenz für Optimierungen
+### Consequences for optimization
 
-Der Optimierungshebel auf dieser Architektur liegt bei **Algorithmuswechseln** und bei **Compute-Patterns mit nicht-vorhersagbaren Zugriffsmustern** — nicht bei Dispatch-Batching oder Buffer-Traffic-Elimination für bandbreitenlimitierte Kernels.
+The optimization lever on this architecture sits at **algorithmic changes** and at **compute patterns with unpredictable access patterns** — not at dispatch batching or buffer-traffic elimination for bandwidth-bound kernels.
 
-Konkret:
+Concretely:
 
-- **Fused FFN wurde durch Micro-Benchmark als nicht wirtschaftlich bestätigt** (~200 µs realistischer Gewinn, Schwellenwert war 1.500 µs). Nicht implementieren. Die dominante FFN-Kostenposition ist der Gewichtsmatrix-Traffic, der durch Fusion nicht eliminiert wird.
-- **Spec-Decode-Verify-Optimierung hat das Plateau erreicht.** Target-Verify ist zu ~88% GEMV-Execution gegen die Gewichtsmatrix — bandbreitenlimitiert bei ~640 GB/s (RX 9070 XT Spec), nicht durch Dispatch-Overhead oder Buffer-Traffic. Weitere Micro-Optimierungen innerhalb des GEMV-Paradigmas bringen < 2%.
-- **Batching bandwidth-bound Operationen** (GEMV, Attention mit langem KV-Cache) bringt nur marginale Dispatch-Overhead-Einsparung (~2.7 µs/Dispatch + Sync-Elimination). Stream-Pipelining deckt die Sync-Elimination bereits ab.
-- **Kernel-Fusion** ist nur dann lohnend, wenn sie *unterschiedliche* Speicherzugriffsmuster zusammenführt (z.B. elementwise + GEMV eliminiert einen Store/Load-Zyklus für nicht-gecachte Adressen), nicht wenn sie identische Zugriffsmuster batcht oder Zwischenpuffer eliminiert, die bereits in L2 passen.
-- **Optimierungshebel liegen bei Algorithmuswechseln** (GEMV → GEMM für Prefill) und bei **Compute-Patterns mit nicht-vorhersagbaren Zugriffsmustern** (Attention-Tiling bei langem Kontext, wo der KV-Cache aus L2 fällt). Diese unterscheiden sich qualitativ von den bisherigen Experimenten, weil sie andere Memory-Access-Patterns haben, bei denen das Memory-Controller-Pipelining weniger greift.
+- **Fused FFN was confirmed as not worthwhile by the micro-benchmark** (~200 µs realistic saving, threshold was 1,500 µs). Do not implement. The dominant FFN cost is the weight-matrix traffic, which fusion cannot remove.
+- **Spec-decode verify optimization has plateaued.** Target-verify is ~88% GEMV execution against the weight matrix — bandwidth-limited at ~640 GB/s (RX 9070 XT spec), not limited by dispatch overhead or buffer traffic. Further micro-optimizations within the GEMV paradigm yield < 2%.
+- **Batching bandwidth-bound ops** (GEMV, attention with long KV cache) only saves marginal dispatch overhead (~2.7 µs/dispatch + sync elimination). Stream pipelining already covers the sync elimination.
+- **Kernel fusion** is only worth it when it merges *different* memory-access patterns (e.g. elementwise + GEMV eliminating a store/load round-trip for non-cached addresses), not when it batches identical patterns or removes intermediates that already fit in L2.
+- **The real optimization levers are algorithmic** (GEMV → GEMM for prefill) and live at **compute patterns with unpredictable access patterns** (attention tiling at long context, where the KV cache spills out of L2). These differ qualitatively from the previous experiments because they have different memory-access patterns where the memory-controller pipelining effect is weaker.
 
-### Offene Fragen
+### Open questions
 
-- Ob dieser Pipelining-Effekt auch auf RDNA 3 (gfx1100, RX 7900 XT) in gleichem Maße auftritt, ist nicht gemessen. Die Memory-Controller-Architektur unterscheidet sich (Infinity Cache vs. kein Infinity Cache auf RDNA 4). Ein Vergleichsexperiment auf gfx1100 wäre aufschlussreich.
-- Ob das Überschätzungsmuster auch bei **nicht-elementwise** Fusionen auftritt (z.B. Attention + FFN in einem Kernel). Hypothese: ja, solange die dominante Kostenposition bandbreitenlimitierte GEMV bleibt — sobald die Kostenposition kippt (Compute-bound, irreguläre Zugriffe), ändert sich das Bild.
-- Ob **WMMA/Matrix-Instruktionen** auf RDNA 4 das Bild ändern. Diese nutzen eine andere Execution-Pipeline (Matrix-Cores) und könnten andere Pipelining-Charakteristika haben — insbesondere wenn der Matrix-Core-Scheduler anders mit dem Memory-Controller interagiert als der Vector-ALU-Scheduler.
+- Whether this pipelining effect also occurs to the same degree on RDNA 3 (gfx1100, RX 7900 XT) has not been measured. The memory-controller architecture differs (Infinity Cache vs. no Infinity Cache on RDNA 4). A comparison experiment on gfx1100 would be informative.
+- Whether the overshoot pattern also applies to **non-elementwise** fusions (e.g. attention + FFN in one kernel). Hypothesis: yes, as long as the dominant cost is a bandwidth-bound GEMV — once the cost shifts (compute-bound, irregular accesses) the picture changes.
+- Whether **WMMA / matrix instructions** on RDNA 4 change the picture. They use a different execution pipeline (matrix cores) and may have different pipelining characteristics — particularly if the matrix-core scheduler interacts differently with the memory controller than the vector-ALU scheduler does.
 
-## CPU-Zielplattform
+## CPU target platform
 
-**Primäre CPU:** AMD Ryzen 9 7945HX (Zen4, 16C/32T, AVX-512 VNNI, 64 MB L3, DDR5 Dual-Channel ~77 GB/s)
+**Primary CPU:** AMD Ryzen 9 7945HX (Zen4, 16C/32T, AVX-512 VNNI, 64 MB L3, DDR5 dual-channel ~77 GB/s)
 
-ROCmForge hat einen CPU-Fallback-Pfad (`--gpu` nicht gesetzt), der aktuell nicht SIMD-optimiert ist. Zen4 bietet AVX-512 mit VNNI-Erweiterungen, die INT8-Dot-Products in Hardware beschleunigen — direkt relevant für Q4_0/Q8_0-Inferenz.
+ROCmForge has a CPU fallback path (when `--gpu` is not set) that currently is not SIMD-optimized end-to-end. Zen4 provides AVX-512 with VNNI extensions — hardware-accelerated INT8 dot products — directly relevant to Q4_0 / Q8_0 inference.
 
-Optimierungsansätze:
+Optimization angles:
 
-- **AVX-512 GEMV-Kernel für Q4_0:** Grösster Einzelhebel. Q4_0-Blöcke entpacken, gegen Q8_0-quantisierten Input multiplizieren, per VNNI-Instruktionen akkumulieren. 512-bit-Register verarbeiten 64 INT8-Werte pro Takt (2× AVX2, 4× SSE).
-- **Multi-Threaded Inference:** Output-Dimension der GEMV über Threads partitionieren. Bei 3584 Output-Elementen und 16 Kernen: 224 Elemente pro Thread.
-- **Cache-bewusstes Tiling:** L2 (1 MB/Kern) und L3 (64 MB shared) für Weight-Tiles nutzen, DRAM-Zugriffe minimieren.
-- **Heterogenes Spec-Decode:** Draft-Modell (0.5B) auf CPU, Target (7B) auf GPU, parallel. Eliminiert die ~10 % Draft-GPU-Overhead aus der Spec-Step-Kostenanalyse. Voraussetzung: CPU-Pfad muss schnell genug sein, um die GPU nicht zu blockieren.
+- **AVX-512 GEMV kernel for Q4_0:** The biggest single lever. Unpack Q4_0 blocks, multiply against a Q8_0-quantized input, accumulate via VNNI. A 512-bit register processes 64 INT8 values per cycle (2× AVX2, 4× SSE).
+- **Multi-threaded inference:** Partition the output dimension of the GEMV across threads. At 3584 output elements and 16 cores, ~224 elements per thread.
+- **Cache-aware tiling:** Use L2 (1 MB/core) and L3 (64 MB shared) for weight tiles to minimize DRAM traffic.
+- **Heterogeneous spec-decode:** Draft model (0.5B) on CPU, target (7B) on GPU, running in parallel. Eliminates the ~10% draft-GPU overhead from the spec-step cost analysis. Prerequisite: the CPU path must be fast enough not to block the GPU.
 
-Das Memory-Controller-Pipelining-Muster (RDNA-4-Abschnitt oben) gilt nicht 1:1 für CPU-DRAM. Zen4 hat eigene Prefetcher und eine andere Memory-Hierarchie (L1/L2 pro Core, L3 shared, DDR5-Controller) — Optimierungsheuristiken müssen empirisch validiert werden, bevor die RDNA-4-Erkenntnisse übertragen werden.
+The RDNA-4 memory-controller pipelining pattern above does not transfer 1:1 to CPU DRAM. Zen4 has its own prefetchers and a different memory hierarchy (per-core L1/L2, shared L3, DDR5 controller) — optimization heuristics must be validated empirically before carrying the RDNA-4 findings over.
 
-### Orchestration-Falle bei kleinen Modellen (CPU)
+### Orchestration trap on small models (CPU)
 
-Bei Qwen2.5-0.5B (hidden_size=896) ist die GEMV-Rechenzeit pro Aufruf so kurz (~150 µs inkl. Rayon-Dispatch), dass der Orchestrierungs-Overhead dominiert. Gemessen: 80 ms/Token bei einem theoretischen Bandbreiten-Limit von ~3.4 ms (260 MB Weight-Read / 77 GB/s DDR5) — **Faktor 24× über dem Speicherbandbreiten-Maximum**.
+For Qwen2.5-0.5B (hidden_size = 896) the per-call GEMV compute time is so short (~150 µs including Rayon dispatch) that orchestration overhead dominates. Measured: 80 ms/token versus a theoretical bandwidth ceiling of ~3.4 ms (260 MB weight read / 77 GB/s DDR5) — **a factor of 24× above the memory ceiling**.
 
-Ursachen:
+Causes:
 
-- Rayon Fork-Join-Overhead pro GEMV-Aufruf (~192 Aufrufe/Token, jede `par_iter_mut` wartet auf Sync-Barrier).
-- Skalare Attention (`flash_attn_decode`), RMSNorm, RoPE, SiLU — keine SIMD-Vektorisierung jenseits der Auto-Vektorisierung.
-- Skalare Q8-Input-Quantisierung (`quantize_q8_0_single` — Byte-weise Schleife).
+- Rayon fork-join overhead per GEMV call (~192 calls/token; each `par_iter_mut` waits on a sync barrier).
+- Scalar attention (`flash_attn_decode`), RMSNorm, RoPE, SiLU — no SIMD vectorization beyond the compiler's auto-vectorization.
+- Scalar Q8 input quantization (`quantize_q8_0_single` — byte-serial loop).
 
-Konsequenz empirisch bestätigt durch das AVX-512-VNNI-Experiment (commit `d0e4f07`, Bench-Ergebnis in `benches/results/cpu_avx512_analysis.md`): **16–19 % Kernel-Speedup auf 7B-Shapes, aber 0 % End-to-End auf 0.5B**, weil der Kernel nicht der Engpass ist. Heterogenes Spec-Decode (Draft auf CPU) erfordert einen fundamentalen CPU-Pipeline-Rewrite, nicht bessere GEMV-Kernels.
+Empirically confirmed by the AVX-512 VNNI experiment (commit `d0e4f07`, results in `benches/results/cpu_avx512_analysis.md`): **16–19% kernel speedup on 7B shapes, 0% end-to-end on 0.5B**, because the kernel is not the bottleneck at that model size. Heterogeneous spec-decode (draft on CPU) would require a fundamental CPU pipeline rewrite, not better GEMV kernels.
 
-### CPU-Performance-Lücke zu llama.cpp
+### CPU performance gap versus llama.cpp
 
-ROCmForge CPU-Pfad auf Ryzen 9 7945HX vs. llama.cpp auf demselben System:
+ROCmForge's CPU path on the Ryzen 9 7945HX vs. llama.cpp on the same machine:
 
-| Modell       | ROCmForge  | llama.cpp (geschätzt) | Faktor |
-|--------------|-----------:|----------------------:|-------:|
-| 0.5B Q4_0    | 12.1 tok/s |      ~50–80 tok/s     |   ~5×  |
-| 7B Q4_0      |  0.7 tok/s |       ~6–8 tok/s      |  ~10×  |
+| Model       | ROCmForge   | llama.cpp (estimated) | Factor |
+|-------------|------------:|----------------------:|-------:|
+| 0.5B Q4_0   |  12.1 tok/s |     ~50–80 tok/s      |    ~5× |
+| 7B Q4_0     |   0.7 tok/s |       ~6–8 tok/s      |   ~10× |
 
-Die Lücke ist **nicht SIMD-bedingt** (AVX-512 VNNI ist implementiert und isoliert 16–19 % schneller als AVX2 auf 7B-Shapes). Sie liegt in der gesamten CPU-Forward-Pipeline: Rayon-Overhead pro GEMV-Aufruf, skalare Nicht-GEMV-Operationen, fehlende Kernel-Fusion, scheinbar doppelte Memory-Traversals (Input-Quantisierung + GEMV). Ein wettbewerbsfähiger CPU-Pfad wäre ein eigenständiges Grossprojekt — kein Nebenprodukt der GPU-Optimierungsarbeit.
+The gap is **not SIMD-bound** — AVX-512 VNNI is implemented and is 16–19% faster than AVX2 in isolation on 7B shapes. It lives in the entire CPU forward pipeline: Rayon overhead per GEMV call, scalar non-GEMV operations, missing kernel fusion, and apparently duplicate memory traversals (input quantization + GEMV). A competitive CPU path would be a standalone project — not a by-product of the GPU optimization work.

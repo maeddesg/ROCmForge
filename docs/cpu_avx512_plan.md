@@ -1,89 +1,89 @@
-# CPU AVX-512 Q4_0 GEMV — Phase 0 Plan
+# CPU AVX-512 Q4_0 GEMV — Phase 0 plan
 
-**Ausgangs-SHA:** `b3818d9`
-**CPU:** AMD Ryzen 9 7945HX (Zen4, 16C/32T, AVX-512 VNNI bestätigt via `/proc/cpuinfo`)
-**Stand:** 2026-04-17
+**Starting SHA:** `b3818d9`
+**CPU:** AMD Ryzen 9 7945HX (Zen4, 16C/32T, AVX-512 VNNI confirmed via `/proc/cpuinfo`)
+**Date:** 2026-04-17
 
-## Baseline (vor Optimierung)
+## Baseline (before optimization)
 
-Qwen2.5-0.5B Q4_0, Prompt "Hello", `--temperature 0.0 --top-p 1.0 --no-template`, `--max-tokens 64`:
+Qwen2.5-0.5B Q4_0, prompt "Hello", `--temperature 0.0 --top-p 1.0 --no-template`, `--max-tokens 64`:
 
 - **Decode throughput: 12.6 tok/s**
-- Prefill: 6.1 tok/s (irrelevant für diese Task, aber dokumentiert)
-- Startup reports "Kernel preference: AVX-512 VNNI" (Feature-Detection funktioniert) — der eigentliche GEMV-Pfad nutzt diese Erkennung aber nicht.
+- Prefill: 6.1 tok/s (irrelevant for this task, but documented)
+- Startup reports "Kernel preference: AVX-512 VNNI" (feature detection works) — but the actual GEMV path does not use this detection.
 
-Ziel-Schwellenwert: **≥ 40 tok/s** → 3.2× Speedup nötig.
+Target threshold: **≥ 40 tok/s** → 3.2× speedup required.
 
-## Wo das Problem sitzt
+## Where the problem sits
 
-**Datei:** `src/cpu/ops.rs`, Zeile 1273–1274:
+**File:** `src/cpu/ops.rs`, lines 1273–1274:
 
 ```rust
 let features = super::features::CpuFeatures::get();
 let use_avx2 = features.has_avx2;
 ```
 
-Die Funktion `gemv_q4_0_q8_0` dispatched nur auf AVX2 oder Scalar. `has_avx512` und `has_avx512_vnni` werden korrekt erkannt (`src/cpu/features.rs:163-166`) und `KernelPreference::Avx512Vnni` wird ausgewählt — aber die Q4_0-GEMV verwendet diese Information nicht.
+`gemv_q4_0_q8_0` dispatches on AVX2 or scalar only. `has_avx512` and `has_avx512_vnni` are detected correctly (`src/cpu/features.rs:163-166`) and `KernelPreference::Avx512Vnni` is selected — but the Q4_0 GEMV does not use that information.
 
-### Bestehende Pattern, auf die aufgebaut wird
+### Existing patterns to build on
 
-- **Rayon-Multi-Threading:** `y.par_iter_mut().enumerate().for_each(...)` (Zeile 1276) — parallel über Output-Rows. Keine neue Dependency nötig.
-- **Q8_0-Input-Quantisierung:** `quantize_q8_0_single` (Zeile 1271) — macht bereits den FP32 → Q8_0 Schritt. AVX-512-Variante kann identisch darauf aufsetzen.
-- **Block-Loop mit 2× Unrolling + Prefetch:** Zeile 1282–1328. Wird übernommen / neu strukturiert.
-- **Scalar-Fallback:** `dot_q4_0_q8_0_block_scalar` (Zeile 2082) — bleibt unverändert als Last-Resort.
-- **AVX2-Kernel mit/ohne VNNI:** `dot_q4_0_q8_0_block_avx2` (Zeile 1946) → intern Dispatch auf `mul_sum_q4_0_q8_0_block_avx2_vnni` (AVX2-VNNI, Intel-only) oder `_unscaled`. Bleibt als Fallback für Nicht-AVX-512-CPUs.
+- **Rayon multi-threading:** `y.par_iter_mut().enumerate().for_each(...)` (line 1276) — parallel over output rows. No new dependency needed.
+- **Q8_0 input quantization:** `quantize_q8_0_single` (line 1271) — already performs the FP32 → Q8_0 step. The AVX-512 variant can sit directly on top of it.
+- **Block loop with 2× unroll + prefetch:** lines 1282–1328. Kept / restructured.
+- **Scalar fallback:** `dot_q4_0_q8_0_block_scalar` (line 2082) — kept as a last resort.
+- **AVX2 kernel with/without VNNI:** `dot_q4_0_q8_0_block_avx2` (line 1946) → internally dispatches to `mul_sum_q4_0_q8_0_block_avx2_vnni` (AVX2-VNNI, Intel-only) or `_unscaled`. Kept as a fallback for non-AVX-512 CPUs.
 
-### Q4_0-Block-Layout (bestätigt, kein Umbau nötig)
+### Q4_0 block layout (confirmed, no restructuring needed)
 
-Ein Q4_0-Block = 18 Bytes:
-- 2 Bytes FP16 `scale`
-- 16 Bytes: 32 × 4-bit Werte (je 2 pro Byte, `lo = byte & 0x0F`, `hi = byte >> 4`)
+A Q4_0 block is 18 bytes:
+- 2 bytes FP16 `scale`
+- 16 bytes: 32 × 4-bit values (two per byte, `lo = byte & 0x0F`, `hi = byte >> 4`)
 - Dequant: `value = (nibble − 8) × scale`
 
-Das Gewichtslayout ist bereits SIMD-freundlich (zusammenhängend per Row, 16-Byte-Payload pro Block — passt auf 128-Bit-Register oder half-lane eines 256/512-Bit-Registers).
+The weight layout is already SIMD-friendly (contiguous per row, 16-byte payload per block — fits into a 128-bit register or a half-lane of a 256/512-bit register).
 
-## Plan für Phase 1
+## Plan for phase 1
 
-1. **Neuer Kernel** `dot_q4_0_q8_0_block_avx512_vnni`:
-   - Eingabe: `qs: &[u8; 16]`, `q8: &[u8; 32]`, `combined_scale: f32`
-   - Nibble-Unpacking: `_mm_loadu_si128` (16 Bytes) → Split in lo/hi Nibbles → Konkatenieren zu `__m256i` mit 32 signed INT8 (−8 bias).
-   - Q8 Input: `_mm256_loadu_si256` (32 Bytes).
-   - Dot-Product: `_mm256_dpbssd_epi32` (AVX-512 VNNI signed/unsigned → signed ist spezifisch, auf AMD verfügbar ab Zen4). Alternativ zweistufig mit `_mm256_maddubs_epi16` wenn die signed-variante fehlt.
-   - Horizontal-Sum + scale multiplikation.
-2. **Zwei-Block-Variante** `dot_q4_0_q8_0_2blocks_avx512_vnni`:
-   - Lädt 2 benachbarte Blöcke gleichzeitig in ein 512-bit-Register, verarbeitet beide mit einer einzigen `_mm512_dpbusd_epi32`-Instruktion. Das ist der Hauptgewinn gegenüber AVX2 — doppelte Datenbreite bei gleicher Instruktionsanzahl.
+1. **New kernel** `dot_q4_0_q8_0_block_avx512_vnni`:
+   - Input: `qs: &[u8; 16]`, `q8: &[u8; 32]`, `combined_scale: f32`
+   - Nibble unpacking: `_mm_loadu_si128` (16 bytes) → split into lo/hi nibbles → concatenate into `__m256i` (32 signed INT8 with −8 bias).
+   - Q8 input: `_mm256_loadu_si256` (32 bytes).
+   - Dot product: `_mm256_dpbssd_epi32` (AVX-512 VNNI, signed/unsigned — on AMD the form available is `vpdpbusd` from Zen4 onward). If the signed-signed variant is not available, use a two-step form with `_mm256_maddubs_epi16`.
+   - Horizontal sum + scale multiplication.
+2. **Two-block variant** `dot_q4_0_q8_0_2blocks_avx512_vnni`:
+   - Loads two adjacent blocks simultaneously into a 512-bit register, processes both with a single `_mm512_dpbusd_epi32`. This is the main gain over AVX2 — double the data width for the same instruction count.
 3. **Dispatch in `gemv_q4_0_q8_0`:**
    ```rust
    let use_avx512_vnni = !env_flag_disable_avx512() && features.has_avx512 && features.has_avx512_vnni;
    ```
    Opt-out via `ROCMFORGE_DISABLE_AVX512=1`.
-4. **Multi-Threading:** Rayon ist bereits aktiv. Kein Änderungsbedarf. Auf 16 Kernen bei 896 Outputs (0.5B FFN-down) → 56 Rows/Thread. Passt komfortabel in L2.
-5. **`has_avx512_vnni` im CpuFeatures-Struct:** Fehlt aktuell als öffentliches Feld — wird intern in `detect_x86_64` berechnet, aber nicht exponiert. Muss in das Struct aufgenommen werden, damit der Dispatch-Pfad es lesen kann.
+4. **Multi-threading:** Rayon is already in use. No change needed. On 16 cores at 896 outputs (0.5B FFN-down) → 56 rows/thread. Comfortably fits in L2.
+5. **`has_avx512_vnni` on `CpuFeatures`:** currently missing as a public field — computed internally in `detect_x86_64` but not exposed. Must be added to the struct so the dispatch path can read it.
 
-## Multi-Threading Status
+## Multi-threading status
 
-Rayon ist bereits aktiv (`par_iter_mut` in `gemv_q4_0_q8_0`). Keine neue Dependency nötig. Der existierende Thread-Pool wird automatisch mitgenutzt.
+Rayon is already active (`par_iter_mut` in `gemv_q4_0_q8_0`). No new dependency needed. The existing thread pool is reused automatically.
 
-## Cache-Budget
+## Cache budget
 
-- 0.5B, hidden=896: `896/32 × 18 = 504 B` pro Row. 56 Rows/Thread (bei 16 Kernen, 896 Outputs) = 28 KB. Passt in L1 (32 KB/Kern).
-- 0.5B, FFN-up: 4864 Outputs, 896 Inputs: 304 Rows/Thread = 153 KB. Passt in L2 (1 MB/Kern).
-- 7B, FFN-down: 3584 Outputs, 18944 Inputs: `18944/32 × 18 = 10.6 KB` pro Row. 224 Rows/Thread = 2.4 MB. Geht ÜBER L2 (1 MB/Kern) → Cache-Tiling würde bei 7B helfen. Für 0.5B irrelevant, daher erst in Stufe 2 nötig.
+- 0.5B, hidden=896: `896/32 × 18 = 504 B` per row. 56 rows/thread (at 16 cores, 896 outputs) = 28 KB. Fits in L1 (32 KB/core).
+- 0.5B, FFN-up: 4864 outputs, 896 inputs: 304 rows/thread = 153 KB. Fits in L2 (1 MB/core).
+- 7B, FFN-down: 3584 outputs, 18944 inputs: `18944/32 × 18 = 10.6 KB` per row. 224 rows/thread = 2.4 MB. Goes BEYOND L2 (1 MB/core) → cache tiling would help on 7B. Irrelevant for 0.5B, but worth keeping in mind for phase 2.
 
-## Validierung
+## Validation
 
 `tests/cpu_avx512_matches_reference.rs`:
-- Lauf A: `ROCMFORGE_DISABLE_AVX512=1` (alter Pfad, AVX2).
-- Lauf B: AVX-512 aktiv (default).
-- Assertion: Token-IDs byte-identisch bei Greedy + festem Prompt, 50 Tokens.
+- Run A: `ROCMFORGE_DISABLE_AVX512=1` (old path, AVX2).
+- Run B: AVX-512 active (default).
+- Assertion: byte-identical token IDs for greedy decoding + a fixed prompt, 50 tokens.
 
-## Kein Rückfrage-Bedarf
+## No open questions
 
-Alle strategischen Fragen aus dem Prompt sind durch den Code beantwortet:
-- CPU-GEMV-Pfad: lokalisiert (`src/cpu/ops.rs:1244`).
-- Q4_0-Layout: SIMD-friendly, kein Umbau.
-- Rayon: bereits aktiv.
-- CPU-Feature-Detection: komplett, muss nur `has_avx512_vnni` exponieren.
-- Baseline: 12.6 tok/s (3.2× nötig für ≥40 tok/s).
+All strategic questions from the prompt are answered by reading the code:
+- CPU GEMV path: located (`src/cpu/ops.rs:1244`).
+- Q4_0 layout: SIMD-friendly, no restructuring.
+- Rayon: already in use.
+- CPU feature detection: complete, only needs `has_avx512_vnni` exposed.
+- Baseline: 12.6 tok/s (3.2× needed for ≥40 tok/s).
 
-Implementierung startet in Phase 1.
+Implementation starts in phase 1.

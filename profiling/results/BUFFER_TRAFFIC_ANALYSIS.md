@@ -2,26 +2,26 @@
 
 ## TL;DR
 
-**Verdikt: Fused FFN lohnt sich nicht.** Maximaler Gewinn ~224 µs/Step (1.4 % der Verify-Zeit), und dieser Gewinn ist **Dispatch-Overhead-Reduktion**, nicht Buffer-Traffic-Elimination. Die ursprüngliche Hypothese (intermediate-Buffer-Traffic ist der Hebel) wird durch die Messung **falsifiziert**.
+**Verdict: Fused FFN is not worth building.** Maximum realistic gain ~224 µs/step (1.4 % of verify time), and that gain is **dispatch-overhead reduction**, not buffer-traffic elimination. The original hypothesis (intermediate buffer traffic is the lever) is **falsified** by the measurement.
 
 ## Setup
 
 - Hardware: RX 9070 XT (gfx1201, RDNA 4), ROCm 7.2.1
-- Dimensionen (wie Qwen2.5-7B): hidden=3584, intermediate=17920 (5×3584, clean ratio statt 18944)
-- 28 Layer pro Durchlauf, 10 Warmup + 100 gemessene Runs
-- Alle Kernels elementwise, 1–1024 FMAs pro Element via `fma_depth`-Parameter
+- Dimensions (matching Qwen2.5-7B): hidden=3584, intermediate=17920 (5×3584, clean ratio instead of 18944)
+- 28 layers per run, 10 warmup + 100 measured runs
+- All kernels elementwise, 1–1024 FMAs per element via the `fma_depth` parameter
 
-Drei Varianten:
+Three variants:
 
-- **A** — 4 separate Kernel-Dispatches pro Layer, intermediate in VRAM. 112 Launches/Step.
-- **B2** — 1 cooperative Kernel pro Layer mit `grid.sync()` zwischen den Phasen. Gleiche VRAM-Traffic-Profil wie A, aber 1 Dispatch/Layer → 28 Launches/Step.
-- **B1** — 1 chunked Kernel pro Layer, intermediate lebt nur in Registern. Keine intermediate-VRAM-Touches. 28 Launches/Step.
+- **A** — 4 separate kernel dispatches per layer, intermediate stored in VRAM. 112 launches/step.
+- **B2** — 1 cooperative kernel per layer with `grid.sync()` between phases. Same VRAM traffic profile as A, but 1 dispatch/layer → 28 launches/step.
+- **B1** — 1 chunked kernel per layer; the intermediate lives only in registers. No VRAM touches for the intermediate. 28 launches/step.
 
-Δ(A − B2) isoliert Dispatch-/Launch-Overhead. Δ(B2 − B1) isoliert intermediate-Buffer-Traffic. Δ(A − B1) ist der maximal erreichbare Fused-FFN-Gewinn.
+Δ(A − B2) isolates dispatch/launch overhead. Δ(B2 − B1) isolates intermediate-buffer-traffic cost. Δ(A − B1) is the maximum achievable fused-FFN gain.
 
-Artefakt: [buffer_traffic_validation_{92d037a}_{1776402443}.json](buffer_traffic_validation_{92d037a}_{1776402443}.json)
+Artifact: [buffer_traffic_validation_{92d037a}_{1776402443}.json](buffer_traffic_validation_{92d037a}_{1776402443}.json)
 
-## Kernresultate (Median µs, batch=2)
+## Headline results (median µs, batch=2)
 
 | fma_depth |   A  |  B2  |  B1  | Δ(A−B2) | Δ(B2−B1) | Δ(A−B1) |
 |----------:|-----:|-----:|-----:|--------:|---------:|--------:|
@@ -39,92 +39,92 @@ Median µs, batch=4:
 |       128 |  423 |  602 |  244 |    −179 |      359 |     179 |
 |      1024 | 1089 | 1061 | 1896 |      29 |     −835 |    −806 |
 
-## Was die Messung zeigt
+## What the measurement shows
 
-### 1. Variante A ist Dispatch-bound, nicht Compute-bound
+### 1. Variant A is dispatch-bound, not compute-bound
 
-A ändert sich kaum zwischen `fma_depth=1` und `fma_depth=128` (321 → 375 µs, +54 µs für 128× mehr ALU-Arbeit). Die GPU versteckt den zusätzlichen Compute hinter der Dispatch-Pipeline von 112 Kernel-Launches. Per-Kernel-Budget in A: ~3 µs (≈ 2 µs Dispatch + ~1 µs GPU-Execution bei Memory-Bound-Elementwise).
+A barely moves between `fma_depth=1` and `fma_depth=128` (321 → 375 µs, +54 µs for 128× more ALU work). The GPU hides the extra compute behind the dispatch pipeline of 112 kernel launches. Per-kernel budget in A: ~3 µs (≈ 2 µs dispatch + ~1 µs GPU execution for memory-bound elementwise).
 
-### 2. Variante B1 ist bei relevantem Compute-Volumen Compute-bound
+### 2. Variant B1 is compute-bound at relevant compute volumes
 
-B1 skaliert stark mit `fma_depth` (97 → 112 → 242 → 1865 µs). Weil B1 nur 28 Launches hat und die ALU-Arbeit unverdeckt ist, wächst die Gesamtzeit linear mit dem Compute.
+B1 scales strongly with `fma_depth` (97 → 112 → 242 → 1865 µs). Because B1 has only 28 launches and the ALU work is fully exposed, total time grows linearly with compute.
 
-### 3. Der "Fused-Gewinn" sinkt mit steigender Compute-Intensität
+### 3. The "fused gain" shrinks as compute intensity rises
 
-Δ(A−B1) fällt von **224 µs** (depth=1) auf **133 µs** (depth=128) und **wird negativ** bei depth=1024. Das ist nicht Buffer-Traffic — das ist der direkte Beleg, dass Fusion primär **Launch-Overhead** einspart. Sobald die Kernels genug Compute haben, um die Launches zu verstecken, verschwindet der Fused-Vorteil.
+Δ(A−B1) falls from **224 µs** (depth=1) to **133 µs** (depth=128) and **turns negative** at depth=1024. That is not buffer traffic — it is direct evidence that fusion primarily saves **launch overhead**. Once kernels have enough compute to hide their launches, the fused advantage vanishes.
 
-### 4. B2 misst Dispatch-Overhead **nicht** sauber
+### 4. B2 does NOT isolate dispatch overhead cleanly
 
-Cooperative-Kernel-Launches mit `grid.sync()` sind auf dieser Hardware teurer als 4 sequentielle Dispatches auf demselben Stream. Bei batch=4 ist B2 konstant ~265 µs langsamer als A — Stream-Pipelining von A ist effizienter als grid-weite Sync in einem Launch. Das bestätigt indirekt die RDNA-4-Memory-Controller-Pipelining-Hypothese aus `docs/architecture_notes.md`: Back-to-Back-Dispatches auf dem gleichen Stream pipelinen nahezu verlustfrei.
+Cooperative-kernel launches with `grid.sync()` are more expensive on this hardware than 4 sequential dispatches on the same stream. At batch=4 B2 is consistently ~265 µs slower than A — A's stream pipelining is more efficient than grid-wide sync inside a single launch. This indirectly confirms the RDNA-4 memory-controller-pipelining hypothesis from `docs/architecture_notes.md`: back-to-back dispatches on the same stream pipeline nearly without loss.
 
-### 5. Buffer-Traffic ist im Elementwise-Regime nicht isoliert messbar
+### 5. Buffer traffic cannot be isolated in the elementwise regime
 
-Δ(B2−B1) schwankt von +293 (depth=1) bis −1018 (depth=1024). Das ist kein Buffer-Traffic-Signal, sondern ein Mix aus Cooperative-Launch-Overhead (B2 teuer) und B1's Compute-Exposition (B1 wird compute-bound schneller als B2). Der Micro-Benchmark kann Buffer-Traffic nicht sauber von Dispatch- und Occupancy-Effekten trennen.
+Δ(B2−B1) swings from +293 (depth=1) to −1018 (depth=1024). That is not a buffer-traffic signal — it is a mix of cooperative-launch overhead (B2 expensive) and B1's compute exposure (B1 becomes compute-bound sooner than B2). The micro-benchmark cannot cleanly separate buffer traffic from dispatch and occupancy effects.
 
-## Hochrechnung auf reale FFN-Zeit
+## Projection to real FFN time
 
-Gemessene reale FFN-Zeit (Launch-Overhead-Analyse, 28 Layer, batch=2, depth=1): **10.900 µs**.
+Measured real FFN time (launch-overhead analysis, 28 layers, batch=2, depth=1): **10,900 µs**.
 
-Die realen FFN-Kernels (GEMV gegen Q4_0-Gewichtsmatrizen) sind **memory-bound gegen die Gewichtsmatrix**, nicht gegen die intermediate-Buffer:
+The real FFN kernels (GEMV against Q4_0 weight matrices) are **memory-bound against the weight matrix**, not against the intermediate buffer:
 
-| Kernel               | Zeit (µs)  | Gewicht gelesen | Intermediate-Traffic |
-|----------------------|-----------:|----------------:|---------------------:|
-| gate_up_silu (fused) |        232 |         ~75 MB |              ~75 KB |
-| mul (elementwise)    |        ~30 |               — |             ~150 KB |
-| down (GEMV)          |        145 |         ~75 MB |             ~150 KB |
-| residual             |        ~10 |               — |              ~14 KB |
+| Kernel               | Time (µs)  | Weight read    | Intermediate traffic |
+|----------------------|-----------:|---------------:|---------------------:|
+| gate_up_silu (fused) |        232 |         ~75 MB |              ~75 KB  |
+| mul (elementwise)    |        ~30 |              — |             ~150 KB  |
+| down (GEMV)          |        145 |         ~75 MB |             ~150 KB  |
+| residual             |        ~10 |              — |              ~14 KB  |
 
-Das Gewichtsvolumen (~150 MB pro Layer) dominiert die Memory-Pipeline um Faktor ~500. Die intermediate-Buffer-Traffic ist bereits in den GEMV-Laufzeiten amortisiert, nicht ein separater Posten.
+The weight volume (~150 MB per layer) dominates the memory pipeline by a factor of ~500. Intermediate-buffer traffic is already amortized inside the GEMV runtimes, not a separate cost item.
 
-**Was Fused FFN realistisch einsparen kann:**
+**What fused FFN can realistically save:**
 
-| Komponente                               | Einsparung |
-|------------------------------------------|-----------:|
-| Dispatch-Overhead (4→1 pro Layer × 28)   |   ~168 µs  |
-| Intermediate-Buffer-Traffic-Elimination  |    ~30 µs  |
-| Sync-Elimination (4→1 per layer)         |     ~0 µs* |
-| **Gesamt**                               |   **~200 µs** |
+| Component                                  | Saving      |
+|--------------------------------------------|------------:|
+| Dispatch overhead (4→1 per layer × 28)     |   ~168 µs   |
+| Intermediate-buffer traffic elimination    |    ~30 µs   |
+| Sync elimination (4→1 per layer)           |     ~0 µs*  |
+| **Total**                                  | **~200 µs** |
 
-\* Stream-Pipelining macht Between-Kernel-Syncs auf demselben Stream quasi gratis (dokumentiert in `docs/architecture_notes.md`).
+\* Stream pipelining makes between-kernel syncs on the same stream essentially free (documented in `docs/architecture_notes.md`).
 
-**Relation zur Verify-Zeit:**
+**Relative to verify time:**
 
-| Metrik                               | Wert        |
-|--------------------------------------|-------------|
-| Reale FFN-Zeit (28 Layer)            | 10.900 µs   |
-| Verify-Step gesamt                   | 16.200 µs   |
-| Erwarteter Fused-FFN-Gewinn          | ~200 µs     |
-| Anteil an Verify-Zeit                | **~1.2 %**  |
-| Anteil an FFN-Zeit                   | **~1.8 %**  |
+| Metric                               | Value          |
+|--------------------------------------|----------------|
+| Real FFN time (28 layers)            | 10,900 µs      |
+| Total verify step                    | 16,200 µs      |
+| Expected fused-FFN gain              | ~200 µs        |
+| Share of verify time                 | **~1.2 %**     |
+| Share of FFN time                    | **~1.8 %**     |
 
-## Verdikt
+## Verdict
 
-**Fused FFN lohnt sich NICHT.**
+**Fused FFN is NOT worth building.**
 
-- Micro-Benchmark-Obergrenze (depth=1): **224 µs/Step** (1.4 % der Verify-Zeit)
-- Realistische Hochrechnung (mit Compute-Verdeckung): **~100–200 µs/Step** (0.6–1.2 %)
-- Schwellenwert "lohnt sich": ≥ 1.500 µs (8 %)
-- Ergebnis liegt 7–15× **unter** der Lohnt-sich-Schwelle
+- Micro-benchmark upper bound (depth=1): **224 µs/step** (1.4 % of verify time).
+- Realistic projection (with compute coverage): **~100–200 µs/step** (0.6–1.2 %).
+- "Worth it" threshold: ≥ 1,500 µs (8 %).
+- Result sits 7–15× **below** the worth-it threshold.
 
-Die gesamte "Buffer-Traffic"-Hypothese wird durch die Messung falsifiziert:
+The full "buffer traffic" hypothesis is falsified by the measurement:
 
-1. Buffer-Traffic ist im realen FFN (GEMV-dominiert) vom Gewichtsmatrix-Traffic um Faktor ~500 überdeckt.
-2. Der Launch-Overhead-Anteil (den Fusion wirklich einspart) ist mit ~200 µs viel kleiner als die ursprüngliche 4.000-µs-Schätzung aus der Launch-Overhead-Analyse.
-3. Die 4.000-µs-Schätzung war ein Modellartefakt: Wall-Clock minus "GPU-only" zu buffer-traffic zu interpretieren war nicht gerechtfertigt, weil grosse Teile dieser Differenz aus Submission-Latenz (die auf RDNA 4 durch Stream-Pipelining effektiv hidden ist) und Profiling-Overhead stammten.
+1. Buffer traffic in the real (GEMV-dominated) FFN is overshadowed by weight-matrix traffic by a factor of ~500.
+2. The launch-overhead share (what fusion actually saves) is ~200 µs — far below the original ~4,000 µs estimate from the launch-overhead analysis.
+3. The 4,000 µs estimate was a modelling artifact: reading "wall clock minus GPU-only" as buffer traffic was not justified, because large parts of that difference came from submission latency (effectively hidden by stream pipelining on RDNA 4) and profiling overhead.
 
-Damit ist der dritte Null-Effekt in Folge (Tiled GEMV, Batched lm_head, jetzt Fused FFN) auf dieser Architektur dokumentiert.
+This is the third consecutive null effect on this architecture (tiled GEMV, batched lm_head, now fused FFN).
 
-## Welcher Hebel bleibt?
+## What lever remains?
 
-Nicht als Implementierungs-Plan, sondern als Hypothese für den nächsten Schritt:
+Not an implementation plan — a direction for the next step:
 
-1. **Prefill-GEMM.** Aktuelles Prefill: 59 tok/s vs llama.cpp 1092 tok/s (5 % der Baseline). Hier liegen nicht 1–2 %, sondern 95 % Gap. Der nächste sinnvolle Hebel ist echte Batch-1-GEMM statt GEMV × N-mal auf Prefill-Tokens.
-2. **Attention-Optimierung bei langem Kontext.** Bei K=4096 sinkt der Durchsatz von 115 auf 78 tok/s (−32 %), Attention erreicht 34 % der Decode-Zeit. Das ist bereits im Memory-Regime — hier könnte FlashAttention-ähnliche Tiling-Strategie echten Throughput bringen.
-3. **14B-Target mit 0.5B-Draft.** Aktuell VRAM-limitiert auf 16 GB. Q8_0-Draft statt Q4_0 könnte Acceptance erhöhen.
+1. **Prefill GEMM.** Current prefill: 59 tok/s vs llama.cpp 1,092 tok/s (5 % of their baseline). This is not a 1–2 % gap, it is a 95 % gap. The next meaningful lever is real batch-1 GEMM instead of N × GEMV on prefill tokens.
+2. **Attention optimization at long context.** At K=4096 throughput drops from 115 to 78 tok/s (−32 %), attention reaches 34 % of decode time. Already in the memory regime — FlashAttention-style tiling could deliver real throughput here.
+3. **14B target with 0.5B draft.** Currently VRAM-limited to 16 GB. A Q8_0 draft instead of Q4_0 could raise acceptance.
 
-Fused FFN sollte **nicht** implementiert werden, bevor einer der obigen Hebel die Priorität verliert.
+Fused FFN should **not** be implemented before one of the above levers loses priority.
 
-## Konsistenz-Check
+## Consistency check
 
-- Launch-Overhead-Analyse schätzte FFN-Buffer-Traffic auf ~4.000 µs. Die Messung findet ~200 µs realistischer Einsparung. Die Abweichung ist 20× — identisch zur Abweichung bei Tiled GEMV (~1.5 % statt 15 %) und Batched lm_head (~0.4 % statt 8 %).
-- Das konsistente 20×-Überschätzen durch "Load/Traffic einmal statt N-mal"-Modellierung ist jetzt in drei unabhängigen Experimenten dokumentiert und wird in `docs/architecture_notes.md` als stabile RDNA-4-Eigenschaft geführt.
+- Launch-overhead analysis estimated FFN buffer traffic at ~4,000 µs. The measurement finds ~200 µs realistic saving. Deviation: 20× — identical to the deviation on tiled GEMV (~1.5 % instead of 15 %) and batched lm_head (~0.4 % instead of 8 %).
+- The consistent 20× overshoot from "load/traffic once instead of N times" modelling is now documented across three independent experiments and tracked in `docs/architecture_notes.md` as a stable RDNA-4 property.
