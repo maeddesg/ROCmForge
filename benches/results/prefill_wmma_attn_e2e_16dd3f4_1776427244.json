@@ -1,0 +1,150 @@
+{
+  "git_sha": "16dd3f4",
+  "timestamp": 1776426754,
+  "model": "Qwen2.5-7B-Instruct-Q4_0",
+  "runs": [
+    {"target_len": 64, "mode": "custom", "run": 1, "ms": 1033.4, "tps": 61.9}
+    ,
+    {"target_len": 64, "mode": "custom", "run": 2, "ms": 1035.4, "tps": 61.8}
+    ,
+    {"target_len": 64, "mode": "custom", "run": 3, "ms": 1035.5, "tps": 61.8}
+    ,
+    {"target_len": 64, "mode": "hipblas", "run": 1, "ms": 834.7, "tps": 76.7}
+    ,
+    {"target_len": 64, "mode": "hipblas", "run": 2, "ms": 836.6, "tps": 76.5}
+    ,
+    {"target_len": 64, "mode": "hipblas", "run": 3, "ms": 833.3, "tps": 76.8}
+    ,
+    {"target_len": 64, "mode": "wmma_gemm", "run": 1, "ms": 721.9, "tps": 88.7}
+    ,
+    {"target_len": 64, "mode": "wmma_gemm", "run": 2, "ms": 723.1, "tps": 88.5}
+    ,
+    {"target_len": 64, "mode": "wmma_gemm", "run": 3, "ms": 721.5, "tps": 88.7}
+    ,
+    {"target_len": 64, "mode": "wmma_full", "run": 1, "ms": 113.9, "tps": 561.8}
+    ,
+    {"target_len": 64, "mode": "wmma_full", "run": 2, "ms": 114.4, "tps": 559.3}
+    ,
+    {"target_len": 64, "mode": "wmma_full", "run": 3, "ms": 114.3, "tps": 560.1}
+    ,
+    {"target_len": 128, "mode": "custom", "run": 1, "ms": 2027.5, "tps": 63.1}
+    ,
+    {"target_len": 128, "mode": "custom", "run": 2, "ms": 2030.3, "tps": 63.0}
+    ,
+    {"target_len": 128, "mode": "custom", "run": 3, "ms": 2028.5, "tps": 63.1}
+    ,
+    {"target_len": 128, "mode": "hipblas", "run": 1, "ms": 1567.3, "tps": 81.7}
+    ,
+    {"target_len": 128, "mode": "hipblas", "run": 2, "ms": 1567.7, "tps": 81.6}
+    ,
+    {"target_len": 128, "mode": "hipblas", "run": 3, "ms": 1565.6, "tps": 81.8}
+    ,
+    {"target_len": 128, "mode": "wmma_gemm", "run": 1, "ms": 1416.3, "tps": 90.4}
+    ,
+    {"target_len": 128, "mode": "wmma_gemm", "run": 2, "ms": 1416.9, "tps": 90.3}
+    ,
+    {"target_len": 128, "mode": "wmma_gemm", "run": 3, "ms": 1418.9, "tps": 90.2}
+    ,
+    {"target_len": 128, "mode": "wmma_full", "run": 1, "ms": 212.7, "tps": 601.9}
+    ,
+    {"target_len": 128, "mode": "wmma_full", "run": 2, "ms": 212.4, "tps": 602.5}
+    ,
+    {"target_len": 128, "mode": "wmma_full", "run": 3, "ms": 212.4, "tps": 602.7}
+    ,
+    {"target_len": 192, "mode": "custom", "run": 1, "ms": 3003.9, "tps": 63.9}
+    ,
+    {"target_len": 192, "mode": "custom", "run": 2, "ms": 3001.1, "tps": 64.0}
+    ,
+    {"target_len": 192, "mode": "custom", "run": 3, "ms": 2998.1, "tps": 64.0}
+    ,
+    {"target_len": 192, "mode": "hipblas", "run": 1, "ms": 2269.2, "tps": 84.6}
+    ,
+    {"target_len": 192, "mode": "hipblas", "run": 2, "ms": 2264.1, "tps": 84.8}
+    ,
+    {"target_len": 192, "mode": "hipblas", "run": 3, "ms": 2267.0, "tps": 84.7}
+    ,
+    {"target_len": 192, "mode": "wmma_gemm", "run": 1, "ms": 2081.4, "tps": 92.2}
+    ,
+    {"target_len": 192, "mode": "wmma_gemm", "run": 2, "ms": 2078.1, "tps": 92.4}
+    ,
+    {"target_len": 192, "mode": "wmma_gemm", "run": 3, "ms": 2080.4, "tps": 92.3}
+    ,
+    {"target_len": 192, "mode": "wmma_full", "run": 1, "ms": 310.5, "tps": 618.4}
+    ,
+    {"target_len": 192, "mode": "wmma_full", "run": 2, "ms": 310.6, "tps": 618.1}
+    ,
+    {"target_len": 192, "mode": "wmma_full", "run": 3, "ms": 310.8, "tps": 617.7}
+    ,
+    {"target_len": 256, "mode": "custom", "run": 1, "ms": 4027.2, "tps": 63.6}
+    ,
+    {"target_len": 256, "mode": "custom", "run": 2, "ms": 4024.3, "tps": 63.6}
+    ,
+    {"target_len": 256, "mode": "custom", "run": 3, "ms": 4033.8, "tps": 63.5}
+    ,
+    {"target_len": 256, "mode": "hipblas", "run": 1, "ms": 2982.2, "tps": 85.8}
+    ,
+    {"target_len": 256, "mode": "hipblas", "run": 2, "ms": 2995.0, "tps": 85.5}
+    ,
+    {"target_len": 256, "mode": "hipblas", "run": 3, "ms": 2979.6, "tps": 85.9}
+    ,
+    {"target_len": 256, "mode": "wmma_gemm", "run": 1, "ms": 2769.4, "tps": 92.4}
+    ,
+    {"target_len": 256, "mode": "wmma_gemm", "run": 2, "ms": 2773.8, "tps": 92.3}
+    ,
+    {"target_len": 256, "mode": "wmma_gemm", "run": 3, "ms": 2776.3, "tps": 92.2}
+    ,
+    {"target_len": 256, "mode": "wmma_full", "run": 1, "ms": 415.1, "tps": 616.7}
+    ,
+    {"target_len": 256, "mode": "wmma_full", "run": 2, "ms": 411.0, "tps": 622.9}
+    ,
+    {"target_len": 256, "mode": "wmma_full", "run": 3, "ms": 411.2, "tps": 622.5}
+    ,
+    {"target_len": 384, "mode": "custom", "run": 1, "ms": 7111.6, "tps": 54.0}
+    ,
+    {"target_len": 384, "mode": "custom", "run": 2, "ms": 7108.5, "tps": 54.0}
+    ,
+    {"target_len": 384, "mode": "custom", "run": 3, "ms": 7101.7, "tps": 54.1}
+    ,
+    {"target_len": 384, "mode": "hipblas", "run": 1, "ms": 5497.4, "tps": 69.9}
+    ,
+    {"target_len": 384, "mode": "hipblas", "run": 2, "ms": 5504.1, "tps": 69.8}
+    ,
+    {"target_len": 384, "mode": "hipblas", "run": 3, "ms": 5503.4, "tps": 69.8}
+    ,
+    {"target_len": 384, "mode": "wmma_gemm", "run": 1, "ms": 5156.1, "tps": 74.5}
+    ,
+    {"target_len": 384, "mode": "wmma_gemm", "run": 2, "ms": 5155.9, "tps": 74.5}
+    ,
+    {"target_len": 384, "mode": "wmma_gemm", "run": 3, "ms": 5102.4, "tps": 75.3}
+    ,
+    {"target_len": 384, "mode": "wmma_full", "run": 1, "ms": 613.6, "tps": 625.8}
+    ,
+    {"target_len": 384, "mode": "wmma_full", "run": 2, "ms": 613.3, "tps": 626.1}
+    ,
+    {"target_len": 384, "mode": "wmma_full", "run": 3, "ms": 613.3, "tps": 626.2}
+    ,
+    {"target_len": 512, "mode": "custom", "run": 1, "ms": 10198.2, "tps": 50.2}
+    ,
+    {"target_len": 512, "mode": "custom", "run": 2, "ms": 10192.2, "tps": 50.2}
+    ,
+    {"target_len": 512, "mode": "custom", "run": 3, "ms": 10195.7, "tps": 50.2}
+    ,
+    {"target_len": 512, "mode": "hipblas", "run": 1, "ms": 8114.0, "tps": 63.1}
+    ,
+    {"target_len": 512, "mode": "hipblas", "run": 2, "ms": 8102.7, "tps": 63.2}
+    ,
+    {"target_len": 512, "mode": "hipblas", "run": 3, "ms": 8124.9, "tps": 63.0}
+    ,
+    {"target_len": 512, "mode": "wmma_gemm", "run": 1, "ms": 7614.4, "tps": 67.2}
+    ,
+    {"target_len": 512, "mode": "wmma_gemm", "run": 2, "ms": 7612.4, "tps": 67.3}
+    ,
+    {"target_len": 512, "mode": "wmma_gemm", "run": 3, "ms": 7617.8, "tps": 67.2}
+    ,
+    {"target_len": 512, "mode": "wmma_full", "run": 1, "ms": 814.6, "tps": 628.6}
+    ,
+    {"target_len": 512, "mode": "wmma_full", "run": 2, "ms": 815.3, "tps": 628.0}
+    ,
+    {"target_len": 512, "mode": "wmma_full", "run": 3, "ms": 814.4, "tps": 628.7}
+  ]
+}
