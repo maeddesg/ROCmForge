@@ -30,6 +30,9 @@ serde_json = "1"
 dirs = "5"
 # Ctrl+C handler for interactive chat CLI
 ctrlc = "3.4"
+# Structured logging and tracing (stderr, env-filtered)
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 default = []

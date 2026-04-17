@@ -1444,6 +1444,14 @@ pub fn gpu_dispatch_gemm(
     seq_len: usize,
 ) -> GpuResult<()> {
     if seq_len == 1 && supports_gemv_type(meta.wtype) {
+        tracing::debug!(
+            seq_len,
+            n = out_dim,
+            k = in_dim,
+            wtype = ?meta.wtype,
+            path = "gemv_decode",
+            "GEMM dispatch: decode-path GEMV"
+        );
         return gpu_dispatch_gemv(device, weights, meta, input, output, out_dim, in_dim);
     }
 
@@ -1465,6 +1473,17 @@ pub fn gpu_dispatch_gemm(
         && super::safety::wmma_prefill_enabled()
     {
         let padded_m = seq_len.div_ceil(64) * 64;
+        tracing::debug!(
+            seq_len,
+            padded_m,
+            m = seq_len,
+            n = out_dim,
+            k = in_dim,
+            path = "wmma_q4_0",
+            "GEMM dispatch: WMMA Q4_0 ({}→{})",
+            seq_len,
+            padded_m
+        );
         match super::kernels::wmma::launch_wmma_gemm_q4_0(
             input,
             weights.as_ptr() as *const u8,
@@ -1476,6 +1495,10 @@ pub fn gpu_dispatch_gemm(
         ) {
             Ok(()) => return Ok(()),
             Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "WMMA Q4_0 prefill path failed, falling back to hipBLAS/GEMV"
+                );
                 eprintln!(
                     "[rocmforge] WMMA Q4_0 prefill path failed ({}), falling back to hipBLAS/GEMV",
                     err
@@ -1494,11 +1517,34 @@ pub fn gpu_dispatch_gemm(
         && !meta.needs_transpose
         && super::safety::hipblas_prefill_enabled()
     {
+        let reason = if !super::safety::wmma_prefill_enabled() {
+            "wmma_disabled"
+        } else if meta.needs_transpose {
+            "needs_transpose"
+        } else if out_dim % 64 != 0 {
+            "out_dim_unaligned"
+        } else if in_dim % 32 != 0 {
+            "in_dim_unaligned"
+        } else {
+            "wmma_min_m"
+        };
+        tracing::debug!(
+            seq_len,
+            n = out_dim,
+            k = in_dim,
+            path = "hipblas",
+            reason,
+            "GEMM dispatch: hipBLAS Hgemm fallback"
+        );
         match dispatch_prefill_via_hipblas(
             device, weights, input, output, out_dim, in_dim, seq_len,
         ) {
             Ok(()) => return Ok(()),
             Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "hipBLAS prefill path failed, falling back to GEMV"
+                );
                 eprintln!(
                     "[rocmforge] hipBLAS prefill path failed ({}), falling back to GEMV",
                     err

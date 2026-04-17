@@ -674,9 +674,27 @@ fn gpu_attention_prefill(
         && config.num_heads % config.num_kv_heads == 0
         && super::safety::wmma_attention_enabled()
     {
+        let padded = seq_len.div_ceil(64) * 64;
+        tracing::debug!(
+            seq_len,
+            padded_seq_len = padded,
+            num_q_heads = config.num_heads,
+            num_kv_heads = config.num_kv_heads,
+            head_dim = config.head_dim,
+            gqa_ratio = config.num_heads / config.num_kv_heads,
+            causal = true,
+            path = "wmma_attention",
+            "Attention dispatch: WMMA FlashAttention ({}→{})",
+            seq_len,
+            padded
+        );
         match gpu_attention_prefill_wmma(scratch, seq_len, config, scale) {
             Ok(()) => return Ok(()),
             Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "WMMA prefill attention failed, falling back to scalar kernel"
+                );
                 eprintln!(
                     "[rocmforge] WMMA prefill attention failed ({}), falling back to scalar kernel",
                     err
@@ -684,6 +702,25 @@ fn gpu_attention_prefill(
                 // fall through
             }
         }
+    } else {
+        let reason = if !super::safety::wmma_attention_enabled() {
+            "wmma_disabled"
+        } else if config.head_dim != 128 {
+            "head_dim_not_128"
+        } else if config.num_heads % config.num_kv_heads != 0 {
+            "gqa_ratio_not_integer"
+        } else {
+            "seq_len_below_threshold"
+        };
+        tracing::debug!(
+            seq_len,
+            num_q_heads = config.num_heads,
+            num_kv_heads = config.num_kv_heads,
+            head_dim = config.head_dim,
+            path = "scalar_attention",
+            reason,
+            "Attention dispatch: scalar flash_attn_prefill_strided"
+        );
     }
 
     let kv_group = config.num_heads / config.num_kv_heads;
@@ -1055,9 +1092,21 @@ pub fn gpu_prefill_forward_hybrid(
         });
     }
 
+    tracing::debug!(
+        start_pos,
+        seq_len = tokens.len(),
+        buffer_seq_len = prefill.buffer_seq_len,
+        kv_max_seq_len = kv.max_seq_len,
+        num_layers = config.num_layers,
+        "KV-Cache update: writing positions {}..{}",
+        start_pos,
+        start_pos + tokens.len()
+    );
+
     gpu_embed_tokens_hybrid(tokens, gpu_weights, cpu_weights, prefill, config)?;
 
     for layer_idx in 0..config.num_layers {
+        let layer_start = std::time::Instant::now();
         gpu_prefill_layer_forward_hybrid(
             device,
             gpu_weights.layer(layer_idx),
@@ -1067,6 +1116,12 @@ pub fn gpu_prefill_forward_hybrid(
             start_pos,
             config,
         )?;
+        tracing::trace!(
+            layer = layer_idx,
+            seq_len = tokens.len(),
+            launch_us = layer_start.elapsed().as_micros() as u64,
+            "Prefill layer launched"
+        );
     }
 
     if matches!(logits_mode, GpuLogitsMode::Skip) {
@@ -1667,6 +1722,23 @@ pub fn gpu_speculative_decode_step(
         t.host_phase_end_accept_reject();
         t.finish()?;
     }
+
+    let alpha_pct = if n_drafted > 0 {
+        n_accepted as f64 / n_drafted as f64 * 100.0
+    } else {
+        0.0
+    };
+    tracing::debug!(
+        drafted = n_drafted,
+        accepted = n_accepted,
+        alpha_pct = format!("{:.1}", alpha_pct),
+        bonus = n_accepted == actual_depth && !hit_eog,
+        hit_eog,
+        "Spec-decode verify: {}/{} accepted ({:.1}%)",
+        n_accepted,
+        n_drafted,
+        alpha_pct
+    );
 
     Ok(SpecDecodeResult {
         accepted_tokens: accepted,
