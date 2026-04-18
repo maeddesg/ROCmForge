@@ -1571,6 +1571,51 @@ pub fn gpu_dispatch_gemm(
         }
     }
 
+    // Phase 4 Step 4 — Q4_1 WMMA path for the handful of FFN-down layers
+    // that mixed-precision quantizers leave at higher precision. Same
+    // alignment constraints as Q4_0; only the kernel differs.
+    if seq_len >= WMMA_PREFILL_MIN_M
+        && meta.wtype == GgmlType::Q4_1
+        && (out_dim % 64) == 0
+        && (in_dim % 32) == 0
+        && super::safety::wmma_prefill_enabled()
+    {
+        let padded_m = seq_len.div_ceil(64) * 64;
+        tracing::debug!(
+            seq_len,
+            padded_m,
+            m = seq_len,
+            n = out_dim,
+            k = in_dim,
+            path = "wmma_q4_1",
+            "GEMM dispatch: WMMA Q4_1 ({}→{})",
+            seq_len,
+            padded_m
+        );
+        match super::kernels::wmma::launch_wmma_gemm_q4_1(
+            input,
+            weights.as_ptr() as *const u8,
+            output,
+            padded_m,
+            out_dim,
+            in_dim,
+            super::ffi::hipStream_t::null(),
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "WMMA Q4_1 prefill path failed, falling back to scalar GEMM"
+                );
+                eprintln!(
+                    "[rocmforge] WMMA Q4_1 prefill path failed ({}), falling back to scalar GEMM",
+                    err
+                );
+                // fall through
+            }
+        }
+    }
+
     // hipBLAS prefill path: dequantise the Q4_0 weight tensor to FP16,
     // convert FP32 activations to FP16, call hipblasHgemm, convert the
     // output back to FP32. The threshold keeps short prefills on the
