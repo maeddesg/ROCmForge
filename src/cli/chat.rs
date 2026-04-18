@@ -431,6 +431,12 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
     };
     if dropped > 0 {
         let remaining = session.ctx.conversation_history.len() / 2;
+        tracing::debug!(
+            dropped_pairs = dropped,
+            remaining_pairs = remaining,
+            budget_tokens = budget,
+            "History truncated to fit KV-cache budget"
+        );
         println!(
             "  [context truncated: dropped {} oldest turn{}, {} turn{} remaining]",
             dropped,

@@ -1,0 +1,48 @@
+{
+  "rocm_version": "7.2.1",
+  "git_sha": "c567d59",
+  "prefill": {
+    "pp_64": {
+      "target_prompt_tokens": 64,
+      "measured_prompt_tokens_median": 65,
+      "prefill_ms_median": 137.6,
+      "prefill_tps_median": 472.3,
+      "prefill_tps_best": 473.3,
+      "runs_ms": [137.6, 137.3, 137.9],
+      "runs_tps": [472.3, 473.3, 471.3]
+    },
+    "pp_128": {
+      "target_prompt_tokens": 128,
+      "measured_prompt_tokens_median": 129,
+      "prefill_ms_median": 233.8,
+      "prefill_tps_median": 551.6,
+      "prefill_tps_best": 554.7,
+      "runs_ms": [232.6, 234.6, 233.8],
+      "runs_tps": [554.7, 549.9, 551.6]
+    },
+    "pp_256": {
+      "target_prompt_tokens": 256,
+      "measured_prompt_tokens_median": 257,
+      "prefill_ms_median": 433.4,
+      "prefill_tps_median": 593.0,
+      "prefill_tps_best": 593.2,
+      "runs_ms": [433.4, 433.2, 434.0],
+      "runs_tps": [593.0, 593.2, 592.1]
+    },
+    "pp_512": {
+      "target_prompt_tokens": 512,
+      "measured_prompt_tokens_median": 513,
+      "prefill_ms_median": 840.8,
+      "prefill_tps_median": 610.2,
+      "prefill_tps_best": 610.2,
+      "runs_ms": [840.8, 841.7, 840.7],
+      "runs_tps": [610.2, 609.5, 610.2]
+    }
+  },
+  "decode_128": {
+    "tps_median": 102.3,
+    "tps_best": 102.4,
+    "ms_median": 1250.8,
+    "runs_tps": [102.4, 102.3, 102.3]
+  }
+}

@@ -1,0 +1,2670 @@
+### code_01 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 36 tokens
+Prefill: 81.2ms (443.6 tok/s)
+
+Certainly! Below is a Python function that implements binary search on a sorted list. The function takes two parameters: the sorted list (`sorted_list`) and the target element (`target`). It returns the index of the target element if found, otherwise it returns -1.
+
+```python
+def binary_search(sorted_list, target):
+    left, right = 0, len(sorted_list) - 1
+    
+    while left <= right:
+        mid = (left + right) // 2
+        mid_value = sorted_list[mid]
+        
+        if mid_value == target:
+            return mid
+        elif mid_value < target:
+            left =
+
+128 tokens in 1257.6ms = 101.8 tok/s
+
+### code_01 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 36 tokens
+Prefill: 81.2ms (443.5 tok/s)
+
+Certainly! Below is a Python function that implements binary search on a sorted list. The function takes two parameters: the sorted list (`sorted_list`) and the target element (`target`). It returns the index of the target element if found, otherwise it returns -1.
+
+```python
+def binary_search(sorted_list, target):
+    left, right = 0, len(sorted_list) - 1
+    
+    while left <= right:
+        mid = (left + right) // 2
+        mid_value = sorted_list[mid]
+        
+        if mid_value == target:
+            return mid
+        elif mid_value < target:
+            left =
+
+128 tokens in 1256.2ms = 101.9 tok/s
+
+### code_01 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 36 tokens
+Prefill: 81.1ms (443.7 tok/s)
+
+Certainly! Below is a Python function that implements binary search on a sorted list. The function takes two parameters: the sorted list (`sorted_list`) and the target element (`target`). It returns the index of the target element if found, otherwise it returns -1.
+
+```python
+def binary_search(sorted_list, target):
+    left, right = 0, len(sorted_list) - 1
+    
+    while left <= right:
+        mid = (left + right) // 2
+        mid_value = sorted_list[mid]
+        
+        if mid_value == target:
+            return mid
+        elif mid_value < target:
+            left =
+
+128 tokens in 1257.9ms = 101.8 tok/s
+
+### code_02 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 36 tokens
+Prefill: 81.1ms (444.0 tok/s)
+
+To create a simple HTTP server in Rust that listens on port 8080 and responds to GET requests with a JSON object containing the current timestamp, you can use the `hyper` crate for handling HTTP requests and the `serde_json` crate for serializing the JSON response. Below is a complete example:
+
+1. First, add the necessary dependencies to your `Cargo.toml` file:
+
+```toml
+[dependencies]
+hyper = "0.14"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json
+
+128 tokens in 1258.1ms = 101.7 tok/s
+
+### code_02 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 36 tokens
+Prefill: 81.6ms (441.3 tok/s)
+
+To create a simple HTTP server in Rust that listens on port 8080 and responds to GET requests with a JSON object containing the current timestamp, you can use the `hyper` crate for handling HTTP requests and the `serde_json` crate for serializing the JSON response. Below is a complete example:
+
+1. First, add the necessary dependencies to your `Cargo.toml` file:
+
+```toml
+[dependencies]
+hyper = "0.14"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json
+
+128 tokens in 1257.6ms = 101.8 tok/s
+
+### code_02 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.6s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 36 tokens
+Prefill: 80.8ms (445.7 tok/s)
+
+To create a simple HTTP server in Rust that listens on port 8080 and responds to GET requests with a JSON object containing the current timestamp, you can use the `hyper` crate for handling HTTP requests and the `serde_json` crate for serializing the JSON response. Below is a complete example:
+
+1. First, add the necessary dependencies to your `Cargo.toml` file:
+
+```toml
+[dependencies]
+hyper = "0.14"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json
+
+128 tokens in 1258.2ms = 101.7 tok/s
+
+### code_03 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 49 tokens
+Prefill: 96.8ms (506.1 tok/s)
+
+Certainly! Below is a JavaScript function called `groupBy` that takes an array of objects and a key name, and returns an object where the keys are the unique values of that property, and the values are arrays of matching objects.
+
+```javascript
+function groupBy(array, key) {
+    // Create an empty object to hold the grouped results
+    const grouped = {};
+
+    // Iterate over each object in the array
+    array.forEach(obj => {
+        // Get the value of the specified key from the object
+        const keyValue = obj[key];
+
+        // If the key value is not already a key in the grouped object, initialize it
+
+128 tokens in 1262.9ms = 101.4 tok/s
+
+### code_03 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 49 tokens
+Prefill: 96.4ms (508.5 tok/s)
+
+Certainly! Below is a JavaScript function called `groupBy` that takes an array of objects and a key name, and returns an object where the keys are the unique values of that property, and the values are arrays of matching objects.
+
+```javascript
+function groupBy(array, key) {
+    // Create an empty object to hold the grouped results
+    const grouped = {};
+
+    // Iterate over each object in the array
+    array.forEach(obj => {
+        // Get the value of the specified key from the object
+        const keyValue = obj[key];
+
+        // If the key value is not already a key in the grouped object, initialize it
+
+128 tokens in 1258.8ms = 101.7 tok/s
+
+### code_03 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 49 tokens
+Prefill: 96.7ms (506.5 tok/s)
+
+Certainly! Below is a JavaScript function called `groupBy` that takes an array of objects and a key name, and returns an object where the keys are the unique values of that property, and the values are arrays of matching objects.
+
+```javascript
+function groupBy(array, key) {
+    // Create an empty object to hold the grouped results
+    const grouped = {};
+
+    // Iterate over each object in the array
+    array.forEach(obj => {
+        // Get the value of the specified key from the object
+        const keyValue = obj[key];
+
+        // If the key value is not already a key in the grouped object, initialize it
+
+128 tokens in 1261.7ms = 101.5 tok/s
+
+### code_04 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 31 tokens
+Prefill: 75.0ms (413.1 tok/s)
+
+Certainly! Below is an implementation of a Red-Black Tree in C++ with insert and search operations, including left and right rotation helper functions.
+
+```cpp
+#include <iostream>
+#include <cassert>
+
+struct Node {
+    int key;
+    char color; // 'R' for red, 'B' for black
+    Node* left;
+    Node* right;
+    Node* parent;
+
+    Node(int k) : key(k), color('R'), left(nullptr), right(nullptr), parent(nullptr) {}
+};
+
+class RedBlackTree {
+private:
+    Node* root;
+
+    // Helper functions
+    Node* rotateLeft(Node* x
+
+128 tokens in 1256.8ms = 101.8 tok/s
+
+### code_04 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 31 tokens
+Prefill: 75.1ms (413.0 tok/s)
+
+Certainly! Below is an implementation of a Red-Black Tree in C++ with insert and search operations, including left and right rotation helper functions.
+
+```cpp
+#include <iostream>
+#include <cassert>
+
+struct Node {
+    int key;
+    char color; // 'R' for red, 'B' for black
+    Node* left;
+    Node* right;
+    Node* parent;
+
+    Node(int k) : key(k), color('R'), left(nullptr), right(nullptr), parent(nullptr) {}
+};
+
+class RedBlackTree {
+private:
+    Node* root;
+
+    // Helper functions
+    Node* rotateLeft(Node* x
+
+128 tokens in 1255.5ms = 102.0 tok/s
+
+### code_04 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 31 tokens
+Prefill: 75.1ms (412.9 tok/s)
+
+Certainly! Below is an implementation of a Red-Black Tree in C++ with insert and search operations, including left and right rotation helper functions.
+
+```cpp
+#include <iostream>
+#include <cassert>
+
+struct Node {
+    int key;
+    char color; // 'R' for red, 'B' for black
+    Node* left;
+    Node* right;
+    Node* parent;
+
+    Node(int k) : key(k), color('R'), left(nullptr), right(nullptr), parent(nullptr) {}
+};
+
+class RedBlackTree {
+private:
+    Node* root;
+
+    // Helper functions
+    Node* rotateLeft(Node* x
+
+128 tokens in 1255.8ms = 101.9 tok/s
+
+### code_05 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 39 tokens
+Prefill: 85.0ms (459.0 tok/s)
+
+To write a SQL query that finds the top 5 customers by total order amount, we need to join the `customers` table with the `orders` table, aggregate the total order amount for each customer, and then order the results by the total amount in descending order. Finally, we can limit the results to the top 5 customers.
+
+Assuming the following table structures:
+
+- `customers` table with columns: `customer_id`, `name`
+- `orders` table with columns: `order_id`, `customer_id`, `amount`
+
+Here is the SQL query:
+
+```sql
+SELECT 
+    c.name,
+    SUM(o
+
+128 tokens in 1257.3ms = 101.8 tok/s
+
+### code_05 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 39 tokens
+Prefill: 84.6ms (461.3 tok/s)
+
+To write a SQL query that finds the top 5 customers by total order amount, we need to join the `customers` table with the `orders` table, aggregate the total order amount for each customer, and then order the results by the total amount in descending order. Finally, we can limit the results to the top 5 customers.
+
+Assuming the following table structures:
+
+- `customers` table with columns: `customer_id`, `name`
+- `orders` table with columns: `order_id`, `customer_id`, `amount`
+
+Here is the SQL query:
+
+```sql
+SELECT 
+    c.name,
+    SUM(o
+
+128 tokens in 1256.7ms = 101.9 tok/s
+
+### code_05 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 39 tokens
+Prefill: 84.6ms (460.9 tok/s)
+
+To write a SQL query that finds the top 5 customers by total order amount, we need to join the `customers` table with the `orders` table, aggregate the total order amount for each customer, and then order the results by the total amount in descending order. Finally, we can limit the results to the top 5 customers.
+
+Assuming the following table structures:
+
+- `customers` table with columns: `customer_id`, `name`
+- `orders` table with columns: `order_id`, `customer_id`, `amount`
+
+Here is the SQL query:
+
+```sql
+SELECT 
+    c.name,
+    SUM(o
+
+128 tokens in 1259.1ms = 101.7 tok/s
+
+### chat_01 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 30 tokens
+Prefill: 73.9ms (405.7 tok/s)
+
+Munich is a fantastic city with a rich history, delicious food, and charming neighborhoods. Here's a suggested itinerary for a weekend trip:
+
+**Day 1:**
+
+1. **Morning: Marienplatz and Old Town**
+   - Start your day at Marienplatz, the heart of Munich. Visit the New Town Hall (Neues Rathaus) and the Old Town Hall (Altes Rathaus) for their impressive architecture and historical significance.
+   - Walk around the surrounding area, including the Glockenspiel, which performs at 11:00 AM and 12:00 PM.
+
+2. **
+
+128 tokens in 1255.1ms = 102.0 tok/s
+
+### chat_01 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 30 tokens
+Prefill: 74.1ms (404.9 tok/s)
+
+Munich is a fantastic city with a rich history, delicious food, and charming neighborhoods. Here's a suggested itinerary for a weekend trip:
+
+**Day 1:**
+
+1. **Morning: Marienplatz and Old Town**
+   - Start your day at Marienplatz, the heart of Munich. Visit the New Town Hall (Neues Rathaus) and the Old Town Hall (Altes Rathaus) for their impressive architecture and historical significance.
+   - Walk around the surrounding area, including the Glockenspiel, which performs at 11:00 AM and 12:00 PM.
+
+2. **
+
+128 tokens in 1256.2ms = 101.9 tok/s
+
+### chat_01 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 30 tokens
+Prefill: 73.9ms (405.7 tok/s)
+
+Munich is a fantastic city with a rich history, delicious food, and charming neighborhoods. Here's a suggested itinerary for a weekend trip:
+
+**Day 1:**
+
+1. **Morning: Marienplatz and Old Town**
+   - Start your day at Marienplatz, the heart of Munich. Visit the New Town Hall (Neues Rathaus) and the Old Town Hall (Altes Rathaus) for their impressive architecture and historical significance.
+   - Walk around the surrounding area, including the Glockenspiel, which performs at 11:00 AM and 12:00 PM.
+
+2. **
+
+128 tokens in 1258.2ms = 101.7 tok/s
+
+### chat_02 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.4ms (418.8 tok/s)
+
+Learning a new programming language like Rust can be a rewarding experience, especially if you already have experience with Python. Here are some steps and resources to help you get started:
+
+### 1. **Understand the Basics of Rust**
+   - **Read the Book**: The official Rust book, "The Rust Programming Language," is an excellent resource. It covers the basics of Rust and is well-structured to help you understand the language's unique features.
+   - **Online Documentation**: The Rust documentation is comprehensive and can be accessed online. It includes detailed guides, tutorials, and reference materials.
+
+### 2. **Set Up Your Development Environment
+
+128 tokens in 1254.6ms = 102.0 tok/s
+
+### chat_02 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.3ms (419.2 tok/s)
+
+Learning a new programming language like Rust can be a rewarding experience, especially if you already have experience with Python. Here are some steps and resources to help you get started:
+
+### 1. **Understand the Basics of Rust**
+   - **Read the Book**: The official Rust book, "The Rust Programming Language," is an excellent resource. It covers the basics of Rust and is well-structured to help you understand the language's unique features.
+   - **Online Documentation**: The Rust documentation is comprehensive and can be accessed online. It includes detailed guides, tutorials, and reference materials.
+
+### 2. **Set Up Your Development Environment
+
+128 tokens in 1254.6ms = 102.0 tok/s
+
+### chat_02 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.3ms (419.2 tok/s)
+
+Learning a new programming language like Rust can be a rewarding experience, especially if you already have experience with Python. Here are some steps and resources to help you get started:
+
+### 1. **Understand the Basics of Rust**
+   - **Read the Book**: The official Rust book, "The Rust Programming Language," is an excellent resource. It covers the basics of Rust and is well-structured to help you understand the language's unique features.
+   - **Online Documentation**: The Rust documentation is comprehensive and can be accessed online. It includes detailed guides, tutorials, and reference materials.
+
+### 2. **Set Up Your Development Environment
+
+128 tokens in 1255.0ms = 102.0 tok/s
+
+### chat_03 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 30 tokens
+Prefill: 73.8ms (406.5 tok/s)
+
+When deciding between an electric car (EV) and a hybrid, it's important to consider several factors such as cost, range, charging infrastructure, environmental impact, and personal driving habits. Here's a breakdown of the pros and cons for each:
+
+### Electric Cars (EVs)
+
+**Pros:**
+1. **Environmental Impact:** EVs produce zero tailpipe emissions, which can significantly reduce your carbon footprint.
+2. **Cost Savings:** Over time, EVs can be cheaper to own and operate due to lower fuel costs, fewer moving parts, and lower maintenance requirements.
+3. **Performance:** EVs often provide instant torque, leading
+
+128 tokens in 1259.3ms = 101.6 tok/s
+
+### chat_03 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 30 tokens
+Prefill: 74.3ms (403.9 tok/s)
+
+When deciding between an electric car (EV) and a hybrid, it's important to consider several factors such as cost, range, charging infrastructure, environmental impact, and personal driving habits. Here's a breakdown of the pros and cons for each:
+
+### Electric Cars (EVs)
+
+**Pros:**
+1. **Environmental Impact:** EVs produce zero tailpipe emissions, which can significantly reduce your carbon footprint.
+2. **Cost Savings:** Over time, EVs can be cheaper to own and operate due to lower fuel costs, fewer moving parts, and lower maintenance requirements.
+3. **Performance:** EVs often provide instant torque, leading
+
+128 tokens in 1253.3ms = 102.1 tok/s
+
+### chat_03 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.6s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 30 tokens
+Prefill: 74.0ms (405.3 tok/s)
+
+When deciding between an electric car (EV) and a hybrid, it's important to consider several factors such as cost, range, charging infrastructure, environmental impact, and personal driving habits. Here's a breakdown of the pros and cons for each:
+
+### Electric Cars (EVs)
+
+**Pros:**
+1. **Environmental Impact:** EVs produce zero tailpipe emissions, which can significantly reduce your carbon footprint.
+2. **Cost Savings:** Over time, EVs can be cheaper to own and operate due to lower fuel costs, fewer moving parts, and lower maintenance requirements.
+3. **Performance:** EVs often provide instant torque, leading
+
+128 tokens in 1281.7ms = 99.9 tok/s
+
+### chat_04 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.5ms (418.5 tok/s)
+
+Sure! Let's start with a basic understanding of classical computers and then move on to quantum computing.
+
+### Classical Computers
+
+In a classical computer, information is processed using bits. A bit is the smallest unit of data and can have one of two values: 0 or 1. Think of it like a light switch that can be either "off" (0) or "on" (1).
+
+### Quantum Computers
+
+Quantum computers use quantum bits, or qubits, which can exist in multiple states simultaneously. This is due to a principle in quantum mechanics called superposition. In superposition, a qubit can be both 
+
+128 tokens in 1256.4ms = 101.9 tok/s
+
+### chat_04 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 79.0ms (405.0 tok/s)
+
+Sure! Let's start with a basic understanding of classical computers and then move on to quantum computing.
+
+### Classical Computers
+
+In a classical computer, information is processed using bits. A bit is the smallest unit of data and can have one of two values: 0 or 1. Think of it like a light switch that can be either "off" (0) or "on" (1).
+
+### Quantum Computers
+
+Quantum computers use quantum bits, or qubits, which can exist in multiple states simultaneously. This is due to a principle in quantum mechanics called superposition. In superposition, a qubit can be both 
+
+128 tokens in 1271.9ms = 100.6 tok/s
+
+### chat_04 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.4ms (418.8 tok/s)
+
+Sure! Let's start with a basic understanding of classical computers and then move on to quantum computing.
+
+### Classical Computers
+
+In a classical computer, information is processed using bits. A bit is the smallest unit of data and can have one of two values: 0 or 1. Think of it like a light switch that can be either "off" (0) or "on" (1).
+
+### Quantum Computers
+
+Quantum computers use quantum bits, or qubits, which can exist in multiple states simultaneously. This is due to a principle in quantum mechanics called superposition. In superposition, a qubit can be both 
+
+128 tokens in 1256.4ms = 101.9 tok/s
+
+### chat_05 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.3ms (419.1 tok/s)
+
+There are several factors that can contribute to a dense sourdough bread. Here are some common issues and solutions:
+
+1. **Inadequate Proofing Time**: Sourdough bread requires a long fermentation time to develop the right texture and flavor. If you're not allowing enough time for the dough to rise, it will be dense. Make sure to follow a recipe that includes a long proofing period, typically 12-24 hours.
+
+2. **Incorrect Sourdough Starter Ratio**: The ratio of flour to water in your sourdough starter can affect the texture of the bread. If the starter is too wet,
+
+128 tokens in 1253.8ms = 102.1 tok/s
+
+### chat_05 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.3ms (419.4 tok/s)
+
+There are several factors that can contribute to a dense sourdough bread. Here are some common issues and solutions:
+
+1. **Inadequate Proofing Time**: Sourdough bread requires a long fermentation time to develop the right texture and flavor. If you're not allowing enough time for the dough to rise, it will be dense. Make sure to follow a recipe that includes a long proofing period, typically 12-24 hours.
+
+2. **Incorrect Sourdough Starter Ratio**: The ratio of flour to water in your sourdough starter can affect the texture of the bread. If the starter is too wet,
+
+128 tokens in 1254.2ms = 102.1 tok/s
+
+### chat_05 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.2ms (420.0 tok/s)
+
+There are several factors that can contribute to a dense sourdough bread. Here are some common issues and solutions:
+
+1. **Inadequate Proofing Time**: Sourdough bread requires a long fermentation time to develop the right texture and flavor. If you're not allowing enough time for the dough to rise, it will be dense. Make sure to follow a recipe that includes a long proofing period, typically 12-24 hours.
+
+2. **Incorrect Sourdough Starter Ratio**: The ratio of flour to water in your sourdough starter can affect the texture of the bread. If the starter is too wet,
+
+128 tokens in 1254.5ms = 102.0 tok/s
+
+### prose_01 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 31 tokens
+Prefill: 75.2ms (412.4 tok/s)
+
+In the quaint coastal town of Seabrook, nestled between the whispering dunes and the crashing waves, stood an old bookshop named "Whispers of the Past." The shop was a charming little place, with its weathered wooden shutters and the scent of old books lingering in the air. The shopkeeper, an elderly woman named Mrs. Hawthorne, was known for her vast collection of rare and ancient books, but she had a secret that even the most curious of her customers never discovered.
+
+One sunny afternoon, a stray cat named Luna, with her sleek black fur and piercing green eyes, wandered into the bookshop
+
+128 tokens in 1255.0ms = 102.0 tok/s
+
+### prose_01 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 31 tokens
+Prefill: 75.3ms (411.9 tok/s)
+
+In the quaint coastal town of Seabrook, nestled between the whispering dunes and the crashing waves, stood an old bookshop named "Whispers of the Past." The shop was a charming little place, with its weathered wooden shutters and the scent of old books lingering in the air. The shopkeeper, an elderly woman named Mrs. Hawthorne, was known for her vast collection of rare and ancient books, but she had a secret that even the most curious of her customers never discovered.
+
+One sunny afternoon, a stray cat named Luna, with her sleek black fur and piercing green eyes, wandered into the bookshop
+
+128 tokens in 1254.4ms = 102.0 tok/s
+
+### prose_01 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 31 tokens
+Prefill: 75.2ms (412.0 tok/s)
+
+In the quaint coastal town of Seabrook, nestled between the whispering dunes and the crashing waves, stood an old bookshop named "Whispers of the Past." The shop was a charming little place, with its weathered wooden shutters and the scent of old books lingering in the air. The shopkeeper, an elderly woman named Mrs. Hawthorne, was known for her vast collection of rare and ancient books, but she had a secret that even the most curious of her customers never discovered.
+
+One sunny afternoon, a stray cat named Luna, with her sleek black fur and piercing green eyes, wandered into the bookshop
+
+128 tokens in 1256.5ms = 101.9 tok/s
+
+### prose_02 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 29 tokens
+Prefill: 72.8ms (398.5 tok/s)
+
+Making traditional Japanese ramen from scratch is a labor-intensive process, but the result is a delicious and authentic bowl of noodles. Here's a basic recipe to get you started:
+
+### Ingredients:
+
+#### Broth:
+- 2 lbs (1 kg) dried pork bones
+- 2 lbs (1 kg) chicken bones
+- 1 large onion, quartered
+- 2 carrots, quartered
+- 2 celery stalks, quartered
+- 2 leeks, quartered
+- 10-12 garlic cloves, smashed
+- 10-12 ginger slices
+- 10-
+
+128 tokens in 1255.6ms = 101.9 tok/s
+
+### prose_02 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 29 tokens
+Prefill: 73.0ms (397.5 tok/s)
+
+Making traditional Japanese ramen from scratch is a labor-intensive process, but the result is a delicious and authentic bowl of noodles. Here's a basic recipe to get you started:
+
+### Ingredients:
+
+#### Broth:
+- 2 lbs (1 kg) dried pork bones
+- 2 lbs (1 kg) chicken bones
+- 1 large onion, quartered
+- 2 carrots, quartered
+- 2 celery stalks, quartered
+- 2 leeks, quartered
+- 10-12 garlic cloves, smashed
+- 10-12 ginger slices
+- 10-
+
+128 tokens in 1255.0ms = 102.0 tok/s
+
+### prose_02 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 29 tokens
+Prefill: 72.8ms (398.6 tok/s)
+
+Making traditional Japanese ramen from scratch is a labor-intensive process, but the result is a delicious and authentic bowl of noodles. Here's a basic recipe to get you started:
+
+### Ingredients:
+
+#### Broth:
+- 2 lbs (1 kg) dried pork bones
+- 2 lbs (1 kg) chicken bones
+- 1 large onion, quartered
+- 2 carrots, quartered
+- 2 celery stalks, quartered
+- 2 leeks, quartered
+- 10-12 garlic cloves, smashed
+- 10-12 ginger slices
+- 10-
+
+128 tokens in 1255.9ms = 101.9 tok/s
+
+### prose_03 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.2ms (420.1 tok/s)
+
+The Silk Road was a network of trade routes that connected the East and West from the 2nd century BCE to the 15th century CE. It was named after the lucrative silk trade, but it also facilitated the exchange of goods, ideas, culture, and technology between China, India, Persia, Arabia, and Europe.
+
+The Silk Road originated in China during the Han Dynasty (206 BCE - 220 CE) and was expanded by the Tang Dynasty (618-907 CE). It consisted of several routes, including the Northern Route, the Southern Route, and the Central Route, which
+
+128 tokens in 1254.5ms = 102.0 tok/s
+
+### prose_03 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.3ms (419.4 tok/s)
+
+The Silk Road was a network of trade routes that connected the East and West from the 2nd century BCE to the 15th century CE. It was named after the lucrative silk trade, but it also facilitated the exchange of goods, ideas, culture, and technology between China, India, Persia, Arabia, and Europe.
+
+The Silk Road originated in China during the Han Dynasty (206 BCE - 220 CE) and was expanded by the Tang Dynasty (618-907 CE). It consisted of several routes, including the Northern Route, the Southern Route, and the Central Route, which
+
+128 tokens in 1256.9ms = 101.8 tok/s
+
+### prose_03 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 32 tokens
+Prefill: 76.6ms (417.6 tok/s)
+
+The Silk Road was a network of trade routes that connected the East and West from the 2nd century BCE to the 15th century CE. It was named after the lucrative silk trade, but it also facilitated the exchange of goods, ideas, culture, and technology between China, India, Persia, Arabia, and Europe.
+
+The Silk Road originated in China during the Han Dynasty (206 BCE - 220 CE) and was expanded by the Tang Dynasty (618-907 CE). It consisted of several routes, including the Northern Route, the Southern Route, and the Central Route, which
+
+128 tokens in 1256.1ms = 101.9 tok/s
+
+### prose_04 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 27 tokens
+Prefill: 70.4ms (383.6 tok/s)
+
+Classical conditioning and operant conditioning are two fundamental concepts in the field of psychology, developed by Ivan Pavlov and B.F. Skinner respectively. They both deal with learning, but through different mechanisms.
+
+**Classical Conditioning:**
+Classical conditioning is a type of learning in which a neutral stimulus becomes associated with a meaningful stimulus, leading to a conditioned response. The process involves pairing a neutral stimulus with an unconditioned stimulus that naturally elicits a response. Over time, the neutral stimulus alone can elicit the same response.
+
+- **Key Components:**
+  - **Unconditioned Stimulus (UCS):** A stimulus that
+
+128 tokens in 1255.5ms = 102.0 tok/s
+
+### prose_04 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 27 tokens
+Prefill: 70.5ms (383.1 tok/s)
+
+Classical conditioning and operant conditioning are two fundamental concepts in the field of psychology, developed by Ivan Pavlov and B.F. Skinner respectively. They both deal with learning, but through different mechanisms.
+
+**Classical Conditioning:**
+Classical conditioning is a type of learning in which a neutral stimulus becomes associated with a meaningful stimulus, leading to a conditioned response. The process involves pairing a neutral stimulus with an unconditioned stimulus that naturally elicits a response. Over time, the neutral stimulus alone can elicit the same response.
+
+- **Key Components:**
+  - **Unconditioned Stimulus (UCS):** A stimulus that
+
+128 tokens in 1253.7ms = 102.1 tok/s
+
+### prose_04 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 27 tokens
+Prefill: 70.6ms (382.7 tok/s)
+
+Classical conditioning and operant conditioning are two fundamental concepts in the field of psychology, developed by Ivan Pavlov and B.F. Skinner respectively. They both deal with learning, but through different mechanisms.
+
+**Classical Conditioning:**
+Classical conditioning is a type of learning in which a neutral stimulus becomes associated with a meaningful stimulus, leading to a conditioned response. The process involves pairing a neutral stimulus with an unconditioned stimulus that naturally elicits a response. Over time, the neutral stimulus alone can elicit the same response.
+
+- **Key Components:**
+  - **Unconditioned Stimulus (UCS):** A stimulus that
+
+128 tokens in 1256.1ms = 101.9 tok/s
+
+### prose_05 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 34 tokens
+Prefill: 78.8ms (431.7 tok/s)
+
+The lighthouse stands tall and proud on the rugged coast, its beacon piercing the misty dawn. As the first rays of the sun begin to break the horizon, the sky transforms into a breathtaking canvas of colors. The eastern sky is a gradient of deep orange and fiery red, blending into a soft pink and a touch of purple. The clouds, still tinged with the night's shadows, take on a golden hue, casting a warm glow over the rocky coast below.
+
+The sounds of the early morning are subtle yet soothing. The rhythmic crashing of waves against the shore creates a gentle lullaby, punctuated by the occasional cry
+
+128 tokens in 1256.5ms = 101.9 tok/s
+
+### prose_05 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 34 tokens
+Prefill: 78.5ms (433.0 tok/s)
+
+The lighthouse stands tall and proud on the rugged coast, its beacon piercing the misty dawn. As the first rays of the sun begin to break the horizon, the sky transforms into a breathtaking canvas of colors. The eastern sky is a gradient of deep orange and fiery red, blending into a soft pink and a touch of purple. The clouds, still tinged with the night's shadows, take on a golden hue, casting a warm glow over the rocky coast below.
+
+The sounds of the early morning are subtle yet soothing. The rhythmic crashing of waves against the shore creates a gentle lullaby, punctuated by the occasional cry
+
+128 tokens in 1256.8ms = 101.8 tok/s
+
+### prose_05 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 0.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 0.7s
+Chat template: ChatML (Qwen2/3)
+Prompt: 34 tokens
+Prefill: 79.1ms (430.0 tok/s)
+
+The lighthouse stands tall and proud on the rugged coast, its beacon piercing the misty dawn. As the first rays of the sun begin to break the horizon, the sky transforms into a breathtaking canvas of colors. The eastern sky is a gradient of deep orange and fiery red, blending into a soft pink and a touch of purple. The clouds, still tinged with the night's shadows, take on a golden hue, casting a warm glow over the rocky coast below.
+
+The sounds of the early morning are subtle yet soothing. The rhythmic crashing of waves against the shore creates a gentle lullaby, punctuated by the occasional cry
+
+128 tokens in 1257.3ms = 101.8 tok/s
+

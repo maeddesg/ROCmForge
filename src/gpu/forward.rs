@@ -674,9 +674,27 @@ fn gpu_attention_prefill(
         && config.num_heads % config.num_kv_heads == 0
         && super::safety::wmma_attention_enabled()
     {
+        let padded = seq_len.div_ceil(64) * 64;
+        tracing::debug!(
+            seq_len,
+            padded_seq_len = padded,
+            num_q_heads = config.num_heads,
+            num_kv_heads = config.num_kv_heads,
+            head_dim = config.head_dim,
+            gqa_ratio = config.num_heads / config.num_kv_heads,
+            causal = true,
+            path = "wmma_attention",
+            "Attention dispatch: WMMA FlashAttention ({}→{})",
+            seq_len,
+            padded
+        );
         match gpu_attention_prefill_wmma(scratch, seq_len, config, scale) {
             Ok(()) => return Ok(()),
             Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "WMMA prefill attention failed, falling back to scalar kernel"
+                );
                 eprintln!(
                     "[rocmforge] WMMA prefill attention failed ({}), falling back to scalar kernel",
                     err
@@ -684,6 +702,25 @@ fn gpu_attention_prefill(
                 // fall through
             }
         }
+    } else {
+        let reason = if !super::safety::wmma_attention_enabled() {
+            "wmma_disabled"
+        } else if config.head_dim != 128 {
+            "head_dim_not_128"
+        } else if config.num_heads % config.num_kv_heads != 0 {
+            "gqa_ratio_not_integer"
+        } else {
+            "seq_len_below_threshold"
+        };
+        tracing::debug!(
+            seq_len,
+            num_q_heads = config.num_heads,
+            num_kv_heads = config.num_kv_heads,
+            head_dim = config.head_dim,
+            path = "scalar_attention",
+            reason,
+            "Attention dispatch: scalar flash_attn_prefill_strided"
+        );
     }
 
     let kv_group = config.num_heads / config.num_kv_heads;
@@ -833,6 +870,33 @@ pub fn gpu_prefill_layer_forward_hybrid(
     let ff_size = config.intermediate_size;
     let eps = config.rms_norm_eps;
 
+    let profiling = super::safety::profile_prefill_ops_enabled();
+
+    // Per-op timing state — populated only when profiling is on, to keep the
+    // unprofiled hot path free of syncs and timestamp reads.
+    let mut t = std::time::Instant::now();
+    if profiling {
+        ffi::hip_device_synchronize()?;
+        t = std::time::Instant::now();
+    }
+    let mut us_norm_pre_attn = 0u64;
+    let mut us_q_proj = 0u64;
+    let mut us_k_proj = 0u64;
+    let mut us_v_proj = 0u64;
+    let mut us_qkv_bias = 0u64;
+    let mut us_rope_q = 0u64;
+    let mut us_rope_k = 0u64;
+    let mut us_kv_write = 0u64;
+    let mut us_attention = 0u64;
+    let mut us_o_proj = 0u64;
+    let mut us_residual_attn = 0u64;
+    let mut us_norm_pre_ffn = 0u64;
+    let mut us_gate_proj = 0u64;
+    let mut us_up_proj = 0u64;
+    let mut us_silu_mul = 0u64;
+    let mut us_down_proj = 0u64;
+    let mut us_residual_ffn = 0u64;
+
     gpu_rms_norm_rows(
         scratch.hidden.as_ptr() as *const f32,
         gpu_layer.attn_norm.as_ptr() as *const f32,
@@ -841,6 +905,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
         h,
         eps,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_norm_pre_attn = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
 
     gpu_project_rows(
         device,
@@ -852,6 +917,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
         q_size,
         h,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_q_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
     gpu_project_rows(
         device,
         &gpu_layer.attn_k,
@@ -862,6 +928,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
         kv_size,
         h,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_k_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
     gpu_project_rows(
         device,
         &gpu_layer.attn_v,
@@ -872,6 +939,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
         kv_size,
         h,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_v_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
 
     if let Some(bq) = &gpu_layer.attn_q_bias {
         add_batched(
@@ -900,6 +968,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
             seq_len,
         )?;
     }
+    if profiling { ffi::hip_device_synchronize()?; us_qkv_bias = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
 
     gpu_rope_rows(
         scratch.q.as_ptr() as *mut f32,
@@ -910,6 +979,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
         config.rope_theta,
         config.rope_neox,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_rope_q = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
     gpu_rope_rows(
         scratch.k.as_ptr() as *mut f32,
         start_pos,
@@ -919,6 +989,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
         config.rope_theta,
         config.rope_neox,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_rope_k = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
 
     kv.write_batched(
         layer_idx,
@@ -927,8 +998,10 @@ pub fn gpu_prefill_layer_forward_hybrid(
         scratch.k.as_ptr() as *const f32,
         scratch.v.as_ptr() as *const f32,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_kv_write = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
 
     gpu_attention_prefill(scratch, seq_len, config)?;
+    if profiling { ffi::hip_device_synchronize()?; us_attention = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
 
     gpu_project_rows(
         device,
@@ -940,12 +1013,14 @@ pub fn gpu_prefill_layer_forward_hybrid(
         h,
         q_size,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_o_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
     add(
         scratch.hidden.as_ptr() as *const f32,
         scratch.layer_out.as_ptr() as *const f32,
         scratch.hidden.as_ptr() as *mut f32,
         seq_len * h,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_residual_attn = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
 
     gpu_rms_norm_rows(
         scratch.hidden.as_ptr() as *const f32,
@@ -955,26 +1030,48 @@ pub fn gpu_prefill_layer_forward_hybrid(
         h,
         eps,
     )?;
-    gpu_project_rows(
-        device,
+    if profiling { ffi::hip_device_synchronize()?; us_norm_pre_ffn = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
+    // Phase 4 Step 3 — try the fused Gate+Up WMMA dispatch; on any
+    // precondition failure (wrong wtype, bad alignment, WMMA disabled)
+    // fall back to two independent projections.
+    let fused_ok = super::ops::gpu_try_dispatch_fused_gate_up_prefill(
         &gpu_layer.ffn_gate,
         &gpu_layer.ffn_gate_meta,
-        scratch.normed.as_ptr() as *const f32,
-        scratch.gate.as_ptr() as *mut f32,
-        seq_len,
-        ff_size,
-        h,
-    )?;
-    gpu_project_rows(
-        device,
         &gpu_layer.ffn_up,
         &gpu_layer.ffn_up_meta,
         scratch.normed.as_ptr() as *const f32,
+        scratch.gate.as_ptr() as *mut f32,
         scratch.swiglu.as_ptr() as *mut f32,
-        seq_len,
         ff_size,
         h,
+        seq_len,
     )?;
+    if fused_ok {
+        if profiling { ffi::hip_device_synchronize()?; us_gate_proj = t.elapsed().as_micros() as u64; us_up_proj = 0; t = std::time::Instant::now(); }
+    } else {
+        gpu_project_rows(
+            device,
+            &gpu_layer.ffn_gate,
+            &gpu_layer.ffn_gate_meta,
+            scratch.normed.as_ptr() as *const f32,
+            scratch.gate.as_ptr() as *mut f32,
+            seq_len,
+            ff_size,
+            h,
+        )?;
+        if profiling { ffi::hip_device_synchronize()?; us_gate_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
+        gpu_project_rows(
+            device,
+            &gpu_layer.ffn_up,
+            &gpu_layer.ffn_up_meta,
+            scratch.normed.as_ptr() as *const f32,
+            scratch.swiglu.as_ptr() as *mut f32,
+            seq_len,
+            ff_size,
+            h,
+        )?;
+        if profiling { ffi::hip_device_synchronize()?; us_up_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
+    }
 
     silu(
         scratch.gate.as_ptr() as *const f32,
@@ -987,6 +1084,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
         scratch.swiglu.as_ptr() as *mut f32,
         seq_len * ff_size,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_silu_mul = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
     gpu_project_rows(
         device,
         &gpu_layer.ffn_down,
@@ -997,12 +1095,44 @@ pub fn gpu_prefill_layer_forward_hybrid(
         h,
         ff_size,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_down_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
     add(
         scratch.hidden.as_ptr() as *const f32,
         scratch.layer_out.as_ptr() as *const f32,
         scratch.hidden.as_ptr() as *mut f32,
         seq_len * h,
     )?;
+    if profiling { ffi::hip_device_synchronize()?; us_residual_ffn = t.elapsed().as_micros() as u64; }
+
+    if profiling {
+        let total_us = us_norm_pre_attn + us_q_proj + us_k_proj + us_v_proj + us_qkv_bias
+            + us_rope_q + us_rope_k + us_kv_write + us_attention + us_o_proj
+            + us_residual_attn + us_norm_pre_ffn + us_gate_proj + us_up_proj
+            + us_silu_mul + us_down_proj + us_residual_ffn;
+        tracing::info!(
+            layer = layer_idx,
+            seq_len,
+            norm_pre_attn_us = us_norm_pre_attn,
+            q_proj_us = us_q_proj,
+            k_proj_us = us_k_proj,
+            v_proj_us = us_v_proj,
+            qkv_bias_us = us_qkv_bias,
+            rope_q_us = us_rope_q,
+            rope_k_us = us_rope_k,
+            kv_write_us = us_kv_write,
+            attention_us = us_attention,
+            o_proj_us = us_o_proj,
+            residual_attn_us = us_residual_attn,
+            norm_pre_ffn_us = us_norm_pre_ffn,
+            gate_proj_us = us_gate_proj,
+            up_proj_us = us_up_proj,
+            silu_mul_us = us_silu_mul,
+            down_proj_us = us_down_proj,
+            residual_ffn_us = us_residual_ffn,
+            total_us,
+            "Prefill layer profiling"
+        );
+    }
 
     Ok(())
 }
@@ -1055,9 +1185,30 @@ pub fn gpu_prefill_forward_hybrid(
         });
     }
 
-    gpu_embed_tokens_hybrid(tokens, gpu_weights, cpu_weights, prefill, config)?;
+    tracing::debug!(
+        start_pos,
+        seq_len = tokens.len(),
+        buffer_seq_len = prefill.buffer_seq_len,
+        kv_max_seq_len = kv.max_seq_len,
+        num_layers = config.num_layers,
+        "KV-Cache update: writing positions {}..{}",
+        start_pos,
+        start_pos + tokens.len()
+    );
 
+    let profiling = super::safety::profile_prefill_ops_enabled();
+    let t_total_start = std::time::Instant::now();
+
+    let t_embed_start = std::time::Instant::now();
+    gpu_embed_tokens_hybrid(tokens, gpu_weights, cpu_weights, prefill, config)?;
+    let us_embed = if profiling {
+        ffi::hip_device_synchronize()?;
+        t_embed_start.elapsed().as_micros() as u64
+    } else { 0 };
+
+    let t_layers_start = std::time::Instant::now();
     for layer_idx in 0..config.num_layers {
+        let layer_start = std::time::Instant::now();
         gpu_prefill_layer_forward_hybrid(
             device,
             gpu_weights.layer(layer_idx),
@@ -1067,9 +1218,35 @@ pub fn gpu_prefill_forward_hybrid(
             start_pos,
             config,
         )?;
+        tracing::trace!(
+            layer = layer_idx,
+            seq_len = tokens.len(),
+            launch_us = layer_start.elapsed().as_micros() as u64,
+            "Prefill layer launched"
+        );
     }
+    let us_layers = if profiling {
+        ffi::hip_device_synchronize()?;
+        t_layers_start.elapsed().as_micros() as u64
+    } else { 0 };
 
     if matches!(logits_mode, GpuLogitsMode::Skip) {
+        if profiling {
+            let us_total = t_total_start.elapsed().as_micros() as u64;
+            let accounted = us_embed + us_layers;
+            let us_unaccounted = us_total.saturating_sub(accounted);
+            tracing::info!(
+                seq_len = tokens.len(),
+                embed_us = us_embed,
+                layers_us = us_layers,
+                final_norm_us = 0u64,
+                lm_head_us = 0u64,
+                total_us = us_total,
+                unaccounted_us = us_unaccounted,
+                logits_mode = "skip",
+                "Prefill top-level profiling"
+            );
+        }
         return Ok(None);
     }
 
@@ -1077,6 +1254,8 @@ pub fn gpu_prefill_forward_hybrid(
     let v = config.vocab_size;
     let last_hidden =
         unsafe { (prefill.hidden.as_ptr() as *const f32).add((tokens.len() - 1) * h) };
+
+    let t_final_norm_start = std::time::Instant::now();
     rms_norm(
         last_hidden,
         gpu_weights.output_norm.as_ptr() as *const f32,
@@ -1084,8 +1263,13 @@ pub fn gpu_prefill_forward_hybrid(
         h,
         config.rms_norm_eps,
     )?;
+    let us_final_norm = if profiling {
+        ffi::hip_device_synchronize()?;
+        t_final_norm_start.elapsed().as_micros() as u64
+    } else { 0 };
 
-    match gpu_dispatch_gemv(
+    let t_lm_head_start = std::time::Instant::now();
+    let lm_result = gpu_dispatch_gemv(
         device,
         &gpu_weights.lm_head,
         &gpu_weights.lm_head_meta,
@@ -1093,7 +1277,29 @@ pub fn gpu_prefill_forward_hybrid(
         decode_scratch.logits.as_ptr() as *mut f32,
         v,
         h,
-    ) {
+    );
+    let us_lm_head = if profiling {
+        ffi::hip_device_synchronize()?;
+        t_lm_head_start.elapsed().as_micros() as u64
+    } else { 0 };
+
+    if profiling {
+        let us_total = t_total_start.elapsed().as_micros() as u64;
+        let accounted = us_embed + us_layers + us_final_norm + us_lm_head;
+        let us_unaccounted = us_total.saturating_sub(accounted);
+        tracing::info!(
+            seq_len = tokens.len(),
+            embed_us = us_embed,
+            layers_us = us_layers,
+            final_norm_us = us_final_norm,
+            lm_head_us = us_lm_head,
+            total_us = us_total,
+            unaccounted_us = us_unaccounted,
+            "Prefill top-level profiling"
+        );
+    }
+
+    match lm_result {
         Ok(()) => match logits_mode {
             GpuLogitsMode::DownloadToHost => {
                 download_f32(&decode_scratch.logits, &mut host_scratch.logits[..v])?;
@@ -1667,6 +1873,23 @@ pub fn gpu_speculative_decode_step(
         t.host_phase_end_accept_reject();
         t.finish()?;
     }
+
+    let alpha_pct = if n_drafted > 0 {
+        n_accepted as f64 / n_drafted as f64 * 100.0
+    } else {
+        0.0
+    };
+    tracing::debug!(
+        drafted = n_drafted,
+        accepted = n_accepted,
+        alpha_pct = format!("{:.1}", alpha_pct),
+        bonus = n_accepted == actual_depth && !hit_eog,
+        hit_eog,
+        "Spec-decode verify: {}/{} accepted ({:.1}%)",
+        n_accepted,
+        n_drafted,
+        alpha_pct
+    );
 
     Ok(SpecDecodeResult {
         accepted_tokens: accepted,

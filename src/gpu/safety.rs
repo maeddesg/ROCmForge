@@ -26,6 +26,7 @@ pub const DISABLE_BATCHED_LM_HEAD_ENV: &str = "ROCMFORGE_DISABLE_BATCHED_LM_HEAD
 pub const DISABLE_HIPBLAS_PREFILL_ENV: &str = "ROCMFORGE_DISABLE_HIPBLAS_PREFILL";
 pub const DISABLE_WMMA_PREFILL_ENV: &str = "ROCMFORGE_DISABLE_WMMA_PREFILL";
 pub const DISABLE_WMMA_ATTENTION_ENV: &str = "ROCMFORGE_DISABLE_WMMA_ATTENTION";
+pub const PROFILE_PREFILL_OPS_ENV: &str = "ROCMFORGE_PROFILE_PREFILL_OPS";
 
 const ENV_UNKNOWN: u8 = 0;
 const ENV_DISABLED: u8 = 1;
@@ -99,6 +100,8 @@ static DISABLE_WMMA_PREFILL_FLAG: CachedEnvFlag =
 // is a multiple of 64. 300-500× faster than the scalar per-head kernel.
 static DISABLE_WMMA_ATTENTION_FLAG: CachedEnvFlag =
     CachedEnvFlag::new(DISABLE_WMMA_ATTENTION_ENV, false);
+static PROFILE_PREFILL_OPS_FLAG: CachedEnvFlag =
+    CachedEnvFlag::new(PROFILE_PREFILL_OPS_ENV, false);
 static DECODE_GRAPH_RUNTIME_DISABLED: AtomicBool = AtomicBool::new(false);
 static Q8_ACTIVATION_FASTPATH_RUNTIME_DISABLED: AtomicBool = AtomicBool::new(false);
 static DECODE_GRAPH_RUNTIME_DISABLE_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -133,6 +136,7 @@ pub fn refresh_runtime_env_flags() {
     DISABLE_HIPBLAS_PREFILL_FLAG.reset();
     DISABLE_WMMA_PREFILL_FLAG.reset();
     DISABLE_WMMA_ATTENTION_FLAG.reset();
+    PROFILE_PREFILL_OPS_FLAG.reset();
     DECODE_GRAPH_RUNTIME_DISABLED.store(false, Ordering::Relaxed);
     Q8_ACTIVATION_FASTPATH_RUNTIME_DISABLED.store(false, Ordering::Relaxed);
     DECODE_GRAPH_RUNTIME_DISABLE_LOGGED.store(false, Ordering::Relaxed);
@@ -214,6 +218,14 @@ pub fn wmma_prefill_enabled() -> bool {
 
 pub fn wmma_attention_enabled() -> bool {
     !gpu_safe_mode_enabled() && !DISABLE_WMMA_ATTENTION_FLAG.enabled()
+}
+
+/// Per-operation prefill profiling. Enables hipDeviceSynchronize around every
+/// op inside the prefill forward pass and emits a `tracing::info!` event per
+/// layer plus a top-level summary. Adds ~2–3 ms of synchronisation overhead,
+/// so must stay off outside of profiling runs.
+pub fn profile_prefill_ops_enabled() -> bool {
+    PROFILE_PREFILL_OPS_FLAG.enabled()
 }
 
 pub fn decode_graph_runtime_disabled() -> bool {

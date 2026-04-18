@@ -2,6 +2,116 @@
 
 ## [Unreleased]
 
+### Phase 4 Step 4 — Q4_1 WMMA prefill kernel
+
+- `hip_kernels/wmma/wmma_gemm_q4_1.hip` — structural copy of the Q4_0
+  WMMA kernel with three changes: 20-byte Q4_1 block (2 B scale +
+  2 B min + 16 B nibbles), nibble offset shifted to byte 4, dequant
+  formula `nib · scale + min`. K-loop, WMMA issue, LDS layout and
+  output store are byte-identical to the Q4_0 kernel.
+- Closes the last scalar-fallback path: on Qwen2.5-7B-Q4_0, 3 of 28
+  `ffn_down` layers are stored as Q4_1 by mixed-precision quantisers
+  (`llama-quantize`'s "pure Q4_0" isn't pure). These 3 layers dropped
+  from ~10 ms/layer on `gemm_q4_1_f32` to ~1.9 ms/layer on WMMA.
+- Dispatch log at pp256 now shows 0 scalar fallbacks:
+  `137× wmma_q4_0 + 28× wmma_q4_0_fused_gate_up + 3× wmma_q4_1`.
+- `tests/wmma_q4_1_correctness.rs`: 4 tests, all bit-identical against
+  a CPU-dequant + Phase 2a FP16 WMMA reference. Includes a byte-level
+  single-block smoke test that pins the 20-byte stride, byte-2 min
+  offset, and byte-4 nibble offset.
+- Prefill pp256: 206.4 → 182.5 ms (−11.6 %). pp256 throughput 1,308 →
+  1,484 tok/s (+13.4 %). pp512: 1,461 → 1,693 tok/s (+15.8 %).
+- Cumulative Phase 4 (Step 1 → 4): pp256 prefill 441 → 182 ms (2.42×),
+  pp256 tok/s 593 → 1,484 (+150 %), pp512 610 → 1,693 (+178 %).
+
+### Phase 4 Step 3 — Fused Gate+Up WMMA prefill
+
+- `hip_kernels/wmma/wmma_gemm_q4_0_fused_gate_up.hip` — one dispatch
+  computes `D_gate = A · W_gate^T` and `D_up = A · W_up^T` in a single
+  kernel launch. Grid is 2× wider in the X dimension; each thread
+  block picks its weight / output pointer based on `blockIdx.x`.
+- One fewer launch per layer (28 → 0 launches eliminated × one per
+  layer). Infrastructure in place for future activation-tile reuse
+  across projections.
+- Small end-to-end gain (pp256 prefill 208.3 → 206.4 ms, ~1 %) because
+  the Gate/Up GEMM was already close to the isolated-kernel optimum;
+  the saving is launch overhead, not input-bandwidth.
+- Correctness: 5 test suites green, greedy-decode output coherent.
+
+### Phase 4 Step 2 — FFN-down dispatch fix (the big one)
+
+- Identified and fixed the single largest lever in the entire project:
+  `ffn_down` had `needs_transpose = true` and both fast paths (WMMA
+  and hipBLAS) had a `!meta.needs_transpose` guard, sending all 28
+  `ffn_down` dispatches to the unoptimised scalar `gemm_q4_0_f32` /
+  `gemm_q4_1_f32` fallbacks at ~10,988 µs per layer.
+- **Step 2.1**: routed `ffn_down` through hipBLAS (one-line change
+  plus a `weight_transposed: bool` parameter through
+  `hgemm_row_major`). 25 Q4_0 `ffn_down` layers dropped to ~5 ms each.
+  Prefill pp256: 441 → 300 ms.
+- **Step 2.2**: analysis proved that the GGUF physical layout for
+  `ffn_down` is byte-identical to the WMMA kernel's expected layout
+  (CPU `gemm_q4_0_transposed_gemm` addresses the same bytes with the
+  same `(o · num_blocks + b) · 18` formula). Removed the
+  `!meta.needs_transpose` guard from the WMMA dispatch path (single
+  line deleted). Those 25 layers now run at ~1.66 µs each — the
+  isolated-kernel number. Prefill pp256: 300 → 208 ms, throughput 904
+  → 1,308 tok/s.
+
+### Phase 4 Step 1 — Per-operation prefill profiling
+
+- `ROCMFORGE_PROFILE_PREFILL_OPS=1` + `ffi::hip_device_synchronize()`:
+  every op in the prefill forward pass gets bracketed with a device
+  sync and emits one `tracing::info!` event per layer plus a top-level
+  summary. Overhead is ~30 ms (~7 %), off by default.
+- Per-op profiler aggregator: `profiling/aggregate_prefill_overhead.py`
+  parses the trace log and emits the four analysis tables.
+- Overturned the pre-study hypothesis that "295 ms of norm/RoPE/residual
+  overhead" dominates prefill. Actual measurement at pp256:
+  GEMM = 94.7 %, Attention = 2.2 %, everything-else combined = 3.1 %.
+  Within GEMM, `down_proj` alone was 69 %, making it the single
+  biggest lever in the project.
+- Report: `profiling/results/prefill_overhead_analysis.md`.
+
+### Phase 5 — Interactive chat CLI
+
+- `rocmforge chat` subcommand with multi-turn conversations, Qwen2.5
+  ChatML template, streaming token output, slash commands, Ctrl+C to
+  interrupt generation.
+- Slash commands: `/help`, `/quit`, `/exit`, `/clear`, `/stats`,
+  `/system <text>`.
+- Startup banner shows GPU / model / WMMA status / VRAM usage.
+- Multi-turn: each turn re-prefills the full conversation history
+  (no KV-cache persistence yet; linear growth in TTFT).
+- `--draft-model` is recognised in the chat subcommand but currently
+  ignored; use the one-shot path for speculative decoding.
+
+### Phase 4 Step 0 — Logging infrastructure
+
+- `tracing` + `tracing-subscriber` with `EnvFilter`. Default level
+  `warn` (silent). `RUST_LOG=debug` surfaces kernel dispatch choices;
+  `RUST_LOG=trace` adds per-layer launch latency.
+- `rocmforge::logging::init()` at startup, opt-in structured output
+  to stderr.
+
+### ROCm upgrade validation
+
+- `benches/rocm_validate.fish` — reusable validation suite with three
+  parts: build fingerprint (compiler / runtime versions + WMMA
+  intrinsic check), synthetic prefill at pp64/128/256/512, layer
+  timing single-shot, and 15-prompt real benchmark with answer dumps.
+  Writes per-artifact JSON plus a top-level `summary.json`.
+- `benches/rocm_diff.fish` — compares two baseline directories and
+  emits a BUILD / CORRECTNESS / PERFORMANCE / VERDICT report to stdout
+  and Markdown. Uses `jq` when available, `python3` as a fallback.
+  Tolerance bands: ±5 % ✅ / ±10 % ⚠️ / >10 % ❌.
+- Validated ROCm 7.2.1 → 7.2.2 upgrade with zero functional
+  regressions; the Phase-3-vs-Phase-4 diff on ROCm 7.2.2 (same
+  runtime, different binary) shows the full Phase 4 speedup in the
+  Performance section.
+- Canonical Post-Phase-4 baseline:
+  `benches/results/rocm_baseline/rocm_7.2.2_1776519824/`.
+
 ### WMMA dispatch threshold lowered to `seq_len ≥ 1` (Phase 3.2)
 
 - `WMMA_PREFILL_MIN_M` dropped from 64 to 1 in `gpu_dispatch_gemm`,

@@ -1,0 +1,1379 @@
+warning: rocmforge@0.1.0: Compiling HIP kernel: norm
+warning: rocmforge@0.1.0: Detected GPU arch: gfx1201
+warning: rocmforge@0.1.0: Compiling HIP kernel: norm_vulkan_style
+warning: rocmforge@0.1.0: Detected GPU arch: gfx1201
+warning: rocmforge@0.1.0: Compiling HIP kernel: rope
+warning: rocmforge@0.1.0: Detected GPU arch: gfx1201
+warning: rocmforge@0.1.0: Kernel source hip_kernels/matmul.hip not found, skipping
+warning: rocmforge@0.1.0: Compiling HIP kernel: elementwise
+warning: rocmforge@0.1.0: Detected GPU arch: gfx1201
+warning: rocmforge@0.1.0: Compiling HIP kernel: attention
+warning: rocmforge@0.1.0: Detected GPU arch: gfx1201
+warning: rocmforge@0.1.0: Compiling quantization kernels with CMake
+warning: unused import: `Path`
+ --> src/bench/discovery.rs:7:17
+  |
+7 | use std::path::{Path, PathBuf};
+  |                 ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::collections::HashMap`
+ --> src/bench/reporter.rs:6:5
+  |
+6 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Q5_0_BLOCK_BYTES`, `Q5_0_BLOCK_ELEMS`, and `Q8_BLOCK_ELEMS`
+  --> src/cpu/kernels/gemm_q5_0_q8.rs:12:25
+   |
+12 | use crate::cpu::quant::{Q5_0_BLOCK_BYTES, Q5_0_BLOCK_ELEMS, Q8_BLOCK_BYTES, Q8_BLOCK_ELEMS};
+   |                         ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^                  ^^^^^^^^^^^^^^
+
+warning: unnecessary parentheses around assigned value
+   --> src/cpu/kernels/gemm_q5_0_q8.rs:107:21
+    |
+107 |         qx[i * 2] = (((h0 | l0) as i8).wrapping_sub(16));
+    |                     ^                                  ^
+    |
+    = note: `#[warn(unused_parens)]` (part of `#[warn(unused)]`) on by default
+help: remove these parentheses
+    |
+107 -         qx[i * 2] = (((h0 | l0) as i8).wrapping_sub(16));
+107 +         qx[i * 2] = ((h0 | l0) as i8).wrapping_sub(16);
+    |
+
+warning: unnecessary parentheses around assigned value
+   --> src/cpu/kernels/gemm_q5_0_q8.rs:111:25
+    |
+111 |         qx[i * 2 + 1] = (((h1 | l1) as i8).wrapping_sub(16));
+    |                         ^                                  ^
+    |
+help: remove these parentheses
+    |
+111 -         qx[i * 2 + 1] = (((h1 | l1) as i8).wrapping_sub(16));
+111 +         qx[i * 2 + 1] = ((h1 | l1) as i8).wrapping_sub(16);
+    |
+
+warning: unnecessary parentheses around block return value
+   --> src/cpu/kernels/q4.rs:201:17
+    |
+201 |                 ((self.scales[scale_idx] >> 6) & 0x3F)
+    |                 ^                                    ^
+    |
+help: remove these parentheses
+    |
+201 -                 ((self.scales[scale_idx] >> 6) & 0x3F)
+201 +                 (self.scales[scale_idx] >> 6) & 0x3F
+    |
+
+warning: unnecessary parentheses around block return value
+   --> src/cpu/kernels/q4.rs:234:25
+    |
+234 |                         ((self.scales[min_idx + 1] & 0x0F) << 2)
+    |                         ^                                      ^
+    |
+help: remove these parentheses
+    |
+234 -                         ((self.scales[min_idx + 1] & 0x0F) << 2)
+234 +                         (self.scales[min_idx + 1] & 0x0F) << 2
+    |
+
+warning: unused import: `embed_q4_1_batch`
+  --> src/cpu/prefill.rs:14:58
+   |
+14 |     embed_f32_batch, embed_q3_k_batch, embed_q4_0_batch, embed_q4_1_batch, embed_q4_k_batch,
+   |                                                          ^^^^^^^^^^^^^^^^
+
+warning: unused imports: `GpuError` and `GpuResult`
+ --> src/gpu/detect.rs:7:20
+  |
+7 | use super::error::{GpuError, GpuResult};
+  |                    ^^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `DeviceInfo`
+ --> src/gpu/detect.rs:8:24
+  |
+8 | use super::ffi::{self, DeviceInfo};
+  |                        ^^^^^^^^^^
+
+warning: unused import: `std::ffi::CStr`
+  --> src/gpu/dynamic_loader.rs:10:5
+   |
+10 | use std::ffi::CStr;
+   |     ^^^^^^^^^^^^^^
+
+warning: unused import: `c_char`
+  --> src/gpu/dynamic_loader.rs:12:20
+   |
+12 | use std::os::raw::{c_char, c_int, c_void};
+   |                    ^^^^^^
+
+warning: unused import: `std::sync::OnceLock`
+  --> src/gpu/dynamic_loader.rs:14:5
+   |
+14 | use std::sync::OnceLock;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: variant `hipSuccess` should have an upper camel case name
+  --> src/gpu/ffi.rs:48:5
+   |
+48 |     hipSuccess = 0,
+   |     ^^^^^^^^^^ help: convert the identifier to upper camel case: `HipSuccess`
+   |
+   = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: variant `hipErrorInvalidValue` should have an upper camel case name
+  --> src/gpu/ffi.rs:49:5
+   |
+49 |     hipErrorInvalidValue = 1,
+   |     ^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipErrorInvalidValue`
+
+warning: variant `hipErrorOutOfMemory` should have an upper camel case name
+  --> src/gpu/ffi.rs:50:5
+   |
+50 |     hipErrorOutOfMemory = 2,
+   |     ^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipErrorOutOfMemory`
+
+warning: variant `hipErrorNotInitialized` should have an upper camel case name
+  --> src/gpu/ffi.rs:51:5
+   |
+51 |     hipErrorNotInitialized = 3,
+   |     ^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipErrorNotInitialized`
+
+warning: variant `hipErrorInvalidDeviceFunction` should have an upper camel case name
+  --> src/gpu/ffi.rs:52:5
+   |
+52 |     hipErrorInvalidDeviceFunction = 98,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipErrorInvalidDeviceFunction`
+
+warning: variant `hipErrorInvalidDevice` should have an upper camel case name
+  --> src/gpu/ffi.rs:53:5
+   |
+53 |     hipErrorInvalidDevice = 101,
+   |     ^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipErrorInvalidDevice`
+
+warning: variant `hipErrorInvalidContext` should have an upper camel case name
+  --> src/gpu/ffi.rs:54:5
+   |
+54 |     hipErrorInvalidContext = 201,
+   |     ^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipErrorInvalidContext`
+
+warning: variant `hipErrorIllegalState` should have an upper camel case name
+  --> src/gpu/ffi.rs:55:5
+   |
+55 |     hipErrorIllegalState = 401,
+   |     ^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipErrorIllegalState`
+
+warning: variant `hipErrorNotSupported` should have an upper camel case name
+  --> src/gpu/ffi.rs:56:5
+   |
+56 |     hipErrorNotSupported = 801,
+   |     ^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipErrorNotSupported`
+
+warning: variant `hipErrorStreamCaptureImplicit` should have an upper camel case name
+  --> src/gpu/ffi.rs:57:5
+   |
+57 |     hipErrorStreamCaptureImplicit = 906,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipErrorStreamCaptureImplicit`
+
+warning: variant `hipErrorUnknown` should have an upper camel case name
+  --> src/gpu/ffi.rs:58:5
+   |
+58 |     hipErrorUnknown = 999,
+   |     ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipErrorUnknown`
+
+warning: variant `hipGraphExecUpdateSuccess` should have an upper camel case name
+  --> src/gpu/ffi.rs:64:5
+   |
+64 |     hipGraphExecUpdateSuccess = 0x0,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphExecUpdateSuccess`
+
+warning: variant `hipGraphExecUpdateError` should have an upper camel case name
+  --> src/gpu/ffi.rs:65:5
+   |
+65 |     hipGraphExecUpdateError = 0x1,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphExecUpdateError`
+
+warning: variant `hipGraphExecUpdateErrorTopologyChanged` should have an upper camel case name
+  --> src/gpu/ffi.rs:66:5
+   |
+66 |     hipGraphExecUpdateErrorTopologyChanged = 0x2,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphExecUpdateErrorTopologyChanged`
+
+warning: variant `hipGraphExecUpdateErrorAttributesChanged` should have an upper camel case name
+  --> src/gpu/ffi.rs:67:5
+   |
+67 |     hipGraphExecUpdateErrorAttributesChanged = 0x3,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphExecUpdateErrorAttributesChanged`
+
+warning: variant `hipGraphExecUpdateErrorFunctionChanged` should have an upper camel case name
+  --> src/gpu/ffi.rs:68:5
+   |
+68 |     hipGraphExecUpdateErrorFunctionChanged = 0x4,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphExecUpdateErrorFunctionChanged`
+
+warning: variant `hipGraphExecUpdateErrorParametersChanged` should have an upper camel case name
+  --> src/gpu/ffi.rs:69:5
+   |
+69 |     hipGraphExecUpdateErrorParametersChanged = 0x5,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphExecUpdateErrorParametersChanged`
+
+warning: variant `hipGraphExecUpdateErrorNotSupported` should have an upper camel case name
+  --> src/gpu/ffi.rs:70:5
+   |
+70 |     hipGraphExecUpdateErrorNotSupported = 0x6,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphExecUpdateErrorNotSupported`
+
+warning: variant `hipGraphExecUpdateErrorUnsupportedFunctionChange` should have an upper camel case name
+  --> src/gpu/ffi.rs:71:5
+   |
+71 |     hipGraphExecUpdateErrorUnsupportedFunctionChange = 0x7,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphExecUpdateErrorUnsupportedFunctionChange`
+
+warning: variant `hipMemcpyHostToDevice` should have an upper camel case name
+   --> src/gpu/ffi.rs:537:5
+    |
+537 |     hipMemcpyHostToDevice = 1,
+    |     ^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipMemcpyHostToDevice`
+
+warning: variant `hipMemcpyDeviceToHost` should have an upper camel case name
+   --> src/gpu/ffi.rs:538:5
+    |
+538 |     hipMemcpyDeviceToHost = 2,
+    |     ^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipMemcpyDeviceToHost`
+
+warning: variant `hipMemcpyDeviceToDevice` should have an upper camel case name
+   --> src/gpu/ffi.rs:539:5
+    |
+539 |     hipMemcpyDeviceToDevice = 3,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipMemcpyDeviceToDevice`
+
+warning: variant `hipGraphNodeTypeKernel` should have an upper camel case name
+   --> src/gpu/ffi.rs:647:5
+    |
+647 |     hipGraphNodeTypeKernel = 0,
+    |     ^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeKernel`
+
+warning: variant `hipGraphNodeTypeMemcpy` should have an upper camel case name
+   --> src/gpu/ffi.rs:648:5
+    |
+648 |     hipGraphNodeTypeMemcpy = 1,
+    |     ^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeMemcpy`
+
+warning: variant `hipGraphNodeTypeMemset` should have an upper camel case name
+   --> src/gpu/ffi.rs:649:5
+    |
+649 |     hipGraphNodeTypeMemset = 2,
+    |     ^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeMemset`
+
+warning: variant `hipGraphNodeTypeHost` should have an upper camel case name
+   --> src/gpu/ffi.rs:650:5
+    |
+650 |     hipGraphNodeTypeHost = 3,
+    |     ^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeHost`
+
+warning: variant `hipGraphNodeTypeGraph` should have an upper camel case name
+   --> src/gpu/ffi.rs:651:5
+    |
+651 |     hipGraphNodeTypeGraph = 4,
+    |     ^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeGraph`
+
+warning: variant `hipGraphNodeTypeEmpty` should have an upper camel case name
+   --> src/gpu/ffi.rs:652:5
+    |
+652 |     hipGraphNodeTypeEmpty = 5,
+    |     ^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeEmpty`
+
+warning: variant `hipGraphNodeTypeWaitEvent` should have an upper camel case name
+   --> src/gpu/ffi.rs:653:5
+    |
+653 |     hipGraphNodeTypeWaitEvent = 6,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeWaitEvent`
+
+warning: variant `hipGraphNodeTypeEventRecord` should have an upper camel case name
+   --> src/gpu/ffi.rs:654:5
+    |
+654 |     hipGraphNodeTypeEventRecord = 7,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeEventRecord`
+
+warning: variant `hipGraphNodeTypeExtSemaphoreSignal` should have an upper camel case name
+   --> src/gpu/ffi.rs:655:5
+    |
+655 |     hipGraphNodeTypeExtSemaphoreSignal = 8,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeExtSemaphoreSignal`
+
+warning: variant `hipGraphNodeTypeExtSemaphoreWait` should have an upper camel case name
+   --> src/gpu/ffi.rs:656:5
+    |
+656 |     hipGraphNodeTypeExtSemaphoreWait = 9,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeExtSemaphoreWait`
+
+warning: variant `hipGraphNodeTypeMemAlloc` should have an upper camel case name
+   --> src/gpu/ffi.rs:657:5
+    |
+657 |     hipGraphNodeTypeMemAlloc = 10,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeMemAlloc`
+
+warning: variant `hipGraphNodeTypeMemFree` should have an upper camel case name
+   --> src/gpu/ffi.rs:658:5
+    |
+658 |     hipGraphNodeTypeMemFree = 11,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeMemFree`
+
+warning: variant `hipGraphNodeTypeMemcpyFromSymbol` should have an upper camel case name
+   --> src/gpu/ffi.rs:659:5
+    |
+659 |     hipGraphNodeTypeMemcpyFromSymbol = 12,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeMemcpyFromSymbol`
+
+warning: variant `hipGraphNodeTypeMemcpyToSymbol` should have an upper camel case name
+   --> src/gpu/ffi.rs:660:5
+    |
+660 |     hipGraphNodeTypeMemcpyToSymbol = 13,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeMemcpyToSymbol`
+
+warning: variant `hipGraphNodeTypeBatchMemOp` should have an upper camel case name
+   --> src/gpu/ffi.rs:661:5
+    |
+661 |     hipGraphNodeTypeBatchMemOp = 14,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeBatchMemOp`
+
+warning: variant `hipGraphNodeTypeCount` should have an upper camel case name
+   --> src/gpu/ffi.rs:662:5
+    |
+662 |     hipGraphNodeTypeCount = 15,
+    |     ^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipGraphNodeTypeCount`
+
+warning: variant `hipStreamCaptureModeGlobal` should have an upper camel case name
+   --> src/gpu/ffi.rs:668:5
+    |
+668 |     hipStreamCaptureModeGlobal = 0,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipStreamCaptureModeGlobal`
+
+warning: variant `hipStreamCaptureModeThreadLocal` should have an upper camel case name
+   --> src/gpu/ffi.rs:669:5
+    |
+669 |     hipStreamCaptureModeThreadLocal = 1,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipStreamCaptureModeThreadLocal`
+
+warning: variant `hipStreamCaptureModeRelaxed` should have an upper camel case name
+   --> src/gpu/ffi.rs:670:5
+    |
+670 |     hipStreamCaptureModeRelaxed = 2,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipStreamCaptureModeRelaxed`
+
+warning: variant `hipStreamCaptureStatusNone` should have an upper camel case name
+   --> src/gpu/ffi.rs:676:5
+    |
+676 |     hipStreamCaptureStatusNone = 0,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipStreamCaptureStatusNone`
+
+warning: variant `hipStreamCaptureStatusActive` should have an upper camel case name
+   --> src/gpu/ffi.rs:677:5
+    |
+677 |     hipStreamCaptureStatusActive = 1,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipStreamCaptureStatusActive`
+
+warning: variant `hipStreamCaptureStatusInvalidated` should have an upper camel case name
+   --> src/gpu/ffi.rs:678:5
+    |
+678 |     hipStreamCaptureStatusInvalidated = 2,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `HipStreamCaptureStatusInvalidated`
+
+warning: unused imports: `flash_attn_decode_gqa_from_state_on_stream` and `flash_attn_decode_gqa_on_stream`
+  --> src/gpu/forward.rs:13:5
+   |
+13 |     flash_attn_decode_gqa_from_state_on_stream, flash_attn_decode_gqa_on_stream,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `rms_norm_on_stream`
+  --> src/gpu/forward.rs:22:56
+   |
+22 | use super::kernels::norm::{rms_norm, rms_norm_batched, rms_norm_on_stream};
+   |                                                        ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `c_void`
+ --> src/gpu/kernels/quant.rs:8:27
+  |
+8 | use std::os::raw::{c_int, c_void};
+  |                           ^^^^^^
+
+warning: unused doc comment
+   --> src/gpu/kernels/quant.rs:424:1
+    |
+424 |   /// FFI declarations - will be linked from compiled HIP kernels
+    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+425 | / unsafe extern "C" {
+426 | |     fn quantize_q4_k_kernel(input: *const f32, output: *mut u8, n: c_int) -> hipError_t;
+427 | |
+428 | |     fn dequantize_q4_k_kernel(input: *const u8, output: *mut f32, n: c_int) -> hipError_t;
+...   |
+465 | |     fn finalize_q5_k_metrics_kernel(errors: *const f32, metrics: *mut f32, n: c_int) -> hipError_t;
+466 | | }
+    | |_- rustdoc does not generate documentation for extern blocks
+    |
+    = help: use `//` for a plain comment
+    = note: `#[warn(unused_doc_comments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused doc comment
+    --> src/gpu/kernels/quant.rs:1953:1
+     |
+1953 |   /// FFI declarations for Q8_0 kernels - will be linked from compiled HIP kernels
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1954 | / unsafe extern "C" {
+1955 | |     fn quantize_q8_0_kernel(input: *const f32, output: *mut u8, n: c_int) -> hipError_t;
+1956 | |
+1957 | |     fn dequantize_q8_0_kernel(input: *const u8, output: *mut f32, n: c_int) -> hipError_t;
+...    |
+2094 | |     ) -> hipError_t;
+2095 | | }
+     | |_- rustdoc does not generate documentation for extern blocks
+     |
+     = help: use `//` for a plain comment
+
+warning: unused doc comment
+    --> src/gpu/kernels/quant.rs:2099:1
+     |
+2099 | / /// Q8_0 × f32 GEMV: Compute output = weights @ input
+2100 | | ///
+2101 | | /// Computes matrix-vector multiplication where:
+2102 | | /// - weights: [n_rows/32][ncols_dst][34] Q8_0 quantized weight matrix (column-major)
+...    |
+2113 | | /// FFI declaration for Q4_K GEMV kernel launch
+2114 | | /// Uses hipStream_t for stream parameter (opaque pointer)
+     | |__________________________________________________________^
+2115 | / unsafe extern "C" {
+2116 | |     fn gemv_q4_k_f32_launch(
+2117 | |         weights_q4_k: *const u8,
+2118 | |         input: *const f32,
+...    |
+2123 | |     ) -> hipError_t;
+2124 | | }
+     | |_- rustdoc does not generate documentation for extern blocks
+     |
+     = help: use `//` for a plain comment
+
+warning: unused doc comment
+    --> src/gpu/kernels/quant.rs:2128:1
+     |
+2128 | / /// FFI declaration for Q5_K GEMV kernel launch
+2129 | | /// Uses hipStream_t for stream parameter (opaque pointer)
+     | |__________________________________________________________^
+2130 | / unsafe extern "C" {
+2131 | |     fn gemv_q5_k_f32_launch(
+2132 | |         weights_q5_k: *const u8,
+2133 | |         input: *const f32,
+...    |
+2346 | | }
+     | |_- rustdoc does not generate documentation for extern blocks
+     |
+     = help: use `//` for a plain comment
+
+warning: unused import: `dequantize_q5_k_batched`
+  --> src/gpu/quant_wrapper.rs:17:5
+   |
+17 |     dequantize_q5_k_batched,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Q4KBlock`, `Q4_0_BLOCK_SIZE`, `Q4_1_BLOCK_SIZE`, `Q4_K_BLOCK_SIZE`, `Q5KBlock`, `Q5_K_BLOCK_SIZE`, `Q8_0Block`, `Q8_0_BLOCK_SIZE`, and `Q8_0_MAX`
+  --> src/gpu/quant_wrapper.rs:52:5
+   |
+52 |     Q4KBlock, Q5KBlock, Q8_0Block, Q4_0_BLOCK_SIZE, Q4_1_BLOCK_SIZE, Q4_K_BLOCK_SIZE,
+   |     ^^^^^^^^  ^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+53 |     Q5_K_BLOCK_SIZE, Q8_0_BLOCK_SIZE, Q8_0_MAX, QK4_0, QK4_1, QK8_0, QK_K,
+   |     ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^
+
+warning: unreachable statement
+    --> src/gpu/forward.rs:2043:5
+     |
+2041 |     return Ok(None);
+     |     --------------- any code following this expression is unreachable
+2042 |
+2043 |     let key = gpu_full_decode_graph_key(device, gpu_weights, kv, config)?;
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+     |
+     = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `criterion_dir`
+  --> src/bench/reporter.rs:83:5
+   |
+83 |     criterion_dir: &Path,
+   |     ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_criterion_dir`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `benchmark_name`
+  --> src/bench/reporter.rs:84:5
+   |
+84 |     benchmark_name: &str,
+   |     ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_benchmark_name`
+
+warning: unused variable: `include_graphs`
+  --> src/bench/reporter.rs:97:76
+   |
+97 | fn render_kernel_comparison(markdown: &mut String, data: &[CriterionData], include_graphs: bool) {
+   |                                                                            ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_include_graphs`
+
+warning: unused variable: `dir`
+   --> src/bench/reporter.rs:119:29
+    |
+119 | fn parse_real_model_results(dir: &Path) -> Result<Vec<RealModelResult>, String> {
+    |                             ^^^ help: if this is intentional, prefix it with an underscore: `_dir`
+
+warning: unused variable: `criterion_dir`
+   --> src/bench/reporter.rs:147:19
+    |
+147 | pub fn export_csv(criterion_dir: &Path, output_path: &Path) -> Result<(), String> {
+    |                   ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_criterion_dir`
+
+warning: value assigned to `stopped_by` is never read
+   --> src/cli/chat.rs:512:26
+    |
+512 |     let mut stopped_by = StopReason::MaxTokens;
+    |                          ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `m`
+   --> src/cpu/kernels/gemm_q4k_q8.rs:243:64
+    |
+243 | pub fn gemm_q4_k_q8_k_avx2(w: &[u8], x: &[f32], y: &mut [f32], m: usize, n: usize, k: usize) {
+    |                                                                ^ help: if this is intentional, prefix it with an underscore: `_m`
+
+warning: unused variable: `p32l`
+   --> src/cpu/kernels/gemm_q4k_q8_avx512.rs:165:13
+    |
+165 |         let p32l = _mm256_dpbusd_epi32(_mm256_setzero_si256(), q4l, q8l);
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_p32l`
+
+warning: unused variable: `p32h`
+   --> src/cpu/kernels/gemm_q4k_q8_avx512.rs:171:13
+    |
+171 |         let p32h = _mm256_dpbusd_epi32(_mm256_setzero_si256(), q4h, q8h);
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_p32h`
+
+warning: unused variable: `seq_len`
+   --> src/cpu/kernels/gemm_q4k_q8_avx512.rs:228:9
+    |
+228 |     let seq_len = x.len() / in_dim;
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_seq_len`
+
+warning: unused variable: `j`
+  --> src/cpu/kernels/gemm_q4k_q8_scalar.rs:71:9
+   |
+71 |     for j in 0..8 {
+   |         ^ help: if this is intentional, prefix it with an underscore: `_j`
+
+warning: unused variable: `m`
+   --> src/cpu/kernels/gemm_q4k_q8_scalar.rs:175:59
+    |
+175 | pub fn gemm_q4_k_q8_k(w: &[u8], x: &[f32], y: &mut [f32], m: usize, n: usize, k: usize) {
+    |                                                           ^ help: if this is intentional, prefix it with an underscore: `_m`
+
+warning: unused variable: `out_dim`
+   --> src/cpu/kernels/gemm_q5_0_q8.rs:136:64
+    |
+136 | pub fn gemv_q5_0_q8_0_avx2(w: &[u8], x: &[f32], y: &mut [f32], out_dim: usize, in_dim: usize) {
+    |                                                                ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_out_dim`
+
+warning: unused variable: `seq_len`
+   --> src/cpu/ops.rs:258:5
+    |
+258 |     seq_len: usize,
+    |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_seq_len`
+
+warning: unused variable: `seq_len`
+   --> src/cpu/ops.rs:942:9
+    |
+942 |     let seq_len = x.len() / in_dim;
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_seq_len`
+
+warning: unused variable: `seq_len`
+   --> src/cpu/ops.rs:985:9
+    |
+985 |     let seq_len = x.len() / in_dim;
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_seq_len`
+
+warning: unused variable: `seq_len`
+    --> src/cpu/ops.rs:1110:9
+     |
+1110 |     let seq_len = x.len() / in_dim;
+     |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_seq_len`
+
+warning: unused variable: `out_dim`
+    --> src/cpu/ops.rs:1248:5
+     |
+1248 |     out_dim: usize,
+     |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_out_dim`
+
+warning: unused variable: `out_dim`
+    --> src/cpu/ops.rs:1542:54
+     |
+1542 | pub fn gemv_q8_0(w: &[u8], x: &[f32], y: &mut [f32], out_dim: usize, in_dim: usize) {
+     |                                                      ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_out_dim`
+
+warning: unused variable: `scale_idx`
+    --> src/cpu/ops.rs:1617:25
+     |
+1617 |                     let scale_idx = sub_block_idx / 2;
+     |                         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_scale_idx`
+
+warning: unused variable: `sign`
+    --> src/cpu/ops.rs:1618:25
+     |
+1618 |                     let sign = (i % 32) / 16;
+     |                         ^^^^ help: if this is intentional, prefix it with an underscore: `_sign`
+
+warning: unused variable: `out_dim`
+    --> src/cpu/ops.rs:1591:5
+     |
+1591 |     out_dim: usize,
+     |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_out_dim`
+
+warning: unused variable: `m`
+    --> src/cpu/ops.rs:1644:70
+     |
+1644 | fn gemm_q4_k_transposed_fallback(w: &[u8], x: &[f32], y: &mut [f32], m: usize, n: usize, k: usize) {
+     |                                                                      ^ help: if this is intentional, prefix it with an underscore: `_m`
+
+warning: unused variable: `num_cores`
+   --> src/cpu/prefill.rs:535:9
+    |
+535 |     let num_cores = batch_config.num_cores;
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_num_cores`
+
+warning: unused variable: `wtype`
+  --> src/cpu/transpose.rs:69:5
+   |
+69 |     wtype: crate::loader::GgmlType,
+   |     ^^^^^ help: if this is intentional, prefix it with an underscore: `_wtype`
+
+warning: unused variable: `get_type`
+   --> src/cpu/weights.rs:166:13
+    |
+166 |         let get_type = |name: &str| -> GgmlType {
+    |             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_get_type`
+
+warning: unused variable: `token_emb_desc`
+   --> src/cpu/weights.rs:331:13
+    |
+331 |         let token_emb_desc = file
+    |             ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_token_emb_desc`
+
+warning: unused variable: `device_id`
+   --> src/gpu/ffi.rs:240:25
+    |
+240 | pub fn hip_get_mem_info(device_id: i32) -> GpuResult<(usize, usize)> {
+    |                         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_device_id`
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/forward.rs:292:5
+    |
+292 |     unsafe {
+    |     ^^^^^^ unnecessary `unsafe` block
+    |
+    = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/forward.rs:1391:5
+     |
+1391 |     unsafe {
+     |     ^^^^^^ unnecessary `unsafe` block
+
+warning: unused variable: `device`
+    --> src/gpu/forward.rs:2025:5
+     |
+2025 |     device: &GpuDevice,
+     |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unused variable: `gpu_weights`
+    --> src/gpu/forward.rs:2026:5
+     |
+2026 |     gpu_weights: &GpuModelWeights,
+     |     ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_gpu_weights`
+
+warning: unused variable: `kv`
+    --> src/gpu/forward.rs:2027:5
+     |
+2027 |     kv: &mut GpuKvCache,
+     |     ^^ help: if this is intentional, prefix it with an underscore: `_kv`
+
+warning: unused variable: `scratch`
+    --> src/gpu/forward.rs:2028:5
+     |
+2028 |     scratch: &mut GpuForwardScratch,
+     |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_scratch`
+
+warning: unused variable: `pos`
+    --> src/gpu/forward.rs:2029:5
+     |
+2029 |     pos: usize,
+     |     ^^^ help: if this is intentional, prefix it with an underscore: `_pos`
+
+warning: unused variable: `config`
+    --> src/gpu/forward.rs:2030:5
+     |
+2030 |     config: &ModelConfig,
+     |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_config`
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/forward.rs:2304:13
+     |
+2304 |             unsafe {
+     |             ^^^^^^ unnecessary `unsafe` block
+
+warning: unused variable: `host_scratch`
+    --> src/gpu/forward.rs:2280:5
+     |
+2280 |     host_scratch: &mut CpuForwardScratch,
+     |     ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_host_scratch`
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/ops.rs:600:38
+    |
+499 |     unsafe {
+    |     ------ because it's nested under this `unsafe` block
+...
+600 |                         let result = unsafe {
+    |                                      ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/ops.rs:617:21
+    |
+499 |     unsafe {
+    |     ------ because it's nested under this `unsafe` block
+...
+617 |                     unsafe {
+    |                     ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/ops.rs:631:21
+    |
+499 |     unsafe {
+    |     ------ because it's nested under this `unsafe` block
+...
+631 |                     unsafe {
+    |                     ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/ops.rs:734:30
+    |
+734 |                 let result = unsafe {
+    |                              ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/ops.rs:758:13
+    |
+758 |             unsafe {
+    |             ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/ops.rs:779:13
+    |
+779 |             unsafe {
+    |             ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/ops.rs:808:9
+    |
+808 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/ops.rs:813:9
+    |
+813 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/ops.rs:818:9
+    |
+818 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unused variable: `device`
+   --> src/gpu/ops.rs:832:5
+    |
+832 |     device: &GpuDevice,
+    |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unused variable: `device`
+   --> src/gpu/ops.rs:897:5
+    |
+897 |     device: &GpuDevice,
+    |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/ops.rs:1253:9
+     |
+1253 |         unsafe {
+     |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unused variable: `device`
+    --> src/gpu/ops.rs:1306:5
+     |
+1306 |     device: &GpuDevice,
+     |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/ops.rs:1601:5
+     |
+1601 |     unsafe {
+     |     ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:262:26
+    |
+262 |         let errors_gpu = unsafe { ffi::hip_malloc(4 * std::mem::size_of::<f32>())? };
+    |                          ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:263:27
+    |
+263 |         let metrics_gpu = unsafe { ffi::hip_malloc(3 * std::mem::size_of::<f32>())? };
+    |                           ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:267:9
+    |
+267 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:286:9
+    |
+286 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:295:9
+    |
+295 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unused variable: `num_blocks`
+   --> src/gpu/quant_wrapper.rs:259:13
+    |
+259 |         let num_blocks = (n + QK_K - 1) / QK_K;
+    |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_num_blocks`
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:586:26
+    |
+586 |         let errors_gpu = unsafe { ffi::hip_malloc(4 * std::mem::size_of::<f32>())? };
+    |                          ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:587:27
+    |
+587 |         let metrics_gpu = unsafe { ffi::hip_malloc(3 * std::mem::size_of::<f32>())? };
+    |                           ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:591:9
+    |
+591 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:610:9
+    |
+610 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:619:9
+    |
+619 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unused variable: `num_blocks`
+   --> src/gpu/quant_wrapper.rs:583:13
+    |
+583 |         let num_blocks = (n + QK8_0 - 1) / QK8_0;
+    |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_num_blocks`
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:818:26
+    |
+818 |         let errors_gpu = unsafe { ffi::hip_malloc(4 * std::mem::size_of::<f32>())? };
+    |                          ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:819:27
+    |
+819 |         let metrics_gpu = unsafe { ffi::hip_malloc(3 * std::mem::size_of::<f32>())? };
+    |                           ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:823:9
+    |
+823 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:842:9
+    |
+842 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/gpu/quant_wrapper.rs:851:9
+    |
+851 |         unsafe {
+    |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unused variable: `num_blocks`
+   --> src/gpu/quant_wrapper.rs:815:13
+    |
+815 |         let num_blocks = (n + QK4_0 - 1) / QK4_0;
+    |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_num_blocks`
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/quant_wrapper.rs:1138:26
+     |
+1138 |         let errors_gpu = unsafe { ffi::hip_malloc(4 * std::mem::size_of::<f32>())? };
+     |                          ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/quant_wrapper.rs:1139:27
+     |
+1139 |         let metrics_gpu = unsafe { ffi::hip_malloc(3 * std::mem::size_of::<f32>())? };
+     |                           ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/quant_wrapper.rs:1143:9
+     |
+1143 |         unsafe {
+     |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/quant_wrapper.rs:1162:9
+     |
+1162 |         unsafe {
+     |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/quant_wrapper.rs:1171:9
+     |
+1171 |         unsafe {
+     |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unused variable: `num_blocks`
+    --> src/gpu/quant_wrapper.rs:1135:13
+     |
+1135 |         let num_blocks = (n + QK4_1 - 1) / QK4_1;
+     |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_num_blocks`
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/quant_wrapper.rs:1312:26
+     |
+1312 |         let errors_gpu = unsafe { ffi::hip_malloc(4 * std::mem::size_of::<f32>())? };
+     |                          ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/quant_wrapper.rs:1313:27
+     |
+1313 |         let metrics_gpu = unsafe { ffi::hip_malloc(3 * std::mem::size_of::<f32>())? };
+     |                           ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/quant_wrapper.rs:1317:9
+     |
+1317 |         unsafe {
+     |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/quant_wrapper.rs:1336:9
+     |
+1336 |         unsafe {
+     |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/gpu/quant_wrapper.rs:1345:9
+     |
+1345 |         unsafe {
+     |         ^^^^^^ unnecessary `unsafe` block
+
+warning: unused variable: `num_blocks`
+    --> src/gpu/quant_wrapper.rs:1309:13
+     |
+1309 |         let num_blocks = (n + QK_K - 1) / QK_K;
+     |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_num_blocks`
+
+warning: function `bytes_from_nibbles_32` is never used
+  --> src/cpu/kernels/gemm_q5_0_q8.rs:33:11
+   |
+33 | unsafe fn bytes_from_nibbles_32(nibbles: &[u8; 16]) -> __m256i {
+   |           ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `bytes_from_bits_32` is never used
+  --> src/cpu/kernels/gemm_q5_0_q8.rs:48:11
+   |
+48 | unsafe fn bytes_from_bits_32(bits: &[u8; 4]) -> __m256i {
+   |           ^^^^^^^^^^^^^^^^^^
+
+warning: field `q8_scratch` is never read
+  --> src/cpu/prefill.rs:60:5
+   |
+40 | struct CpuPrefillScratch {
+   |        ----------------- field in this struct
+...
+60 |     q8_scratch: Vec<u8>,
+   |     ^^^^^^^^^^
+
+warning: struct `CpuParallelPrefillScratch` is never constructed
+  --> src/cpu/prefill.rs:99:8
+   |
+99 | struct CpuParallelPrefillScratch {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated items `new` and `resize_for_batch` are never used
+   --> src/cpu/prefill.rs:125:8
+    |
+124 | impl CpuParallelPrefillScratch {
+    | ------------------------------ associated items in this implementation
+125 |     fn new(config: &ModelConfig, num_threads: usize) -> Self {
+    |        ^^^
+...
+159 |     fn resize_for_batch(&mut self, sub_batch_len: usize, config: &ModelConfig) {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: field `pre_type` is never read
+  --> src/tokenizer/bpe.rs:74:5
+   |
+69 | pub struct BpeTokenizer {
+   |            ------------ field in this struct
+...
+74 |     pre_type: PreTokenizerType,
+   |     ^^^^^^^^
+   |
+   = note: `BpeTokenizer` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `gpu_greedy_logits_graph_key` is never used
+  --> src/gpu/decode_graph_keys.rs:19:15
+   |
+19 | pub(crate) fn gpu_greedy_logits_graph_key(
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `gpu_full_decode_graph_key` is never used
+  --> src/gpu/decode_graph_keys.rs:38:15
+   |
+38 | pub(crate) fn gpu_full_decode_graph_key(
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `decode_graph_feature_flags_tag` is never used
+  --> src/gpu/decode_graph_keys.rs:60:4
+   |
+60 | fn decode_graph_feature_flags_tag() -> u8 {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `gpu_model_weights_binding_tag` is never used
+  --> src/gpu/decode_graph_keys.rs:74:4
+   |
+74 | fn gpu_model_weights_binding_tag(gpu_weights: &GpuModelWeights) -> u64 {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `gpu_kv_binding_tag` is never used
+  --> src/gpu/decode_graph_keys.rs:78:4
+   |
+78 | fn gpu_kv_binding_tag(kv: &GpuKvCache) -> GpuResult<u64> {
+   |    ^^^^^^^^^^^^^^^^^^
+
+warning: constant `PROFILE_DECODE_STAGES_ENV` is never used
+  --> src/gpu/decode_profile.rs:12:18
+   |
+12 | pub(crate) const PROFILE_DECODE_STAGES_ENV: &str = "ROCMFORGE_PROFILE_DECODE_STAGES";
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `ENV_DISABLED` is never used
+  --> src/gpu/decode_profile.rs:14:7
+   |
+14 | const ENV_DISABLED: u8 = 1;
+   |       ^^^^^^^^^^^^
+
+warning: constant `ENV_ENABLED` is never used
+  --> src/gpu/decode_profile.rs:15:7
+   |
+15 | const ENV_ENABLED: u8 = 2;
+   |       ^^^^^^^^^^^
+
+warning: enum `DecodeStage` is never used
+  --> src/gpu/decode_profile.rs:39:17
+   |
+39 | pub(crate) enum DecodeStage {
+   |                 ^^^^^^^^^^^
+
+warning: function `decode_stage_profiling_enabled` is never used
+  --> src/gpu/decode_profile.rs:64:15
+   |
+64 | pub(crate) fn decode_stage_profiling_enabled() -> bool {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `record_decode_stage` is never used
+  --> src/gpu/decode_profile.rs:83:4
+   |
+83 | fn record_decode_stage(stage: DecodeStage, elapsed_ns: u128) {
+   |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `record_tail_invocation` is never used
+   --> src/gpu/decode_profile.rs:106:15
+    |
+106 | pub(crate) fn record_tail_invocation() {
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `record_layer_invocation` is never used
+   --> src/gpu/decode_profile.rs:113:15
+    |
+113 | pub(crate) fn record_layer_invocation() {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `profile_decode_stage` is never used
+   --> src/gpu/decode_profile.rs:120:15
+    |
+120 | pub(crate) fn profile_decode_stage<T>(
+    |               ^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `hipMemcpyDeviceToDevice` is never constructed
+   --> src/gpu/ffi.rs:539:5
+    |
+536 | enum hipMemcpyKind {
+    |      ------------- variant in this enum
+...
+539 |     hipMemcpyDeviceToDevice = 3,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `hipGetDriverVersion` is never used
+   --> src/gpu/ffi.rs:728:8
+    |
+728 |     fn hipGetDriverVersion(driverVersion: *mut c_int) -> hipError_t;
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: function `upload_f32` is never used
+  --> src/gpu/forward.rs:63:4
+   |
+63 | fn upload_f32(dst: &mut GpuBuffer, src: &[f32]) -> GpuResult<()> {
+   |    ^^^^^^^^^^
+
+warning: function `upload_i32` is never used
+  --> src/gpu/forward.rs:71:4
+   |
+71 | fn upload_i32(dst: &mut GpuBuffer, src: &[i32]) -> GpuResult<()> {
+   |    ^^^^^^^^^^
+
+warning: variant `KRope` is never constructed
+   --> src/gpu/forward.rs:116:5
+    |
+112 | enum DecodeStage {
+    |      ----------- variant in this enum
+...
+116 |     KRope,
+    |     ^^^^^
+    |
+    = note: `DecodeStage` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `gpu_capture_full_greedy_decode_graph` is never used
+    --> src/gpu/forward.rs:1995:4
+     |
+1995 | fn gpu_capture_full_greedy_decode_graph(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `gpu_mul` is never used
+   --> src/gpu/kernels/elementwise.rs:562:8
+    |
+562 |     fn gpu_mul(x: *const f32, y: *const f32, out: *mut f32, n: c_int) -> hipError_t;
+    |        ^^^^^^^
+
+warning: function `gpu_silu` is never used
+   --> src/gpu/kernels/elementwise.rs:576:8
+    |
+576 |     fn gpu_silu(x: *const f32, out: *mut f32, n: c_int) -> hipError_t;
+    |        ^^^^^^^^
+
+warning: function `gpu_argmax_f32` is never used
+   --> src/gpu/kernels/elementwise.rs:601:8
+    |
+601 |     fn gpu_argmax_f32(
+    |        ^^^^^^^^^^^^^^
+
+warning: function `config_num_heads` is never used
+  --> src/gpu/ops.rs:50:4
+   |
+50 | fn config_num_heads(q_size: usize, h: usize) -> usize {
+   |    ^^^^^^^^^^^^^^^^
+
+warning: function `try_q4_0_q8_0_fused_gate_up_fastpath_prequantized` is never used
+   --> src/gpu/ops.rs:223:4
+    |
+223 | fn try_q4_0_q8_0_fused_gate_up_fastpath_prequantized(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `Q4_0_BLOCK_BYTES` is never used
+  --> src/gpu/prefill_gemm.rs:20:7
+   |
+20 | const Q4_0_BLOCK_BYTES: usize = 18;
+   |       ^^^^^^^^^^^^^^^^
+
+warning: method `host_phase_end_overhead` is never used
+   --> src/gpu/spec_step_profile.rs:141:19
+    |
+ 95 | impl SpecStepTimer {
+    | ------------------ method in this implementation
+...
+141 |     pub(crate) fn host_phase_end_overhead(&mut self) {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: structure field `totalGlobalMem` should have a snake case name
+   --> src/gpu/ffi.rs:520:5
+    |
+520 |     totalGlobalMem: usize,
+    |     ^^^^^^^^^^^^^^ help: convert the identifier to snake case: `total_global_mem`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: structure field `sharedMemPerBlock` should have a snake case name
+   --> src/gpu/ffi.rs:521:5
+    |
+521 |     sharedMemPerBlock: usize,
+    |     ^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `shared_mem_per_block`
+
+warning: structure field `regsPerBlock` should have a snake case name
+   --> src/gpu/ffi.rs:522:5
+    |
+522 |     regsPerBlock: i32,
+    |     ^^^^^^^^^^^^ help: convert the identifier to snake case: `regs_per_block`
+
+warning: structure field `warpSize` should have a snake case name
+   --> src/gpu/ffi.rs:523:5
+    |
+523 |     warpSize: i32,
+    |     ^^^^^^^^ help: convert the identifier to snake case: `warp_size`
+
+warning: structure field `maxThreadsPerBlock` should have a snake case name
+   --> src/gpu/ffi.rs:524:5
+    |
+524 |     maxThreadsPerBlock: i32,
+    |     ^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `max_threads_per_block`
+
+warning: structure field `maxThreadsDim` should have a snake case name
+   --> src/gpu/ffi.rs:525:5
+    |
+525 |     maxThreadsDim: [i32; 3],
+    |     ^^^^^^^^^^^^^ help: convert the identifier to snake case: `max_threads_dim`
+
+warning: structure field `maxGridSize` should have a snake case name
+   --> src/gpu/ffi.rs:526:5
+    |
+526 |     maxGridSize: [i32; 3],
+    |     ^^^^^^^^^^^ help: convert the identifier to snake case: `max_grid_size`
+
+warning: structure field `clockRate` should have a snake case name
+   --> src/gpu/ffi.rs:527:5
+    |
+527 |     clockRate: i32,
+    |     ^^^^^^^^^ help: convert the identifier to snake case: `clock_rate`
+
+warning: structure field `memoryClockRate` should have a snake case name
+   --> src/gpu/ffi.rs:528:5
+    |
+528 |     memoryClockRate: i32,
+    |     ^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `memory_clock_rate`
+
+warning: structure field `memoryBusWidth` should have a snake case name
+   --> src/gpu/ffi.rs:529:5
+    |
+529 |     memoryBusWidth: i32,
+    |     ^^^^^^^^^^^^^^ help: convert the identifier to snake case: `memory_bus_width`
+
+warning: structure field `multiProcessorCount` should have a snake case name
+   --> src/gpu/ffi.rs:530:5
+    |
+530 |     multiProcessorCount: i32,
+    |     ^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `multi_processor_count`
+
+warning: structure field `blockDim` should have a snake case name
+   --> src/gpu/ffi.rs:692:9
+    |
+692 |     pub blockDim: dim3,
+    |         ^^^^^^^^ help: convert the identifier to snake case: `block_dim`
+
+warning: structure field `gridDim` should have a snake case name
+   --> src/gpu/ffi.rs:695:9
+    |
+695 |     pub gridDim: dim3,
+    |         ^^^^^^^ help: convert the identifier to snake case: `grid_dim`
+
+warning: structure field `kernelParams` should have a snake case name
+   --> src/gpu/ffi.rs:696:9
+    |
+696 |     pub kernelParams: *mut *mut c_void,
+    |         ^^^^^^^^^^^^ help: convert the identifier to snake case: `kernel_params`
+
+warning: structure field `sharedMemBytes` should have a snake case name
+   --> src/gpu/ffi.rs:697:9
+    |
+697 |     pub sharedMemBytes: u32,
+    |         ^^^^^^^^^^^^^^ help: convert the identifier to snake case: `shared_mem_bytes`
+
+warning: `rocmforge` (lib) generated 197 warnings (run `cargo fix --lib -p rocmforge` to apply 60 suggestions)
+warning: unnecessary `unsafe` block
+  --> profiling/wmma_poc/bench_wmma_attention_online.rs:78:5
+   |
+78 |     unsafe {
+   |     ^^^^^^ unnecessary `unsafe` block
+   |
+   = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+   --> profiling/wmma_poc/bench_wmma_attention.rs:101:5
+    |
+101 |     unsafe {
+    |     ^^^^^^ unnecessary `unsafe` block
+    |
+    = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/main.rs:625:9
+    |
+625 |     let mut prompt_next_token = match gpu::GpuPrefillScratch::new(&config, prompt_tokens.len()) {
+    |         ----^^^^^^^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+  --> profiling/wmma_poc/bench_wmma_attention_gqa_causal.rs:99:5
+   |
+99 |     unsafe {
+   |     ^^^^^^ unnecessary `unsafe` block
+   |
+   = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+   --> profiling/wmma_poc/bench_wmma_q4_0.rs:119:5
+    |
+119 |     unsafe {
+    |     ^^^^^^ unnecessary `unsafe` block
+    |
+    = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+  --> profiling/wmma_poc/bench_wmma_tiled.rs:91:5
+   |
+91 |     unsafe {
+   |     ^^^^^^ unnecessary `unsafe` block
+   |
+   = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rocmforge` (bin "bench_wmma_attention_online") generated 1 warning
+warning: `rocmforge` (bin "bench_wmma_attention") generated 1 warning
+warning: `rocmforge` (bin "rocmforge") generated 1 warning (run `cargo fix --bin "rocmforge" -p rocmforge` to apply 1 suggestion)
+warning: `rocmforge` (bin "bench_wmma_attention_gqa_causal") generated 1 warning
+warning: `rocmforge` (bin "bench_wmma_q4_0") generated 1 warning
+warning: `rocmforge` (bin "bench_wmma_tiled") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.03s

@@ -1,0 +1,25 @@
+{
+  "rocm_version": "7.2.1",
+  "git_sha": "c567d59",
+  "timestamp": "2026-04-18T12:00:41+02:00",
+  "gpu_arch": "gfx1201",
+  "wmma_intrinsic_available": true,
+  "build_ok": true,
+  "synthetic": {
+    "prefill_pp64_tps_median": 472.3,
+    "prefill_pp128_tps_median": 551.6,
+    "prefill_pp256_tps_median": 593.0,
+    "prefill_pp512_tps_median": 610.2,
+    "decode_128_tps_median": 102.3
+  },
+  "real_prompts": {
+    "count": 15,
+    "ttft_ms_median": 76.9,
+    "decode_tps_median": 101.9
+  },
+  "layer_timing": {
+    "layer0_us": 2776,
+    "layer1_to_n_median_us": 37,
+    "layer0_over_median_ratio": 75.03
+  }
+}

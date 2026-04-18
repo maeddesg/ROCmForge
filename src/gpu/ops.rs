@@ -1432,6 +1432,70 @@ pub fn gpu_dispatch_fused_gate_up(
 /// hipBLAS path or the batched-GEMV path handles it.
 const WMMA_PREFILL_MIN_M: usize = 1;
 
+/// Attempt to dispatch gate + up prefill projections as a single fused
+/// WMMA-Q4_0 launch. Returns `Ok(true)` on success, `Ok(false)` when the
+/// preconditions are not met (wrong wtype, bad alignment, WMMA disabled,
+/// ...) — the caller must then fall back to two separate dispatches.
+#[allow(clippy::too_many_arguments)]
+pub fn gpu_try_dispatch_fused_gate_up_prefill(
+    gate_weights: &GpuBuffer,
+    gate_meta: &WeightMeta,
+    up_weights: &GpuBuffer,
+    up_meta: &WeightMeta,
+    input: *const f32,
+    output_gate: *mut f32,
+    output_up: *mut f32,
+    out_dim: usize,
+    in_dim: usize,
+    seq_len: usize,
+) -> GpuResult<bool> {
+    if gate_meta.wtype != GgmlType::Q4_0 || up_meta.wtype != GgmlType::Q4_0 {
+        return Ok(false);
+    }
+    if seq_len < WMMA_PREFILL_MIN_M {
+        return Ok(false);
+    }
+    if (out_dim % 64) != 0 || (in_dim % 32) != 0 {
+        return Ok(false);
+    }
+    if !super::safety::wmma_prefill_enabled() {
+        return Ok(false);
+    }
+
+    let padded_m = seq_len.div_ceil(64) * 64;
+    tracing::debug!(
+        seq_len,
+        padded_m,
+        m = seq_len,
+        n = out_dim,
+        k = in_dim,
+        path = "wmma_q4_0_fused_gate_up",
+        "GEMM dispatch: fused Gate+Up WMMA Q4_0 ({}→{})",
+        seq_len,
+        padded_m
+    );
+    match super::kernels::wmma::launch_wmma_gemm_q4_0_fused_gate_up(
+        input,
+        gate_weights.as_ptr() as *const u8,
+        up_weights.as_ptr() as *const u8,
+        output_gate,
+        output_up,
+        padded_m,
+        out_dim,
+        in_dim,
+        super::ffi::hipStream_t::null(),
+    ) {
+        Ok(()) => Ok(true),
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "fused Gate+Up WMMA Q4_0 failed, caller will fall back to separate dispatches"
+            );
+            Ok(false)
+        }
+    }
+}
+
 /// Dispatch a GPU GEMM for GGUF weights.
 pub fn gpu_dispatch_gemm(
     device: &GpuDevice,
@@ -1444,6 +1508,14 @@ pub fn gpu_dispatch_gemm(
     seq_len: usize,
 ) -> GpuResult<()> {
     if seq_len == 1 && supports_gemv_type(meta.wtype) {
+        tracing::debug!(
+            seq_len,
+            n = out_dim,
+            k = in_dim,
+            wtype = ?meta.wtype,
+            path = "gemv_decode",
+            "GEMM dispatch: decode-path GEMV"
+        );
         return gpu_dispatch_gemv(device, weights, meta, input, output, out_dim, in_dim);
     }
 
@@ -1459,12 +1531,22 @@ pub fn gpu_dispatch_gemm(
     // step has its own opt-out env flag.
     if seq_len >= WMMA_PREFILL_MIN_M
         && meta.wtype == GgmlType::Q4_0
-        && !meta.needs_transpose
         && (out_dim % 64) == 0
         && (in_dim % 32) == 0
         && super::safety::wmma_prefill_enabled()
     {
         let padded_m = seq_len.div_ceil(64) * 64;
+        tracing::debug!(
+            seq_len,
+            padded_m,
+            m = seq_len,
+            n = out_dim,
+            k = in_dim,
+            path = "wmma_q4_0",
+            "GEMM dispatch: WMMA Q4_0 ({}→{})",
+            seq_len,
+            padded_m
+        );
         match super::kernels::wmma::launch_wmma_gemm_q4_0(
             input,
             weights.as_ptr() as *const u8,
@@ -1476,6 +1558,10 @@ pub fn gpu_dispatch_gemm(
         ) {
             Ok(()) => return Ok(()),
             Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "WMMA Q4_0 prefill path failed, falling back to hipBLAS/GEMV"
+                );
                 eprintln!(
                     "[rocmforge] WMMA Q4_0 prefill path failed ({}), falling back to hipBLAS/GEMV",
                     err
@@ -1485,20 +1571,90 @@ pub fn gpu_dispatch_gemm(
         }
     }
 
-    // hipBLAS prefill path: dequantise the Q4_0 weight tensor to FP16,
-    // convert FP32 activations to FP16, call hipblasHgemm, convert the
-    // output back to FP32. The threshold keeps short prefills on the
-    // faster batched-GEMV path.
-    if seq_len >= super::prefill_gemm::PREFILL_GEMM_THRESHOLD
-        && meta.wtype == GgmlType::Q4_0
-        && !meta.needs_transpose
-        && super::safety::hipblas_prefill_enabled()
+    // Phase 4 Step 4 — Q4_1 WMMA path for the handful of FFN-down layers
+    // that mixed-precision quantizers leave at higher precision. Same
+    // alignment constraints as Q4_0; only the kernel differs.
+    if seq_len >= WMMA_PREFILL_MIN_M
+        && meta.wtype == GgmlType::Q4_1
+        && (out_dim % 64) == 0
+        && (in_dim % 32) == 0
+        && super::safety::wmma_prefill_enabled()
     {
-        match dispatch_prefill_via_hipblas(
-            device, weights, input, output, out_dim, in_dim, seq_len,
+        let padded_m = seq_len.div_ceil(64) * 64;
+        tracing::debug!(
+            seq_len,
+            padded_m,
+            m = seq_len,
+            n = out_dim,
+            k = in_dim,
+            path = "wmma_q4_1",
+            "GEMM dispatch: WMMA Q4_1 ({}→{})",
+            seq_len,
+            padded_m
+        );
+        match super::kernels::wmma::launch_wmma_gemm_q4_1(
+            input,
+            weights.as_ptr() as *const u8,
+            output,
+            padded_m,
+            out_dim,
+            in_dim,
+            super::ffi::hipStream_t::null(),
         ) {
             Ok(()) => return Ok(()),
             Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "WMMA Q4_1 prefill path failed, falling back to scalar GEMM"
+                );
+                eprintln!(
+                    "[rocmforge] WMMA Q4_1 prefill path failed ({}), falling back to scalar GEMM",
+                    err
+                );
+                // fall through
+            }
+        }
+    }
+
+    // hipBLAS prefill path: dequantise the Q4_0 weight tensor to FP16,
+    // convert FP32 activations to FP16, call hipblasHgemm, convert the
+    // output back to FP32. The threshold keeps short prefills on the
+    // faster batched-GEMV path. Handles both weight layouts — the
+    // transposed variant (FFN-down / tied LM head) simply skips the OP_T
+    // flag inside `hgemm_row_major`.
+    if seq_len >= super::prefill_gemm::PREFILL_GEMM_THRESHOLD
+        && meta.wtype == GgmlType::Q4_0
+        && super::safety::hipblas_prefill_enabled()
+    {
+        let reason = if !super::safety::wmma_prefill_enabled() {
+            "wmma_disabled"
+        } else if meta.needs_transpose {
+            "needs_transpose"
+        } else if out_dim % 64 != 0 {
+            "out_dim_unaligned"
+        } else if in_dim % 32 != 0 {
+            "in_dim_unaligned"
+        } else {
+            "wmma_min_m"
+        };
+        tracing::debug!(
+            seq_len,
+            n = out_dim,
+            k = in_dim,
+            path = "hipblas",
+            weight_transposed = meta.needs_transpose,
+            reason,
+            "GEMM dispatch: hipBLAS Hgemm fallback"
+        );
+        match dispatch_prefill_via_hipblas(
+            device, weights, input, output, out_dim, in_dim, seq_len, meta.needs_transpose,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "hipBLAS prefill path failed, falling back to GEMV"
+                );
                 eprintln!(
                     "[rocmforge] hipBLAS prefill path failed ({}), falling back to GEMV",
                     err
@@ -1614,6 +1770,7 @@ fn dispatch_prefill_via_hipblas(
     out_dim: usize,
     in_dim: usize,
     seq_len: usize,
+    weight_transposed: bool,
 ) -> GpuResult<()> {
     let stream = device.stream();
     let handle = device.hipblas()?;
@@ -1640,7 +1797,9 @@ fn dispatch_prefill_via_hipblas(
     // 2. FP32 → FP16 conversion of the input activations.
     super::prefill_gemm::convert_f32_to_f16_on_stream(input, act_in_f16, act_in_elements, stream)?;
 
-    // 3. hipblasHgemm with the "compute C^T via swapped operands" trick.
+    // 3. hipblasHgemm. `weight_transposed=true` for FFN-down: the GGUF stores
+    //    the weight as [in_dim, out_dim] row-major, so we skip the OP_T flag
+    //    and adjust lda accordingly. Same bytes, correct semantic.
     super::prefill_gemm::hgemm_row_major(
         handle,
         weight_f16 as *const u16,
@@ -1649,6 +1808,7 @@ fn dispatch_prefill_via_hipblas(
         seq_len,
         in_dim,
         out_dim,
+        weight_transposed,
     )?;
 
     // 4. FP16 → FP32 conversion of the output.

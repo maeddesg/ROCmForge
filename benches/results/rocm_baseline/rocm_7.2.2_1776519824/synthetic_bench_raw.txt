@@ -1,0 +1,807 @@
+### pp=64 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.7s
+Chat template: none (raw completion)
+Prompt: 65 tokens
+Prefill: 81.4ms (798.4 tok/s)
+
+1
+
+1 tokens in 11.4ms = 88.0 tok/s
+
+### pp=64 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.6s
+Chat template: none (raw completion)
+Prompt: 65 tokens
+Prefill: 81.2ms (800.7 tok/s)
+
+1
+
+1 tokens in 11.2ms = 89.0 tok/s
+
+### pp=64 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.7s
+Chat template: none (raw completion)
+Prompt: 65 tokens
+Prefill: 81.2ms (800.7 tok/s)
+
+1
+
+1 tokens in 11.2ms = 89.3 tok/s
+
+### pp=128 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.7s
+Chat template: none (raw completion)
+Prompt: 129 tokens
+Prefill: 113.9ms (1132.1 tok/s)
+
+1
+
+1 tokens in 11.4ms = 87.8 tok/s
+
+### pp=128 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.7s
+Chat template: none (raw completion)
+Prompt: 129 tokens
+Prefill: 114.0ms (1131.6 tok/s)
+
+1
+
+1 tokens in 11.3ms = 88.2 tok/s
+
+### pp=128 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.7s
+Chat template: none (raw completion)
+Prompt: 129 tokens
+Prefill: 114.1ms (1130.3 tok/s)
+
+1
+
+1 tokens in 11.3ms = 88.3 tok/s
+
+### pp=256 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.7s
+Chat template: none (raw completion)
+Prompt: 257 tokens
+Prefill: 173.3ms (1482.6 tok/s)
+
+1
+
+1 tokens in 11.7ms = 85.6 tok/s
+
+### pp=256 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.6s
+Chat template: none (raw completion)
+Prompt: 257 tokens
+Prefill: 173.6ms (1480.4 tok/s)
+
+1
+
+1 tokens in 11.7ms = 85.7 tok/s
+
+### pp=256 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.6s
+Chat template: none (raw completion)
+Prompt: 257 tokens
+Prefill: 173.1ms (1484.9 tok/s)
+
+1
+
+1 tokens in 11.6ms = 86.1 tok/s
+
+### pp=512 run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.7s
+Chat template: none (raw completion)
+Prompt: 513 tokens
+Prefill: 303.0ms (1693.0 tok/s)
+
+1
+
+1 tokens in 12.4ms = 80.4 tok/s
+
+### pp=512 run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.6s
+Chat template: none (raw completion)
+Prompt: 513 tokens
+Prefill: 302.9ms (1693.8 tok/s)
+
+1
+
+1 tokens in 12.3ms = 81.3 tok/s
+
+### pp=512 run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.6s
+Chat template: none (raw completion)
+Prompt: 513 tokens
+Prefill: 303.8ms (1688.6 tok/s)
+
+1
+
+1 tokens in 12.3ms = 81.5 tok/s
+
+### decode run=1
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.7s
+Chat template: none (raw completion)
+Prompt: 1 tokens
+Prefill: 32.0ms (31.3 tok/s)
+
+, I'm trying to create a function that takes a string and returns a list of all the words in the string. Can someone help me with this? Here's what I have so far:
+
+```python
+def extract_words(string):
+  # TODO
+```
+
+Sure, here's a possible solution:
+
+```python
+def extract_words(string):
+  return string.split()
+```
+
+However, I'm not sure if this is the best approach. Can you explain how this solution works and if there are any potential issues I should be aware of? The provided solution using the `split()` method is a simple and efficient way to extract words from
+
+128 tokens in 1250.1ms = 102.4 tok/s
+
+### decode run=2
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.7s
+Chat template: none (raw completion)
+Prompt: 1 tokens
+Prefill: 31.9ms (31.3 tok/s)
+
+, I'm trying to create a function that takes a string and returns a list of all the words in the string. Can someone help me with this? Here's what I have so far:
+
+```python
+def extract_words(string):
+  # TODO
+```
+
+Sure, here's a possible solution:
+
+```python
+def extract_words(string):
+  return string.split()
+```
+
+However, I'm not sure if this is the best approach. Can you explain how this solution works and if there are any potential issues I should be aware of? The provided solution using the `split()` method is a simple and efficient way to extract words from
+
+128 tokens in 1249.9ms = 102.4 tok/s
+
+### decode run=3
+Detecting GPU capabilities... done
+  GPU: AMD Radeon RX 9070 XT
+  VRAM: 15.8 GB / 15.9 GB
+[Args] model path: /home/maeddes/models/Qwen2.5-7B-Instruct-Q4_0.gguf
+[Tokenizer] bos_id=Some(151643) eos_id=Some(151645) add_bos=false add_eos=false
+Model: 28 layers, 152064 vocab, 3584 hidden
+Initializing GPU device... done
+Loading CPU weights... [cpu weights] layer 1/28 loaded
+[cpu weights] layer 8/28 loaded
+[cpu weights] layer 16/28 loaded
+[cpu weights] layer 24/28 loaded
+[cpu weights] layer 28/28 loaded
+done in 1.5s
+Loading GPU weights... [GPU weights] Loading layer 1/28
+[GPU weights] Loading layer 2/28
+[GPU weights] Loading layer 3/28
+[GPU weights] Loading layer 4/28
+[GPU weights] Loading layer 5/28
+[GPU weights] Loading layer 6/28
+[GPU weights] Loading layer 7/28
+[GPU weights] Loading layer 8/28
+[GPU weights] Loading layer 9/28
+[GPU weights] Loading layer 10/28
+[GPU weights] Loading layer 11/28
+[GPU weights] Loading layer 12/28
+[GPU weights] Loading layer 13/28
+[GPU weights] Loading layer 14/28
+[GPU weights] Loading layer 15/28
+[GPU weights] Loading layer 16/28
+[GPU weights] Loading layer 17/28
+[GPU weights] Loading layer 18/28
+[GPU weights] Loading layer 19/28
+[GPU weights] Loading layer 20/28
+[GPU weights] Loading layer 21/28
+[GPU weights] Loading layer 22/28
+[GPU weights] Loading layer 23/28
+[GPU weights] Loading layer 24/28
+[GPU weights] Loading layer 25/28
+[GPU weights] Loading layer 26/28
+[GPU weights] Loading layer 27/28
+[GPU weights] Loading layer 28/28
+done in 1.7s
+Chat template: none (raw completion)
+Prompt: 1 tokens
+Prefill: 31.8ms (31.4 tok/s)
+
+, I'm trying to create a function that takes a string and returns a list of all the words in the string. Can someone help me with this? Here's what I have so far:
+
+```python
+def extract_words(string):
+  # TODO
+```
+
+Sure, here's a possible solution:
+
+```python
+def extract_words(string):
+  return string.split()
+```
+
+However, I'm not sure if this is the best approach. Can you explain how this solution works and if there are any potential issues I should be aware of? The provided solution using the `split()` method is a simple and efficient way to extract words from
+
+128 tokens in 1250.4ms = 102.4 tok/s
+

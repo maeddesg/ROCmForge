@@ -1,0 +1,28 @@
+
+ ```cpp
+#include <iostream>
+#include <cassert>
+
+struct Node {
+    int key;
+    char color; // 'R' for red, 'B' for black
+    Node* left;
+    Node* right;
+    Node* parent;
+
+    Node(int k) : key(k), color('R'), left(nullptr), right(nullptr), parent(nullptr) {}
+};
+
+class RedBlackTree {
+public:
+    RedBlackTree() : root(nullptr) {}
+
+    void insert(int key);
+    bool search(int key);
+
+private:
+    Node* root;
+
+    Node* rotateLeft(Node* node);
+    Node* rotateRight(Node* node);
+

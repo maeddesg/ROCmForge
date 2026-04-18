@@ -999,6 +999,24 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
 // ── Entry point ───────────────────────────────────────────────────────────────────
 
 fn main() {
+    rocmforge::logging::init();
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "ROCmForge starting");
+
+    #[cfg(feature = "gpu")]
+    {
+        use rocmforge::gpu::safety;
+        tracing::info!(
+            wmma_prefill = safety::wmma_prefill_enabled(),
+            wmma_attention = safety::wmma_attention_enabled(),
+            hipblas_prefill = safety::hipblas_prefill_enabled(),
+            tiled_gemv = safety::tiled_gemv_enabled(),
+            batched_lm_head = safety::batched_lm_head_enabled(),
+            decode_graph = safety::decode_graph_enabled(),
+            safe_mode = safety::gpu_safe_mode_enabled(),
+            "Feature flags"
+        );
+    }
+
     // Subcommand routing — `rocmforge chat …` takes the new interactive
     // path. Anything else preserves the legacy single-shot CLI exactly.
     let raw: Vec<String> = std::env::args().collect();

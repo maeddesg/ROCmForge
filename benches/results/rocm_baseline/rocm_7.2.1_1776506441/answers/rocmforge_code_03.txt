@@ -1,0 +1,14 @@
+
+Certainly! Below is a JavaScript function called `groupBy` that takes an array of objects and a key name, and returns an object where the keys are the unique values of that property, and the values are arrays of matching objects.
+
+```javascript
+function groupBy(array, key) {
+    // Create an empty object to hold the grouped results
+    const grouped = {};
+
+    // Iterate over each object in the array
+    array.forEach(obj => {
+        // Get the value of the specified key from the object
+        const keyValue = obj[key];
+
+        // If the key value is not already a key in the grouped object, initialize it

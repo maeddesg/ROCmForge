@@ -103,6 +103,16 @@ pub fn convert_f16_to_f32_on_stream(
 /// FP16 × FP16 prefill GEMM, wrapped with the row-major → column-major
 /// convention described at the top of the file. All pointers are raw u16
 /// (FP16 bit pattern) pointers on the device.
+///
+/// `weight_transposed = false` is the common layout: weight stored as
+/// `[out_dim, in_dim]` row-major (Q/K/V/O, gate/up). We call hipBLAS with
+/// `OP_T` on the weight so hipBLAS sees the equivalent `[in_dim, out_dim]`
+/// column-major view it expects.
+///
+/// `weight_transposed = true` is the FFN-down / tied-LM-head case: the GGUF
+/// stores the weight as `[in_dim, out_dim]` row-major. We call hipBLAS with
+/// `OP_N` and `lda = out_dim` so the same bytes are consumed without any
+/// logical transpose.
 #[allow(clippy::too_many_arguments)]
 pub fn hgemm_row_major(
     handle: &HipBlasHandle,
@@ -112,21 +122,32 @@ pub fn hgemm_row_major(
     seq_len: usize,
     in_dim: usize,
     out_dim: usize,
+    weight_transposed: bool,
 ) -> GpuResult<()> {
     let alpha = f16_bits_from_f32(1.0);
     let beta = f16_bits_from_f32(0.0);
 
+    let (weight_op, lda) = if weight_transposed {
+        // Physical [in_dim, out_dim] row-major = [out_dim, in_dim] column-major.
+        // OP_N consumes it as-is; lda = rows of the column-major view = out_dim.
+        (hipblasOperation_t::HIPBLAS_OP_N, out_dim as i32)
+    } else {
+        // Physical [out_dim, in_dim] row-major = [in_dim, out_dim] column-major.
+        // OP_T transposes it to the expected [out_dim, in_dim]; lda = in_dim.
+        (hipblasOperation_t::HIPBLAS_OP_T, in_dim as i32)
+    };
+
     unsafe {
         hgemm(
             handle,
-            hipblasOperation_t::HIPBLAS_OP_T, // weight transposed
+            weight_op,
             hipblasOperation_t::HIPBLAS_OP_N, // input not transposed
             out_dim as i32, // m
             seq_len as i32, // n
             in_dim as i32,  // k
             alpha,
             weight_f16,
-            in_dim as i32, // lda = rows of the non-transposed A = in_dim
+            lda,
             input_f16,
             in_dim as i32, // ldb = in_dim (column-major view of seq × in row-major)
             beta,
