@@ -1031,28 +1031,47 @@ pub fn gpu_prefill_layer_forward_hybrid(
         eps,
     )?;
     if profiling { ffi::hip_device_synchronize()?; us_norm_pre_ffn = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
-    gpu_project_rows(
-        device,
+    // Phase 4 Step 3 — try the fused Gate+Up WMMA dispatch; on any
+    // precondition failure (wrong wtype, bad alignment, WMMA disabled)
+    // fall back to two independent projections.
+    let fused_ok = super::ops::gpu_try_dispatch_fused_gate_up_prefill(
         &gpu_layer.ffn_gate,
         &gpu_layer.ffn_gate_meta,
-        scratch.normed.as_ptr() as *const f32,
-        scratch.gate.as_ptr() as *mut f32,
-        seq_len,
-        ff_size,
-        h,
-    )?;
-    if profiling { ffi::hip_device_synchronize()?; us_gate_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
-    gpu_project_rows(
-        device,
         &gpu_layer.ffn_up,
         &gpu_layer.ffn_up_meta,
         scratch.normed.as_ptr() as *const f32,
+        scratch.gate.as_ptr() as *mut f32,
         scratch.swiglu.as_ptr() as *mut f32,
-        seq_len,
         ff_size,
         h,
+        seq_len,
     )?;
-    if profiling { ffi::hip_device_synchronize()?; us_up_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
+    if fused_ok {
+        if profiling { ffi::hip_device_synchronize()?; us_gate_proj = t.elapsed().as_micros() as u64; us_up_proj = 0; t = std::time::Instant::now(); }
+    } else {
+        gpu_project_rows(
+            device,
+            &gpu_layer.ffn_gate,
+            &gpu_layer.ffn_gate_meta,
+            scratch.normed.as_ptr() as *const f32,
+            scratch.gate.as_ptr() as *mut f32,
+            seq_len,
+            ff_size,
+            h,
+        )?;
+        if profiling { ffi::hip_device_synchronize()?; us_gate_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
+        gpu_project_rows(
+            device,
+            &gpu_layer.ffn_up,
+            &gpu_layer.ffn_up_meta,
+            scratch.normed.as_ptr() as *const f32,
+            scratch.swiglu.as_ptr() as *mut f32,
+            seq_len,
+            ff_size,
+            h,
+        )?;
+        if profiling { ffi::hip_device_synchronize()?; us_up_proj = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
+    }
 
     silu(
         scratch.gate.as_ptr() as *const f32,

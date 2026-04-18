@@ -174,6 +174,13 @@ set_target_properties(wmma_gemm_q4_0 PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+# Phase 4 Step 3 — Fused Gate/Up WMMA GEMM (one launch for two projections).
+add_library(wmma_gemm_q4_0_fused_gate_up STATIC ../wmma/wmma_gemm_q4_0_fused_gate_up.hip)
+set_target_properties(wmma_gemm_q4_0_fused_gate_up PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    POSITION_INDEPENDENT_CODE ON
+)
+
 # Phase 3a — WMMA prefill attention PoC (single head, seq=64).
 add_library(wmma_attention_prefill STATIC ../wmma/wmma_attention_prefill.hip)
 set_target_properties(wmma_attention_prefill PROPERTIES

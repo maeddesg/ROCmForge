@@ -1432,6 +1432,70 @@ pub fn gpu_dispatch_fused_gate_up(
 /// hipBLAS path or the batched-GEMV path handles it.
 const WMMA_PREFILL_MIN_M: usize = 1;
 
+/// Attempt to dispatch gate + up prefill projections as a single fused
+/// WMMA-Q4_0 launch. Returns `Ok(true)` on success, `Ok(false)` when the
+/// preconditions are not met (wrong wtype, bad alignment, WMMA disabled,
+/// ...) — the caller must then fall back to two separate dispatches.
+#[allow(clippy::too_many_arguments)]
+pub fn gpu_try_dispatch_fused_gate_up_prefill(
+    gate_weights: &GpuBuffer,
+    gate_meta: &WeightMeta,
+    up_weights: &GpuBuffer,
+    up_meta: &WeightMeta,
+    input: *const f32,
+    output_gate: *mut f32,
+    output_up: *mut f32,
+    out_dim: usize,
+    in_dim: usize,
+    seq_len: usize,
+) -> GpuResult<bool> {
+    if gate_meta.wtype != GgmlType::Q4_0 || up_meta.wtype != GgmlType::Q4_0 {
+        return Ok(false);
+    }
+    if seq_len < WMMA_PREFILL_MIN_M {
+        return Ok(false);
+    }
+    if (out_dim % 64) != 0 || (in_dim % 32) != 0 {
+        return Ok(false);
+    }
+    if !super::safety::wmma_prefill_enabled() {
+        return Ok(false);
+    }
+
+    let padded_m = seq_len.div_ceil(64) * 64;
+    tracing::debug!(
+        seq_len,
+        padded_m,
+        m = seq_len,
+        n = out_dim,
+        k = in_dim,
+        path = "wmma_q4_0_fused_gate_up",
+        "GEMM dispatch: fused Gate+Up WMMA Q4_0 ({}→{})",
+        seq_len,
+        padded_m
+    );
+    match super::kernels::wmma::launch_wmma_gemm_q4_0_fused_gate_up(
+        input,
+        gate_weights.as_ptr() as *const u8,
+        up_weights.as_ptr() as *const u8,
+        output_gate,
+        output_up,
+        padded_m,
+        out_dim,
+        in_dim,
+        super::ffi::hipStream_t::null(),
+    ) {
+        Ok(()) => Ok(true),
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "fused Gate+Up WMMA Q4_0 failed, caller will fall back to separate dispatches"
+            );
+            Ok(false)
+        }
+    }
+}
+
 /// Dispatch a GPU GEMM for GGUF weights.
 pub fn gpu_dispatch_gemm(
     device: &GpuDevice,
