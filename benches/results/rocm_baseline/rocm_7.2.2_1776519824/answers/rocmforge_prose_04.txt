@@ -1,0 +1,8 @@
+
+Classical conditioning and operant conditioning are two fundamental concepts in the field of psychology, developed by Ivan Pavlov and B.F. Skinner respectively. They both deal with learning, but through different mechanisms.
+
+**Classical Conditioning:**
+Classical conditioning is a type of learning in which a neutral stimulus becomes associated with a meaningful stimulus, leading to a conditioned response. The process involves pairing a neutral stimulus with an unconditioned stimulus that naturally triggers a response. Over time, the neutral stimulus alone can elicit the same response.
+
+- **Key Components:**
+  - **Unconditioned Stimulus (UCS):** A stimulus that naturally

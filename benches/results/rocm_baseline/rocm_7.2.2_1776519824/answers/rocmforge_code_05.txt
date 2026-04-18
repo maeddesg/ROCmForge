@@ -1,0 +1,14 @@
+
+To write a SQL query that finds the top 5 customers by total order amount, we need to join the `customers` table with the `orders` table, aggregate the total order amount for each customer, and then order the results by the total amount in descending order. Finally, we can limit the results to the top 5 customers.
+
+Assuming the following table structures:
+
+- `customers` table with columns: `customer_id`, `name`
+- `orders` table with columns: `order_id`, `customer_id`, `amount`
+
+Here is the SQL query:
+
+```sql
+SELECT 
+    c.name,
+    SUM(o
