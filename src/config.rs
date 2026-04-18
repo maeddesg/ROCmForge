@@ -372,9 +372,13 @@ fn registry() -> &'static HashMap<&'static str, ModelTraits> {
     REGISTRY.get_or_init(|| {
         let mut m = HashMap::new();
 
-        // LLaMA family - consecutive RoPE, no bias, split QKV
+        // LLaMA family - split-half (NeoX) RoPE as stored in GGUF, no bias,
+        // split QKV. Note: HF transformers stores Llama weights expecting
+        // `rotate_half`, which the GGUF converter preserves via the
+        // convert_hf_to_gguf permutation — GGUF thus consumes the
+        // split-half layout (same convention Qwen2/3 use).
         let llama = ModelTraits {
-            rope_style: RopeStyle::Normal,
+            rope_style: RopeStyle::NeoX,
             attention_layout: AttentionLayout::SplitQkv,
             use_attention_bias: false,
             default_rope_theta: 10000.0,
@@ -406,19 +410,29 @@ fn registry() -> &'static HashMap<&'static str, ModelTraits> {
             m.insert(*arch, qwen2.clone());
         }
 
-        // Qwen3 family - NeoX RoPE, QKV bias, split QKV, high rope theta, GGUF MoE naming
-        // Note: Qwen3 uses MoE architecture with _exps suffix for expert tensors
+        // Qwen3 family - NeoX RoPE, NO QKV bias (unlike Qwen2), split QKV,
+        // high rope theta. Dense Qwen3 uses standard GGUF naming; the MoE
+        // variant uses `_exps` names. Qwen3 additionally stores per-head
+        // Q/K RMSNorm tensors (`blk.N.attn_q_norm.weight`,
+        // `blk.N.attn_k_norm.weight`) which must be applied after
+        // projection and before RoPE — not yet wired; see
+        // docs/known_issues/multi_model_blockers.md.
         let qwen3 = ModelTraits {
             rope_style: RopeStyle::NeoX,
             attention_layout: AttentionLayout::SplitQkv,
-            use_attention_bias: true,
+            use_attention_bias: false,
             default_rope_theta: 1_000_000.0,
             default_norm_eps: 1e-6,
-            tensor_naming: TensorNamingScheme::GgufMoE,
+            tensor_naming: TensorNamingScheme::Gguf,
         };
-        for arch in &["qwen3", "qwen3moe"] {
-            m.insert(*arch, qwen3.clone());
-        }
+        m.insert("qwen3", qwen3.clone());
+        m.insert(
+            "qwen3moe",
+            ModelTraits {
+                tensor_naming: TensorNamingScheme::GgufMoE,
+                ..qwen3.clone()
+            },
+        );
         // Legacy Qwen1: lower rope theta, no QK norm
         m.insert(
             "qwen",
