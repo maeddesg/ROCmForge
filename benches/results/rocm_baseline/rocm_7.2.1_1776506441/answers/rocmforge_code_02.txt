@@ -1,0 +1,11 @@
+
+To create a simple HTTP server in Rust that listens on port 8080 and responds to GET requests with a JSON object containing the current timestamp, you can use the `hyper` crate for handling HTTP requests and the `serde_json` crate for serializing the JSON response. Below is a complete example:
+
+1. First, add the necessary dependencies to your `Cargo.toml` file:
+
+```toml
+[dependencies]
+hyper = "0.14"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json
