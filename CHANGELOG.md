@@ -1,6 +1,19 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.0] — 2026-04-18
+
+### Highlights
+
+- **23× prefill speedup** at pp256 (64 → 1,484 tok/s)
+- **8× TTFT reduction** on real prompts (396 → 49 ms)
+- First open-source WMMA matrix-core inference engine for AMD RDNA 4
+  (gfx1201) — hipBLAS / Tensile in ROCm 7.2 does not use matrix cores
+  on this architecture; these hand-written kernels do
+- Zero scalar-GEMM fallbacks — all 168 prefill dispatches on Qwen2.5-7B
+  Q4_0 route through a WMMA kernel (Q4_0, Q4_1, or fused Gate+Up)
+- Interactive chat CLI with streaming output, multi-turn conversations,
+  slash commands, Ctrl+C to interrupt generation
+- Full ROCm-upgrade validation suite with automatic diff reporting
 
 ### Phase 6 — Decode profiling and analysis
 
