@@ -62,6 +62,16 @@ unsafe extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 
+    fn wmma_gemm_q4_k_launch(
+        input: *const f32,
+        weights_q4_k: *const c_void,
+        output: *mut f32,
+        m: i32,
+        n: i32,
+        k: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
     fn wmma_attention_prefill_64_launch(
         q: *const c_void,
         k: *const c_void,
@@ -441,6 +451,53 @@ pub fn launch_wmma_gemm_q4_1(
         Err(GpuError::HipApiError {
             code: code as i32,
             description: format!("wmma_gemm_q4_1_launch failed: {:?}", code),
+        })
+    }
+}
+
+/// Launch the Phase 7 WMMA GEMM with inline Q4_K (super-block) dequant.
+///
+/// Q4_K super-block is 144 bytes / 256 elements. The kernel iterates
+/// the K axis in 32-element sub-blocks (same cadence as Q4_0), so
+/// `K` must be a multiple of 256 for the super-block addressing to
+/// land on whole blocks. `M` and `N` must be multiples of 64.
+///
+/// Weight-layout reference: `docs/q4_k_m_block_format.md`.
+pub fn launch_wmma_gemm_q4_k(
+    input: *const f32,
+    weights_q4_k: *const u8,
+    output: *mut f32,
+    m: usize,
+    n: usize,
+    k: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if m % 64 != 0 || n % 64 != 0 || k % 256 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "wmma_gemm_q4_k: M={} N={} K={} must be multiples of 64/64/256",
+                m, n, k
+            ),
+        });
+    }
+    let code = unsafe {
+        wmma_gemm_q4_k_launch(
+            input,
+            weights_q4_k as *const c_void,
+            output,
+            m as i32,
+            n as i32,
+            k as i32,
+            stream,
+        )
+    };
+    if code == hipError_t::hipSuccess {
+        Ok(())
+    } else {
+        Err(GpuError::HipApiError {
+            code: code as i32,
+            description: format!("wmma_gemm_q4_k_launch failed: {:?}", code),
         })
     }
 }

@@ -189,6 +189,14 @@ set_target_properties(wmma_gemm_q4_1 PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+# Phase 7 Step 3 — WMMA GEMM with inline Q4_K (super-block) weight dequant.
+# Target format for modern GGUF files: Qwen3-8B, Llama-3.1-8B etc.
+add_library(wmma_gemm_q4_k STATIC ../wmma/wmma_gemm_q4_k.hip)
+set_target_properties(wmma_gemm_q4_k PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    POSITION_INDEPENDENT_CODE ON
+)
+
 # Phase 3a — WMMA prefill attention PoC (single head, seq=64).
 add_library(wmma_attention_prefill STATIC ../wmma/wmma_attention_prefill.hip)
 set_target_properties(wmma_attention_prefill PROPERTIES

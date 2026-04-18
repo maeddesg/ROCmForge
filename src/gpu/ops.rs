@@ -1571,6 +1571,51 @@ pub fn gpu_dispatch_gemm(
         }
     }
 
+    // Phase 7 Step 3 — Q4_K super-block WMMA prefill path. Target format
+    // for modern GGUF files (Qwen3-8B, Llama-3.1-8B, etc). Super-block
+    // alignment: K must be a multiple of 256 (Q4_K super-block size).
+    if seq_len >= WMMA_PREFILL_MIN_M
+        && meta.wtype == GgmlType::Q4_K
+        && (out_dim % 64) == 0
+        && (in_dim % 256) == 0
+        && super::safety::wmma_prefill_enabled()
+    {
+        let padded_m = seq_len.div_ceil(64) * 64;
+        tracing::debug!(
+            seq_len,
+            padded_m,
+            m = seq_len,
+            n = out_dim,
+            k = in_dim,
+            path = "wmma_q4_k",
+            "GEMM dispatch: WMMA Q4_K ({}→{})",
+            seq_len,
+            padded_m
+        );
+        match super::kernels::wmma::launch_wmma_gemm_q4_k(
+            input,
+            weights.as_ptr() as *const u8,
+            output,
+            padded_m,
+            out_dim,
+            in_dim,
+            super::ffi::hipStream_t::null(),
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "WMMA Q4_K prefill path failed, falling back to scalar GEMM"
+                );
+                eprintln!(
+                    "[rocmforge] WMMA Q4_K prefill path failed ({}), falling back to scalar GEMM",
+                    err
+                );
+                // fall through
+            }
+        }
+    }
+
     // Phase 4 Step 4 — Q4_1 WMMA path for the handful of FFN-down layers
     // that mixed-precision quantizers leave at higher precision. Same
     // alignment constraints as Q4_0; only the kernel differs.
