@@ -295,6 +295,17 @@ pub fn hip_stream_synchronize(stream: hipStream_t) -> GpuResult<()> {
     }
 }
 
+/// Blocks until all previously issued work across every stream on the current
+/// device completes. Per-op profiling timestamps rely on this: kernels are
+/// launched on stream 0 and on device streams, so a per-stream sync is not
+/// enough to produce an accurate wall-clock measurement.
+pub fn hip_device_synchronize() -> GpuResult<()> {
+    unsafe {
+        let code = hipDeviceSynchronize();
+        hip_check(code)
+    }
+}
+
 /// Begin capture on a HIP stream.
 pub fn hip_stream_begin_capture(stream: hipStream_t, mode: hipStreamCaptureMode) -> GpuResult<()> {
     unsafe {
@@ -729,6 +740,7 @@ extern "C" {
     fn hipStreamCreate(stream: *mut *mut c_void) -> hipError_t;
     fn hipStreamDestroy(stream: hipStream_t) -> hipError_t;
     fn hipStreamSynchronize(stream: hipStream_t) -> hipError_t;
+    fn hipDeviceSynchronize() -> hipError_t;
     fn hipStreamBeginCapture(stream: hipStream_t, mode: hipStreamCaptureMode) -> hipError_t;
     fn hipStreamEndCapture(stream: hipStream_t, pGraph: *mut hipGraph_t) -> hipError_t;
     fn hipStreamIsCapturing(
