@@ -1467,7 +1467,6 @@ pub fn gpu_dispatch_gemm(
     // step has its own opt-out env flag.
     if seq_len >= WMMA_PREFILL_MIN_M
         && meta.wtype == GgmlType::Q4_0
-        && !meta.needs_transpose
         && (out_dim % 64) == 0
         && (in_dim % 32) == 0
         && super::safety::wmma_prefill_enabled()
