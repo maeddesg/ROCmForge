@@ -1511,10 +1511,11 @@ pub fn gpu_dispatch_gemm(
     // hipBLAS prefill path: dequantise the Q4_0 weight tensor to FP16,
     // convert FP32 activations to FP16, call hipblasHgemm, convert the
     // output back to FP32. The threshold keeps short prefills on the
-    // faster batched-GEMV path.
+    // faster batched-GEMV path. Handles both weight layouts — the
+    // transposed variant (FFN-down / tied LM head) simply skips the OP_T
+    // flag inside `hgemm_row_major`.
     if seq_len >= super::prefill_gemm::PREFILL_GEMM_THRESHOLD
         && meta.wtype == GgmlType::Q4_0
-        && !meta.needs_transpose
         && super::safety::hipblas_prefill_enabled()
     {
         let reason = if !super::safety::wmma_prefill_enabled() {
@@ -1533,11 +1534,12 @@ pub fn gpu_dispatch_gemm(
             n = out_dim,
             k = in_dim,
             path = "hipblas",
+            weight_transposed = meta.needs_transpose,
             reason,
             "GEMM dispatch: hipBLAS Hgemm fallback"
         );
         match dispatch_prefill_via_hipblas(
-            device, weights, input, output, out_dim, in_dim, seq_len,
+            device, weights, input, output, out_dim, in_dim, seq_len, meta.needs_transpose,
         ) {
             Ok(()) => return Ok(()),
             Err(err) => {
@@ -1660,6 +1662,7 @@ fn dispatch_prefill_via_hipblas(
     out_dim: usize,
     in_dim: usize,
     seq_len: usize,
+    weight_transposed: bool,
 ) -> GpuResult<()> {
     let stream = device.stream();
     let handle = device.hipblas()?;
@@ -1686,7 +1689,9 @@ fn dispatch_prefill_via_hipblas(
     // 2. FP32 → FP16 conversion of the input activations.
     super::prefill_gemm::convert_f32_to_f16_on_stream(input, act_in_f16, act_in_elements, stream)?;
 
-    // 3. hipblasHgemm with the "compute C^T via swapped operands" trick.
+    // 3. hipblasHgemm. `weight_transposed=true` for FFN-down: the GGUF stores
+    //    the weight as [in_dim, out_dim] row-major, so we skip the OP_T flag
+    //    and adjust lda accordingly. Same bytes, correct semantic.
     super::prefill_gemm::hgemm_row_major(
         handle,
         weight_f16 as *const u16,
@@ -1695,6 +1700,7 @@ fn dispatch_prefill_via_hipblas(
         seq_len,
         in_dim,
         out_dim,
+        weight_transposed,
     )?;
 
     // 4. FP16 → FP32 conversion of the output.
