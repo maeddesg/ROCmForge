@@ -1,0 +1,21 @@
+{
+  "rocm_version": "7.2.2",
+  "hipcc_path": "/opt/rocm/bin/hipcc",
+  "hipcc_version": "HIP version: 7.2.53211-9999",
+  "amdclang_path": "/opt/rocm/bin/amdclang",
+  "amdclang_version": "AMD clang version 22.0.0git (/startdir/rocm-llvm f58b06dce1f9c15707c5f808fd002e18c2accf7e)",
+  "gpu_arch": "gfx1201",
+  "gpu_marketing_name": "AMD Radeon RX 9070 XT",
+  "gpu_driver_version": "unknown",
+  "wmma_intrinsic_available": true,
+  "hipblas_path": "/opt/rocm/lib/libhipblas.so",
+  "hipblas_package_version": "7.2.2-1.1",
+  "hip_runtime_path": "/opt/rocm/lib/libamdhip64.so",
+  "hip_runtime_package_version": "7.2.2-1",
+  "rocm_core_package_version": "7.2.2-1.1",
+  "rocm_hip_libraries_package_version": "7.2.2-1",
+  "kernel_count_hip": 0,
+  "git_sha": "389779a",
+  "hostname": "swabe",
+  "timestamp": "2026-04-18T12:33:01+02:00"
+}
