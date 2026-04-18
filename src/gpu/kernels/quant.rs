@@ -2121,6 +2121,16 @@ unsafe extern "C" {
         ncols_dst: c_int,
         stream: hipStream_t,
     ) -> hipError_t;
+
+    fn gemv_q4_k_f32_residual_launch(
+        weights_q4_k: *const u8,
+        input: *const f32,
+        residual: *const f32,
+        output: *mut f32,
+        n_rows: c_int,
+        ncols_dst: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
 }
 
 // ── Q5_K GEMV FFI Declaration ───────────────────────────────────────────────────────────
@@ -3222,6 +3232,64 @@ pub fn gemv_q4_k_f32_on_stream(
         });
     }
 
+    Ok(())
+}
+
+/// Q4_K × f32 GEMV with fused residual add.
+///
+/// Computes: `output = weights @ input + residual` in a single kernel
+/// launch. Used by the decode path for `attn_out` and `ffn_down` where
+/// the GEMV result is immediately added back into `hidden`.
+#[allow(clippy::too_many_arguments)]
+pub fn gemv_q4_k_f32_residual_on_stream(
+    weights_q4_k: *const u8,
+    input: *const f32,
+    residual: *const f32,
+    output: *mut f32,
+    n_rows: usize,
+    ncols_dst: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if n_rows == 0 || ncols_dst == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_q4_k_f32_residual: n_rows and ncols_dst cannot be zero"
+                .to_string(),
+        });
+    }
+    if n_rows % 256 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_q4_k_f32_residual: n_rows must be multiple of 256, got {}",
+                n_rows
+            ),
+        });
+    }
+    if weights_q4_k.is_null() || input.is_null() || output.is_null() || residual.is_null() {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_q4_k_f32_residual: null pointer".to_string(),
+        });
+    }
+
+    let result = unsafe {
+        gemv_q4_k_f32_residual_launch(
+            weights_q4_k,
+            input,
+            residual,
+            output,
+            n_rows as c_int,
+            ncols_dst as c_int,
+            stream,
+        )
+    };
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!("gemv_q4_k_f32_residual kernel failed: {:?}", result),
+        });
+    }
     Ok(())
 }
 

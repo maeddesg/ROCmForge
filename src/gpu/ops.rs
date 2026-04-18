@@ -642,6 +642,18 @@ pub fn gpu_dispatch_gemv_residual_on_stream(
                 }
                 Ok(true)
             }
+            GgmlType::Q4_K => {
+                super::kernels::quant::gemv_q4_k_f32_residual_on_stream(
+                    weights.as_ptr() as *const u8,
+                    input,
+                    residual,
+                    output,
+                    in_dim,
+                    out_dim,
+                    stream,
+                )?;
+                Ok(true)
+            }
             _ => Ok(false),
         }
     }
