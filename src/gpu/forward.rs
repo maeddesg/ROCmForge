@@ -134,6 +134,16 @@ fn decode_stage_profile_store() -> &'static Mutex<GpuDecodeStageProfileSnapshot>
 
 fn decode_stage_profiling_enabled() -> bool {
     std::env::var_os("ROCMFORGE_PROFILE_DECODE_STAGES").is_some()
+        || std::env::var_os("ROCMFORGE_PROFILE_DECODE_OPS").is_some()
+}
+
+fn decode_stage_profile_snapshot_and_reset_local() -> GpuDecodeStageProfileSnapshot {
+    let mut guard = decode_stage_profile_store()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let snap = *guard;
+    *guard = GpuDecodeStageProfileSnapshot::default();
+    snap
 }
 
 fn decode_graph_disabled() -> bool {
@@ -2477,6 +2487,18 @@ pub fn gpu_full_forward_hybrid(
     config: &ModelConfig,
     logits_mode: GpuLogitsMode,
 ) -> GpuResult<Option<u32>> {
+    // Phase 6 Step 1 — per-step decode profiling. Snapshot+reset the
+    // file-local stage accumulator at entry; if the op-profiling flag is
+    // on we emit a trace event at exit with per-stage µs, KV-cache length,
+    // and launch count.
+    let profile_decode_ops = std::env::var_os("ROCMFORGE_PROFILE_DECODE_OPS").is_some();
+    let decode_step_start = if profile_decode_ops {
+        let _ = decode_stage_profile_snapshot_and_reset_local();
+        Some(std::time::Instant::now())
+    } else {
+        None
+    };
+
     if matches!(logits_mode, GpuLogitsMode::GreedyArgmax) {
         if let Some(token) =
             gpu_try_full_greedy_decode_graph(device, gpu_weights, kv, scratch, pos, config)?
@@ -2533,7 +2555,7 @@ pub fn gpu_full_forward_hybrid(
         GpuLogitsMode::Skip => Ok(None),
     };
 
-    match gpu_result {
+    let final_result: GpuResult<Option<u32>> = match gpu_result {
         Ok(result) => Ok(result),
         Err(GpuError::InvalidWeightLayout { .. }) | Err(GpuError::UnsupportedWeightType { .. }) => {
             gpu_dispatch_rms_norm(
@@ -2565,5 +2587,48 @@ pub fn gpu_full_forward_hybrid(
             }
         }
         Err(err) => Err(err),
+    };
+
+    // Phase 6 Step 1 — emit per-step decode profile when enabled.
+    if let (true, Some(t_start)) = (profile_decode_ops, decode_step_start) {
+        let wall_us = t_start.elapsed().as_micros() as u64;
+        let snap = decode_stage_profile_snapshot_and_reset_local();
+        // Approximate launch count: every profiled stage is one device-stream
+        // op (≈ one kernel launch). Layers contribute the per-layer stages,
+        // the tail contributes LogitsNorm + LogitsProj + Argmax.
+        let layer_stage_count = if snap.attn_residual_ns == 0 && snap.ffn_residual_ns == 0 {
+            // Residual fused into O-proj and FFN-down: 9 stages / layer.
+            9u64
+        } else {
+            // Separate residual add: 11 stages / layer.
+            11u64
+        };
+        let approx_launches =
+            snap.layer_invocations * layer_stage_count + snap.tail_invocations * 3;
+        tracing::info!(
+            pos,
+            wall_us,
+            launches_approx = approx_launches,
+            attn_norm_us = (snap.attn_norm_ns / 1000) as u64,
+            qkv_us = (snap.qkv_ns / 1000) as u64,
+            q_rope_us = (snap.q_rope_ns / 1000) as u64,
+            k_rope_us = (snap.k_rope_ns / 1000) as u64,
+            kv_write_us = (snap.kv_write_ns / 1000) as u64,
+            attention_us = (snap.attention_ns / 1000) as u64,
+            attn_proj_us = (snap.attn_proj_ns / 1000) as u64,
+            attn_residual_us = (snap.attn_residual_ns / 1000) as u64,
+            ffn_norm_us = (snap.ffn_norm_ns / 1000) as u64,
+            gate_up_us = (snap.gate_up_ns / 1000) as u64,
+            ffn_down_us = (snap.ffn_down_ns / 1000) as u64,
+            ffn_residual_us = (snap.ffn_residual_ns / 1000) as u64,
+            logits_norm_us = (snap.logits_norm_ns / 1000) as u64,
+            logits_proj_us = (snap.logits_proj_ns / 1000) as u64,
+            argmax_us = (snap.argmax_ns / 1000) as u64,
+            layer_invocations = snap.layer_invocations,
+            tail_invocations = snap.tail_invocations,
+            "Decode step profiling"
+        );
     }
+
+    final_result
 }

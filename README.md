@@ -61,8 +61,9 @@ ROCmForge is essentially on par with llama.cpp: prefill within 6 %,
 TTFT within 3 ms, wall-clock within 18 %. The remaining synthetic-pp
 gap at long sequences (~3×) is unfused norm/RoPE/embedding orchestration
 that llama.cpp packs into fewer kernel launches. The biggest remaining
-user-visible lever is **decode** (0.84×), which has not been profiled
-or optimised yet.
+user-visible lever is **decode** (0.84×). Phase 6 profiling broke the
+decode budget down to the operation level (see Known Issues below
+and the Phase 6 analysis doc); no decode speedup has shipped yet.
 
 ### Optimisation history
 
@@ -72,6 +73,7 @@ or optimised yet.
 | + WMMA GEMM (Phase 2)         |     92 tok/s  |         — | 102 tok/s |
 | + WMMA Attention (Phase 3)    |    623 tok/s  |      67 ms | 102 tok/s |
 | + Dispatch fixes (Phase 4)    | **1,484 tok/s** |  **49 ms** | 102 tok/s |
+| + Decode profiling (Phase 6)  | 1,484 tok/s  |     49 ms | 102 tok/s (profiled, gap characterised) |
 
 Full analysis: [`benches/results/phase4_final_analysis.md`](benches/results/phase4_final_analysis.md).
 
@@ -132,9 +134,16 @@ For production inference, use `--gpu`.
 
 ## Known issues
 
-- **Decode gap:** 102 tok/s vs. llama.cpp 117–121 tok/s (~0.84×), unchanged
-  since project start. Not profiled yet — the biggest remaining
-  user-visible lever.
+- **Decode gap:** 102 tok/s vs. llama.cpp 117–121 tok/s (~0.84×),
+  unchanged since project start. **Fully profiled in Phase 6.** The
+  9.76 ms per-token budget splits: GEMV 77 % (memory-bandwidth-bound
+  and CU-saturated), launch overhead 8–13 % (255 kernel launches per
+  token — exactly the size of the gap to llama.cpp), attention 6 %,
+  everything else 9 %. A fused RMSNorm + Gate + Up + SwiGLU kernel
+  exists but has a latent state-corruption bug that appears from
+  token 2+ when routed into the active decode path — see
+  [`docs/known_issues/fused_norm_gate_up_bug.md`](docs/known_issues/fused_norm_gate_up_bug.md).
+  Full analysis: [`profiling/results/decode_profiling_analysis.md`](profiling/results/decode_profiling_analysis.md).
 - **Synthetic prefill gap at long sequences:** at pp256+ ROCmForge is
   ~3× slower than llama.cpp. The GEMM path is fully WMMA after Phase 4;
   the gap is unfused norm/RoPE/embedding orchestration and FP32↔FP16

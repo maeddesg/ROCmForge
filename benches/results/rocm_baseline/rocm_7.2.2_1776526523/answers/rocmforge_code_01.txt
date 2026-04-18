@@ -1,0 +1,15 @@
+
+Certainly! Below is a Python function that implements binary search on a sorted list. The function takes two parameters: the sorted list (`arr`) and the target element (`target`). It returns the index of the target element if found, otherwise it returns -1.
+
+```python
+def binary_search(arr, target):
+    left, right = 0, len(arr) - 1
+    
+    while left <= right:
+        mid = (left + right) // 2
+        mid_value = arr[mid]
+        
+        if mid_value == target:
+            return mid
+        elif mid_value < target:
+            left = mid + 1
