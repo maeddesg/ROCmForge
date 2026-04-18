@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Phase 6 — Decode profiling and analysis
+
+- Per-step decode profiling infrastructure
+  (`ROCMFORGE_PROFILE_DECODE_OPS=1`). Emits one `tracing::info!` event
+  per decode token with per-stage µs timings, wall-clock µs, KV-cache
+  length (`pos`), and the launch count. Superset of the pre-existing
+  `ROCMFORGE_PROFILE_DECODE_STAGES` flag.
+- Aggregator script `profiling/aggregate_decode_overhead.py` parses the
+  trace log, discards the warmup step, reports per-stage medians both
+  raw and rescaled to a caller-supplied ground-truth ms/token.
+- **Decode budget fully characterised** at Qwen2.5-7B Q4_0 on gfx1201
+  (9.76 ms ground-truth / 102.5 tok/s):
+    * GEMV  7,531 µs  (77 %)  — `gate_up` 3,060 + `ffn_down` 2,005 +
+      fused `QKV` 1,246 + `attn_proj` 738 + `lm_head` 482
+    * Norm (3×)      835 µs  ( 9 %)
+    * Attention      569 µs  ( 6 %) at pos=127; scales ~1.6 µs per
+      additional KV-cache position
+    * Q-RoPE         379 µs  ( 4 %)
+    * KV-Write       384 µs  ( 4 %)
+    * Sampling        17 µs  ( 0.2 %)
+- **255 kernel launches per decode token** (28 layers × 9 stages +
+  3 tail). At 3-5 µs launch latency → 0.8-1.3 ms overhead per token
+  — exactly the 1.3 ms gap to llama.cpp. A HIP-graph replay of the
+  decode layer loop would collapse this but is blocked by the known
+  RDNA 4 device-pointer stale-read bug in complex graphs
+  (`hip_graph_device_pointer_bug.md`).
+- Q4_1 GEMV dispatch verified correct for the 3 mixed-precision
+  `ffn_down` layers — no scalar fallback, real `gemv_q4_1_f32_*`
+  kernel handles them with autotune support.
+- **Fused RMSNorm + Gate + Up + SwiGLU kernel bug discovered and
+  documented.** The kernel in `hip_kernels/quant/q4_0_fused_norm_gate_up.hip`
+  has correct preconditions for Qwen2.5-7B (Q4_0 gate+up, h=3584,
+  ff=18944, shared_mem=14,464 B) but produces garbled output from
+  token 2+ when routed into the active decode path. Never actually
+  executed before Phase 6 — its only caller lives inside the
+  disabled graph-capture path. Routing attempt reverted; bug
+  documented in `docs/known_issues/fused_norm_gate_up_bug.md` with
+  three candidate root causes and a four-step fix approach.
+- Decode throughput unchanged at 102.5 tok/s. Phase 6 did not ship
+  any inference-engine change.
+
 ### Phase 4 Step 4 — Q4_1 WMMA prefill kernel
 
 - `hip_kernels/wmma/wmma_gemm_q4_1.hip` — structural copy of the Q4_0

@@ -1,0 +1,26 @@
+{
+  "rocm_version": "7.2.2",
+  "git_sha": "742091a",
+  "timestamp": "2026-04-18T17:35:24+02:00",
+  "gpu_arch": "gfx1201",
+  "wmma_intrinsic_available": true,
+  "build_ok": true,
+  "synthetic": {
+    "prefill_pp64_tps_median": 797.8,
+    "prefill_pp128_tps_median": 1131.2,
+    "prefill_pp256_tps_median": 1481.1,
+    "prefill_pp512_tps_median": 1691.5,
+    "decode_128_tps_median": 102.5
+  },
+  "real_prompts": {
+    "count": 15,
+    "ttft_ms_median": 49.2,
+    "decode_tps_median": 101.8
+  },
+  "layer_timing": {
+    "layer0_us": 3005,
+    "layer1_to_n_median_us": 38,
+    "layer0_over_median_ratio": 79.08
+  },
+  "baseline_note": "Post-Phase-6 reference. Decode profiling complete (102.5 tok/s). Fused FFN kernel bug discovered and documented in docs/known_issues/fused_norm_gate_up_bug.md. All WMMA dispatches active (Q4_0 + Q4_1). No inference-engine change vs. Post-Phase-4 baseline \u2014 verified by 15/15 bit-identical answer files."
+}

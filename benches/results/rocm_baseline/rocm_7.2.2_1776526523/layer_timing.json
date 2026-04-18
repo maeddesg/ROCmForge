@@ -1,0 +1,11 @@
+{
+  "rocm_version": "7.2.2",
+  "prompt_tokens_target": 64,
+  "layer_count": 28,
+  "layer0_us": 3005,
+  "layer1_to_n_median_us": 38,
+  "layer1_to_n_p90_us": 41,
+  "layer1_to_n_max_us": 43,
+  "layer0_over_median_ratio": 79.08,
+  "all_layers_us": [3005, 42, 40, 38, 40, 37, 39, 36, 37, 39, 36, 37, 36, 38, 37, 38, 38, 36, 43, 36, 39, 36, 40, 36, 37, 38, 36, 41]
+}
