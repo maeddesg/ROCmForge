@@ -307,7 +307,9 @@ fn run_cpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("Chat template: {}", template.name());
 
     // Tokenize prompt
-    let prompt_tokens = tok.encode(&prompted, false);
+    // `add_special = true` lets the tokenizer add BOS per its GGUF
+    // metadata (Qwen: `add_bos = false`, Llama-3: defaults to true).
+    let prompt_tokens = tok.encode(&prompted, true);
     if prompt_tokens.is_empty() {
         return Err("Prompt tokenized to zero tokens".into());
     }
@@ -600,7 +602,9 @@ fn run_gpu_inference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     let prompted = template.apply(&args.prompt);
     eprintln!("Chat template: {}", template.name());
 
-    let prompt_tokens = tok.encode(&prompted, false);
+    // `add_special = true` lets the tokenizer add BOS per its GGUF
+    // metadata (Qwen: `add_bos = false`, Llama-3: defaults to true).
+    let prompt_tokens = tok.encode(&prompted, true);
     if prompt_tokens.is_empty() {
         return Err("Prompt tokenized to zero tokens".into());
     }

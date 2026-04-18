@@ -62,10 +62,13 @@ pub struct TokenizerData {
     pub unk_token_id: Option<u32>,
     /// "gpt2" / "llama" / "spm"
     pub model: Option<String>,
-    /// "qwen2" / "llama3"
+    /// "qwen2" / "llama-bpe" / …
     pub pre: Option<String>,
-    pub add_bos: bool,
-    pub add_eos: bool,
+    /// `None` when the GGUF omits `tokenizer.ggml.add_bos_token` — the
+    /// tokenizer then picks a preset-specific default (Llama-3 always
+    /// adds BOS even when the flag is absent).
+    pub add_bos: Option<bool>,
+    pub add_eos: Option<bool>,
 }
 
 // ── KV section -> (GgufMetadata, TokenizerData) ───────────────────────────────
@@ -114,8 +117,8 @@ pub fn parse_kv<R: Read + Seek>(
             "tokenizer.ggml.bos_token_id" => tok.bos_token_id = value.parse().ok(),
             "tokenizer.ggml.eos_token_id" => tok.eos_token_id = value.parse().ok(),
             "tokenizer.ggml.unknown_token_id" => tok.unk_token_id = value.parse().ok(),
-            "tokenizer.ggml.add_bos_token" => tok.add_bos = value != "0",
-            "tokenizer.ggml.add_eos_token" => tok.add_eos = value != "0",
+            "tokenizer.ggml.add_bos_token" => tok.add_bos = Some(value != "0"),
+            "tokenizer.ggml.add_eos_token" => tok.add_eos = Some(value != "0"),
             _ => {}
         }
 

@@ -1,11 +1,24 @@
-//! Qwen2.5 ChatML template for the interactive chat CLI.
+//! Chat templates for the interactive chat CLI.
 //!
-//! Phase 5 Step 3: multi-turn rendering. Conversation history is pulled
-//! from [`ChatContext`]; [`format_single_turn`] is retained as a thin
-//! wrapper so existing single-turn callers (and unit tests from Step 2)
-//! keep working.
+//! Per-architecture dispatch is done by [`format_multi_turn_for`]: Qwen2/3
+//! get ChatML, Llama-3 gets the `<|start_header_id|>` / `<|eot_id|>`
+//! format. The legacy [`format_multi_turn`] is retained as the ChatML
+//! entry point so existing Qwen-only call sites (and the Phase 5 Step 2
+//! unit tests) keep working byte-identically.
 
 use super::context::{ChatContext, Role};
+
+/// Architecture-aware multi-turn formatter. `arch` comes from
+/// `ModelConfig::architecture` (e.g. `"qwen2"`, `"qwen3"`, `"llama"`).
+pub fn format_multi_turn_for(arch: &str, ctx: &ChatContext) -> String {
+    match arch {
+        "llama" => format_multi_turn_llama3(ctx),
+        // ChatML is the default for every non-llama arch we currently
+        // target. Unknown archs fall back to ChatML too — matches the
+        // behaviour of `detect_chat_template`.
+        _ => format_multi_turn(ctx),
+    }
+}
 
 /// Render the full ChatML prompt ending with `<|im_start|>assistant\n`.
 /// Both single-turn and multi-turn flows go through this function — the
@@ -44,7 +57,44 @@ pub fn format_multi_turn(ctx: &ChatContext) -> String {
     out
 }
 
-/// Backward-compatible single-turn wrapper.
+/// Llama-3 chat template. The `<|begin_of_text|>` BOS is intentionally
+/// left to the tokenizer (`add_bos = true` for llama-bpe) so callers that
+/// encode this string with `add_special = true` get a single BOS.
+pub fn format_multi_turn_llama3(ctx: &ChatContext) -> String {
+    let mut out = String::with_capacity(
+        ctx.system_prompt.len()
+            + ctx.user_input.len()
+            + ctx
+                .conversation_history
+                .iter()
+                .map(|t| t.content.len() + 64)
+                .sum::<usize>()
+            + 128,
+    );
+    out.push_str("<|start_header_id|>system<|end_header_id|>\n\n");
+    out.push_str(&ctx.system_prompt);
+    out.push_str("<|eot_id|>");
+
+    for turn in &ctx.conversation_history {
+        let role = match turn.role {
+            Role::User => "user",
+            Role::Assistant => "assistant",
+        };
+        out.push_str("<|start_header_id|>");
+        out.push_str(role);
+        out.push_str("<|end_header_id|>\n\n");
+        out.push_str(&turn.content);
+        out.push_str("<|eot_id|>");
+    }
+
+    out.push_str("<|start_header_id|>user<|end_header_id|>\n\n");
+    out.push_str(&ctx.user_input);
+    out.push_str("<|eot_id|>");
+    out.push_str("<|start_header_id|>assistant<|end_header_id|>\n\n");
+    out
+}
+
+/// Backward-compatible single-turn wrapper (ChatML).
 pub fn format_single_turn(ctx: &ChatContext) -> String {
     debug_assert!(
         ctx.conversation_history.is_empty(),

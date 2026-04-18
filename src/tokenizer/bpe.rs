@@ -1,6 +1,12 @@
 //! Byte-Pair Encoding (BPE) tokenizer.
 //!
-//! Supports GPT-2 style BPE (Qwen2.5) with byte-level encoding.
+//! Supports two pre-tokenizer presets that share the same BPE merge logic
+//! but differ in the pre-split regex applied before BPE:
+//!
+//! * [`TokenizerPreset::Qwen2`] — Qwen2.5 / Qwen3 GGUFs (`tokenizer.ggml.pre = "qwen2"`).
+//! * [`TokenizerPreset::LlamaBpe`] — Llama-3.x GGUFs (`tokenizer.ggml.pre = "llama-bpe"`),
+//!   using the GPT-4-style regex.
+//!
 //! Build with `BpeTokenizer::from_gguf(tokenizer_data)`.
 
 use once_cell::sync::Lazy;
@@ -8,11 +14,31 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-// ── Pre-tokenizer regex for Qwen2 ───────────────────────────────────────────────
+// ── Pre-tokenizer regexes ──────────────────────────────────────────────────────
 
 static REGEX_QWEN2: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+",
+    ).unwrap()
+});
+
+// GPT-4-style regex shipped by llama.cpp for `llama-bpe`. Two source-level
+// deviations from the original PCRE pattern, both safe for greedy matching:
+//
+//  * possessive quantifiers (`?+`, `++`) → greedy equivalents. The
+//    `regex` crate lacks possessives; since each alternative is anchored
+//    by a different leading character class, the match set is identical.
+//  * `\s+(?!\S)` (whitespace-not-followed-by-non-whitespace) is dropped.
+//    Greedy `\s+` at the end of the alternation already covers the same
+//    runs — lookahead only filtered candidates that the final `\s+`
+//    re-matches, so dropping it leaves the split identical while keeping
+//    us on the stdlib `regex` crate (no `fancy-regex` dependency).
+//
+// Llama-3 also groups numbers in chunks of up to 3 digits (`\p{N}{1,3}`),
+// which matters for "123" → single token vs. "1234" → ["123", "4"].
+static REGEX_LLAMA_BPE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+",
     ).unwrap()
 });
 
@@ -53,11 +79,40 @@ pub enum VocabType {
 
 /// Pre-tokenizer type for splitting text before BPE.
 ///
-/// Only Qwen2 is supported in rocmforge.
+/// Selected from `tokenizer.ggml.pre` in the GGUF KV section. Unknown
+/// strings fall back to `Qwen2`, which is rocmforge's historical default.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PreTokenizerType {
+pub enum TokenizerPreset {
+    /// Qwen2 / Qwen3 pre-split regex. No default BOS.
     Qwen2,
+    /// Llama-3 GPT-4-style pre-split regex. Defaults `add_bos = true`
+    /// when the GGUF omits the flag (Llama's chat format assumes BOS).
+    LlamaBpe,
 }
+
+impl TokenizerPreset {
+    fn from_gguf(pre: Option<&str>) -> Self {
+        match pre {
+            Some("llama-bpe") => Self::LlamaBpe,
+            Some("qwen2") | None => Self::Qwen2,
+            Some(other) => {
+                tracing::warn!(
+                    pre = other,
+                    "Unknown tokenizer.ggml.pre; falling back to Qwen2 preset"
+                );
+                Self::Qwen2
+            }
+        }
+    }
+
+    fn default_add_bos(self) -> bool {
+        matches!(self, Self::LlamaBpe)
+    }
+}
+
+/// Kept as a type alias so downstream callers that still name the old
+/// enum continue to compile — new code should use `TokenizerPreset`.
+pub type PreTokenizerType = TokenizerPreset;
 
 // ── Tokenizer ───────────────────────────────────────────────────────────────────
 
@@ -71,7 +126,7 @@ pub struct BpeTokenizer {
     token_to_id: HashMap<BytesKey, u32>,
     merges: HashMap<(BytesKey, BytesKey), BpeRank>,
     special_tokens: HashSet<u32>,
-    pre_type: PreTokenizerType,
+    preset: TokenizerPreset,
     bos_id: Option<u32>,
     eos_id: Option<u32>,
     unk_id: Option<u32>,
@@ -84,21 +139,27 @@ pub struct BpeTokenizer {
 impl BpeTokenizer {
     /// Build from GGUF tokenizer arrays.
     pub fn from_gguf(data: &crate::loader::TokenizerData) -> Self {
-        // Determine pre-tokenizer type
-        let pre_type = match data.pre.as_deref() {
-            Some("qwen2") => PreTokenizerType::Qwen2,
-            _ => PreTokenizerType::Qwen2, // Default to Qwen2 for rocmforge
-        };
-
+        let preset = TokenizerPreset::from_gguf(data.pre.as_deref());
+        let add_bos = data.add_bos.unwrap_or_else(|| preset.default_add_bos());
+        let add_eos = data.add_eos.unwrap_or(false);
+        tracing::debug!(
+            preset = ?preset,
+            pre = ?data.pre,
+            add_bos,
+            add_eos,
+            bos_id = ?data.bos_token_id,
+            eos_id = ?data.eos_token_id,
+            "BpeTokenizer::from_gguf"
+        );
         Self::new(
             data.tokens.clone(),
             data.merges.clone(),
             data.bos_token_id,
             data.eos_token_id,
             data.unk_token_id,
-            data.add_bos,
-            data.add_eos,
-            pre_type,
+            add_bos,
+            add_eos,
+            preset,
         )
     }
 
@@ -110,7 +171,7 @@ impl BpeTokenizer {
         unk: Option<u32>,
         add_bos: bool,
         add_eos: bool,
-        pre_type: PreTokenizerType,
+        preset: TokenizerPreset,
     ) -> Self {
         let mut token_to_id = HashMap::with_capacity(vocab.len());
         let mut special_tokens = HashSet::new();
@@ -134,7 +195,7 @@ impl BpeTokenizer {
             token_to_id,
             merges: merge_map,
             special_tokens,
-            pre_type,
+            preset,
             bos_id: bos,
             eos_id: eos,
             unk_id: unk,
@@ -214,44 +275,28 @@ impl BpeTokenizer {
     }
 
     fn regex_split(&self, text: &str) -> Vec<String> {
-        let re = &*REGEX_QWEN2;
-        let mut pieces: Vec<String> = re.find_iter(text).map(|m| m.as_str().to_string()).collect();
-        // Qwen2: split punctuation+newline chunks (e.g. "?\n") into ["?", "\n"]
-        let mut out = Vec::with_capacity(pieces.len());
-        for piece in pieces.drain(..) {
-            if piece.len() > 1 && (piece.ends_with('\n') || piece.ends_with('\r')) {
-                let mut cut = piece.len();
-                while cut > 0 {
-                    // SAFETY: cut > 0 guarantees piece[..cut] is non-empty
-                    let ch = match piece[..cut].chars().next_back() {
-                        Some(c) => c,
-                        None => break, // defensive: should never happen when cut > 0
-                    };
-                    if ch == '\n' || ch == '\r' {
-                        cut -= ch.len_utf8();
-                    } else {
-                        break;
-                    }
-                }
-                let head = &piece[..cut];
-                let tail = &piece[cut..];
-                if !head.is_empty()
-                    && head
-                        .chars()
-                        .last()
-                        .map(|c| c.is_ascii_punctuation())
-                        .unwrap_or(false)
-                    && !tail.is_empty()
-                {
-                    out.push(head.to_string());
-                    for ch in tail.chars() {
-                        out.push(ch.to_string());
-                    }
-                    continue;
-                }
-            }
-            out.push(piece);
+        let re: &Regex = match self.preset {
+            TokenizerPreset::Qwen2 => &REGEX_QWEN2,
+            TokenizerPreset::LlamaBpe => &REGEX_LLAMA_BPE,
+        };
+        let pieces: Vec<String> = re.find_iter(text).map(|m| m.as_str().to_string()).collect();
+
+        let out = match self.preset {
+            TokenizerPreset::Qwen2 => split_qwen2_punct_newline(pieces),
+            TokenizerPreset::LlamaBpe => redistribute_whitespace_llama_bpe(pieces),
+        };
+
+        // Permanent split-level debug log. Costs nothing at RUST_LOG=warn;
+        // at RUST_LOG=debug it is the fastest way to diagnose tokeniser
+        // divergence from llama.cpp (compare the `splits` list).
+        if tracing::event_enabled!(tracing::Level::DEBUG) {
+            tracing::debug!(
+                preset = ?self.preset,
+                splits = ?out,
+                "Pre-tokenizer splits"
+            );
         }
+
         out
     }
 
@@ -450,6 +495,7 @@ impl BpeTokenizer {
                     | "</s>"
                     | "<|eot_id|>"
                     | "<|eom_id|>"
+                    | "<|end_of_text|>"
                     | "<|im_end|>"
                     | "<|end|>"
                     | "<end_of_turn>"
@@ -484,7 +530,8 @@ impl BpeTokenizer {
         }
         let eog_texts = [
             "", "<|eos|>", "</s>", "<|eot_id|>",
-            "<|eom_id|>", "<|im_end|>", "<|end|>", "<end_of_turn>",
+            "<|eom_id|>", "<|end_of_text|>",
+            "<|im_end|>", "<|end|>", "<end_of_turn>",
         ];
         for (i, bytes) in self.vocab.iter().enumerate() {
             let text = String::from_utf8_lossy(bytes);
@@ -529,6 +576,94 @@ impl BpeTokenizer {
         }
         enc
     }
+}
+
+/// Llama-BPE-specific post-processing: `[ws_run][alnum_word]` pairs
+/// redistribute one trailing whitespace character into the word, so that
+/// `"  multiple"` → `[" ", " multiple"]` instead of `["  ", "multiple"]`.
+///
+/// The llama.cpp reference regex expresses this with the lookahead
+/// `\s+(?!\S)`, which the `regex` crate does not support. Emulating the
+/// split here keeps us on the stdlib `regex` crate while producing
+/// byte-identical output to `llama-tokenize` on Meta-Llama-3.1.
+fn redistribute_whitespace_llama_bpe(pieces: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(pieces.len() + 2);
+    let mut iter = pieces.into_iter().peekable();
+    while let Some(piece) = iter.next() {
+        let is_ws_run = !piece.is_empty() && piece.chars().all(|c| c.is_whitespace());
+        if !is_ws_run {
+            out.push(piece);
+            continue;
+        }
+        let Some(next) = iter.peek() else {
+            out.push(piece);
+            continue;
+        };
+        let next_leads_with_alnum = next
+            .chars()
+            .next()
+            .map(|c| c.is_alphanumeric())
+            .unwrap_or(false);
+        if !next_leads_with_alnum {
+            out.push(piece);
+            continue;
+        }
+        // Split off the last whitespace char of `piece` and prepend it to
+        // `next`. If `piece` is a single whitespace char, the head is
+        // empty and only the merged `next` is emitted.
+        let last_char = piece.chars().last().expect("non-empty ws_run");
+        let last_len = last_char.len_utf8();
+        let head = &piece[..piece.len() - last_len];
+        if !head.is_empty() {
+            out.push(head.to_string());
+        }
+        let next_owned = iter.next().expect("peek succeeded");
+        let mut merged = String::with_capacity(last_len + next_owned.len());
+        merged.push(last_char);
+        merged.push_str(&next_owned);
+        out.push(merged);
+    }
+    out
+}
+
+/// Qwen2-specific post-processing: split `"?\n"` into `["?", "\n"]` etc.
+/// Preserves the existing byte-identical Qwen2 pipeline.
+fn split_qwen2_punct_newline(pieces: Vec<String>) -> Vec<String> {
+    let mut out = Vec::with_capacity(pieces.len());
+    for piece in pieces.into_iter() {
+        if piece.len() > 1 && (piece.ends_with('\n') || piece.ends_with('\r')) {
+            let mut cut = piece.len();
+            while cut > 0 {
+                let ch = match piece[..cut].chars().next_back() {
+                    Some(c) => c,
+                    None => break,
+                };
+                if ch == '\n' || ch == '\r' {
+                    cut -= ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            let head = &piece[..cut];
+            let tail = &piece[cut..];
+            if !head.is_empty()
+                && head
+                    .chars()
+                    .last()
+                    .map(|c| c.is_ascii_punctuation())
+                    .unwrap_or(false)
+                && !tail.is_empty()
+            {
+                out.push(head.to_string());
+                for ch in tail.chars() {
+                    out.push(ch.to_string());
+                }
+                continue;
+            }
+        }
+        out.push(piece);
+    }
+    out
 }
 
 fn utf8_char_len(b: u8) -> usize {
@@ -576,7 +711,7 @@ mod tests {
             None,
             false,
             false,
-            PreTokenizerType::Qwen2,
+            TokenizerPreset::Qwen2,
         )
     }
 

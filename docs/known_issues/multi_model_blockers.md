@@ -67,55 +67,72 @@ has no hook for them.
 Estimated effort: half a day for the forward-pass wiring + a CPU
 reference test on a single layer.
 
-### Llama-3.1 — `llama-bpe` pre-tokeniser not implemented
+### Llama-3.1 — `llama-bpe` pre-tokeniser (✓ landed Step 5a)
 
-**Symptom:** output is garbage with a sprinkle of plausibly
-relevant tokens (`assistant` appears at rank 4 with 0.4 % probability
-for the prompt "The capital of France is", but top-1 is still `\n`).
-Dispatch log is clean; the model's forward pass produces a sensible
-distribution but is fed the wrong input-token sequence.
+**Fixed** in `src/tokenizer/bpe.rs`:
 
-**Root cause:** the GGUF metadata:
+- `TokenizerPreset` enum dispatches on `tokenizer.ggml.pre`
+  (`"qwen2"` → existing Qwen regex, `"llama-bpe"` → GPT-4-style regex).
+- The GPT-4 regex drops `\s+(?!\S)` (the `regex` crate lacks
+  lookahead); a post-processing pass in
+  `redistribute_whitespace_llama_bpe` emulates the same split, so
+  output is byte-identical to `llama-tokenize`.
+- `add_bos` defaults to `true` when the GGUF omits the key and the
+  preset is `LlamaBpe` (Llama always needs BOS id 128000).
+- `ChatTemplate::LLaMA3` drops the literal `<|begin_of_text|>` so
+  the tokenizer's BOS path does not double-BOS.
+- New parity test `tests/tokenizer_llama_bpe_parity.rs` verifies 7
+  test strings against llama.cpp's `llama-tokenize` output on
+  Meta-Llama-3.1-8B.
 
-```
-Llama-3.1:  tokenizer.ggml.pre = "llama-bpe"
-Qwen2/3:    tokenizer.ggml.pre = "qwen2"
-```
+**Remaining blocker for Llama-3.1 (new, discovered during 5a):**
+Llama-3.1 ships a `rope_freqs.weight` tensor (64×f32) in the top-level
+of the GGUF that scales the per-dimension RoPE frequencies as part of
+Meta's "rope_scaling" formula for 4 K → 128 K context extension. Even
+at position 0 the scaled frequencies differ from the standard
+`base^(-i/d)` table, so ignoring the tensor produces wrong RoPE for
+every token. Tokeniser parity is verified against llama.cpp, but the
+model still emits garbage — top-1 for "The capital of France is" is
+`' '` (10.6 %), with "Paris" absent from the top-10. See new section
+below.
 
-ROCmForge's `src/tokenizer/bpe.rs` has a single pre-tokeniser regex
-path hard-wired for the Qwen2 convention (simplified whitespace +
-punctuation split). Llama-BPE uses the GPT-4-style regex:
+### Llama-3.1 — `rope_freqs.weight` (RoPE scaling) not applied
 
-```
-(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}|
- ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+
-```
+**Symptom:** after the tokeniser fix above, Llama-3.1-8B dispatches
+cleanly to WMMA Q4_K for every projection (no Q6_K, no scalar
+fallbacks), reaches ~21 tok/s, but the per-token logit distribution
+is flat and irrelevant. Top-1 for "The capital of France is" is
+`' '` at 10.6 %, not `' Paris'`. `llama-cli` on the same model
+produces coherent output.
 
-With the wrong pre-split, the same UTF-8 prompt tokenises to a
-completely different ID stream than what Llama-3 was trained on →
-sequence looks like noise → flat output distribution.
+**Root cause:** the GGUF contains
+`rope_freqs.weight : f32[64]` with entries `[1.0, 1.0, …, 8.0, 8.0]`
+(high-frequency dims unscaled, low-frequency dims scaled by the
+Llama-3.1 formula — the factor-8 matches Meta's "factor: 8.0" in the
+HF `rope_scaling` config). ROCmForge's RoPE kernel computes
+`theta = base^(-2i/d)` from `rope_theta = 500 000` without consulting
+this tensor, so it applies the wrong RoPE to every Q and K.
 
-Additionally: Llama-3 expects `<|begin_of_text|>` (id 128000) as the
-BOS token. The current `add_bos` handling in
-`src/tokenizer/bpe.rs` respects the GGUF metadata field, but the
-Llama-3 GGUF omits `add_bos_token`, which ROCmForge currently
-interprets as "no BOS." Llama's convention is BOS-always.
+Qwen2.5, Qwen3 and pre-3.1 Llama models do not ship this tensor and
+are unaffected.
 
 **Scope of the fix**
 
-1. Pipe `tokenizer.ggml.pre` through the loader to
-   `BpeTokenizer::new`.
-2. Branch on the string: `"qwen2"` keeps the current regex;
-   `"llama-bpe"` adopts the GPT-4 regex. Add a `TokenizerPreset` enum
-   to keep the string-dispatch in one place.
-3. Default `add_bos = true` when `pre == "llama-bpe"` regardless of
-   the absent metadata key.
-4. Port the regex — the `regex` crate handles the above pattern if
-   compiled with `unicode-perl` (already a dependency).
+1. `GpuLayerWeights` — carry an `Option<GpuBuffer>` for
+   `rope_freqs` (uploaded once per model, shared across layers).
+2. `gpu_rope_apply_on_stream` and its CPU twin — add an optional
+   `freq_scale: Option<&[f32]>` argument. When present, the per-pair
+   frequency is `base^(-2i/d) / freq_scale[i]` instead of the pure
+   power-of-base formula.
+3. `ModelConfig` / `ModelTraits` — a `has_rope_freqs: bool` flag
+   plumbed from tensor existence would keep the path opt-in; no
+   runtime string match.
+4. Parity probe: run a single-token prefill and compare the resulting
+   Q/K tensors layer-0 against an `llm-verify`-style reference from
+   transformers.
 
-Estimated effort: half a day plus round-trip tests against
-llama.cpp's `main` tokenisation of a fixed corpus (the standard
-verification for pre-tokeniser parity).
+Estimated effort: half a day (RoPE kernel argument + loader wiring +
+a CPU reference test on one layer).
 
 ### Q6_K mixed-precision fall-through
 
@@ -132,20 +149,22 @@ dominated by the Q4_K path. Not worth optimising until we can
 actually read the profiling data from a decode that produces
 coherent output.
 
-**Recommendation:** defer. Address after the Q/K-norm and
-pre-tokeniser fixes unblock end-to-end output.
+**Recommendation:** defer. Address after the Q/K-norm,
+rope_freqs, and pre-tokeniser fixes unblock end-to-end output.
 
 ## Revised Step-5 definition of done
 
 The user-facing goal ("coherent text on Qwen3-8B and Llama-3.1-8B")
-requires the two follow-ups above, not just config trait toggles.
-This landing is **partial progress** — it closes the trait-level
-mismatches and documents the remaining architectural work with
-concrete scoping.
+requires three architectural follow-ups, not just config trait toggles.
+Steps 5 (traits) and 5a (llama-bpe tokeniser) are landed and
+regression-green; the remaining architectural work is scoped below.
 
-Next actionable work, in priority order:
+Next actionable work, in priority order (updated after Step 5a):
 
-1. **Llama-BPE pre-tokeniser** (~half-day). Frees Llama-3.1-8B.
+1. **Llama-3.1 `rope_freqs.weight`** (~half-day). Frees Llama-3.1-8B.
+   Smallest forward-pass change of the three; kernel already has a
+   RoPE path, just needs the scale tensor piped through.
 2. **Qwen3 Q/K-norm forward pass** (~half-day). Frees Qwen3-8B.
+   Requires a new head-dim RMSNorm pass between projection and RoPE.
 3. **Integration benchmark** on both models against llama.cpp 87 / 93
    tok/s targets from the Phase 7 Step 1 baseline.

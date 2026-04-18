@@ -1,7 +1,8 @@
 //! BPE tokenizer module.
 //!
-//! Provides text tokenization for Qwen2.5 models using byte-pair encoding.
+//! Provides text tokenization for Qwen2/3 and Llama-3 models using
+//! byte-pair encoding with per-architecture pre-tokenizer presets.
 
 mod bpe;
 
-pub use bpe::{BpeTokenizer, PreTokenizerType, VocabType};
+pub use bpe::{BpeTokenizer, PreTokenizerType, TokenizerPreset, VocabType};

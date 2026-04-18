@@ -358,9 +358,11 @@ impl TensorNameRegistry {
 
 static REGISTRY: OnceLock<HashMap<&'static str, ModelTraits>> = OnceLock::new();
 
-/// Default traits for unknown architectures (LLaMA-compatible)
+/// Default traits for unknown architectures (LLaMA-compatible). Uses
+/// NeoX (split-half) RoPE to match the dominant convention shipped by
+/// HF → GGUF converters.
 static DEFAULT_TRAITS: ModelTraits = ModelTraits {
-    rope_style: RopeStyle::Normal,
+    rope_style: RopeStyle::NeoX,
     attention_layout: AttentionLayout::SplitQkv,
     use_attention_bias: false,
     default_rope_theta: 10000.0,
@@ -584,6 +586,21 @@ impl ModelConfig {
         };
 
         config.validate()?;
+        tracing::debug!(
+            arch = %config.architecture,
+            layers = config.num_layers,
+            hidden = config.hidden_size,
+            q_heads = config.num_heads,
+            kv_heads = config.num_kv_heads,
+            head_dim = config.head_dim,
+            intermediate = config.intermediate_size,
+            vocab = config.vocab_size,
+            rope_theta = config.rope_theta,
+            rope_neox = config.rope_neox,
+            attn_bias = config.use_attention_bias,
+            rms_eps = config.rms_norm_eps,
+            "ModelConfig::from_gguf"
+        );
         Ok(config)
     }
 
@@ -715,8 +732,12 @@ impl ChatTemplate {
                 user_text
             ),
 
+            // `<|begin_of_text|>` is emitted by the tokenizer's `add_bos`
+            // path (llama-bpe default) so callers that pass
+            // `add_special = true` get exactly one BOS token. Including
+            // it here would double-BOS the prompt.
             ChatTemplate::LLaMA3 => format!(
-                "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+                "<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
                 user_text
             ),
 
@@ -791,9 +812,10 @@ mod tests {
     }
 
     #[test]
-    fn traits_llama_normal() {
+    fn traits_llama_neox() {
+        // GGUF stores Llama weights in split-half (NeoX) RoPE layout.
         let t = ModelTraits::for_arch("llama");
-        assert_eq!(t.rope_style, RopeStyle::Normal);
+        assert_eq!(t.rope_style, RopeStyle::NeoX);
         assert!(!t.use_attention_bias);
     }
 
@@ -1030,9 +1052,11 @@ mod tests {
     }
 
     #[test]
-    fn qwen3_uses_gguf_moe_scheme() {
+    fn qwen3_dense_uses_gguf_scheme() {
+        // Dense Qwen3 (e.g. Qwen3-8B) stores attention tensors with
+        // standard GGUF names, not the `_exps` MoE scheme.
         let traits = ModelTraits::for_arch("qwen3");
-        assert_eq!(traits.tensor_naming, TensorNamingScheme::GgufMoE);
+        assert_eq!(traits.tensor_naming, TensorNamingScheme::Gguf);
     }
 
     #[test]

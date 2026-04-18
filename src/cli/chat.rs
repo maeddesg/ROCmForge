@@ -420,13 +420,15 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
     // Truncate to fit the formatted prompt + response headroom inside
     // the KV cache.
     let budget = session.max_seq.saturating_sub(RESPONSE_HEADROOM).max(512);
+    let arch = session.config.architecture.clone();
     let dropped = {
         let tok = &session.tokenizer;
+        let arch_ref = arch.as_str();
         super::context::truncate_if_needed(
             &mut session.ctx,
             budget,
-            |c| template::format_multi_turn(c),
-            |s| tok.encode(s, false).len(),
+            |c| template::format_multi_turn_for(arch_ref, c),
+            |s| tok.encode(s, true).len(),
         )
     };
     if dropped > 0 {
@@ -446,8 +448,8 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
         );
     }
 
-    let prompt = template::format_multi_turn(&session.ctx);
-    let prompt_tokens = session.tokenizer.encode(&prompt, false);
+    let prompt = template::format_multi_turn_for(&arch, &session.ctx);
+    let prompt_tokens = session.tokenizer.encode(&prompt, true);
     if prompt_tokens.is_empty() {
         return Err("prompt tokenised to zero tokens".to_string());
     }
