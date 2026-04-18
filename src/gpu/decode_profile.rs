@@ -10,6 +10,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 pub(crate) const PROFILE_DECODE_STAGES_ENV: &str = "ROCMFORGE_PROFILE_DECODE_STAGES";
+pub(crate) const PROFILE_DECODE_OPS_ENV: &str = "ROCMFORGE_PROFILE_DECODE_OPS";
 const ENV_UNKNOWN: u8 = 0;
 const ENV_DISABLED: u8 = 1;
 const ENV_ENABLED: u8 = 2;
@@ -60,8 +61,14 @@ fn decode_stage_profile_store() -> &'static Mutex<GpuDecodeStageProfileSnapshot>
 }
 
 static PROFILE_DECODE_STAGES_FLAG: AtomicU8 = AtomicU8::new(ENV_UNKNOWN);
+static PROFILE_DECODE_OPS_FLAG: AtomicU8 = AtomicU8::new(ENV_UNKNOWN);
 
 pub(crate) fn decode_stage_profiling_enabled() -> bool {
+    // `ROCMFORGE_PROFILE_DECODE_OPS` is a superset: it enables the existing
+    // stage accumulator plus per-step tracing emission.
+    if decode_ops_profiling_enabled() {
+        return true;
+    }
     match PROFILE_DECODE_STAGES_FLAG.load(Ordering::Relaxed) {
         ENV_DISABLED => false,
         ENV_ENABLED => true,
@@ -76,8 +83,29 @@ pub(crate) fn decode_stage_profiling_enabled() -> bool {
     }
 }
 
+/// `ROCMFORGE_PROFILE_DECODE_OPS=1` — Phase 6 Step 1 per-step decode
+/// profiling. Enables the stage accumulator (same sync-overhead shape as
+/// `ROCMFORGE_PROFILE_DECODE_STAGES`) and emits one `tracing::info!` event
+/// per decode token with per-stage µs, wall µs, KV-cache length, and an
+/// approximate launch count derived from the layer / tail counters.
+pub(crate) fn decode_ops_profiling_enabled() -> bool {
+    match PROFILE_DECODE_OPS_FLAG.load(Ordering::Relaxed) {
+        ENV_DISABLED => false,
+        ENV_ENABLED => true,
+        _ => {
+            let enabled = std::env::var_os(PROFILE_DECODE_OPS_ENV).is_some();
+            PROFILE_DECODE_OPS_FLAG.store(
+                if enabled { ENV_ENABLED } else { ENV_DISABLED },
+                Ordering::Relaxed,
+            );
+            enabled
+        }
+    }
+}
+
 pub(crate) fn refresh_decode_profile_env_flag() {
     PROFILE_DECODE_STAGES_FLAG.store(ENV_UNKNOWN, Ordering::Relaxed);
+    PROFILE_DECODE_OPS_FLAG.store(ENV_UNKNOWN, Ordering::Relaxed);
 }
 
 fn record_decode_stage(stage: DecodeStage, elapsed_ns: u128) {
@@ -144,4 +172,19 @@ pub fn decode_stage_profile_snapshot() -> GpuDecodeStageProfileSnapshot {
     *decode_stage_profile_store()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
+}
+
+/// Atomic snapshot + reset — returns the accumulated profile since the
+/// last reset and clears it in one critical section. Used by the per-step
+/// trace emission in `gpu_full_forward_hybrid` so each decode step gets
+/// its own profile without races from concurrent decode threads (there
+/// should be none, but the lock is already held so this is essentially
+/// free).
+pub fn decode_stage_profile_snapshot_and_reset() -> GpuDecodeStageProfileSnapshot {
+    let mut guard = decode_stage_profile_store()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let snapshot = *guard;
+    *guard = GpuDecodeStageProfileSnapshot::default();
+    snapshot
 }
