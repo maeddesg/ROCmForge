@@ -232,8 +232,14 @@ pub fn embed_q5_0_batch(ids: &[u32], emb: &[u8], out: &mut [f32], hidden_size: u
 
 /// Dequantize Q4_K embedding row: out = dequant(emb[token_id])
 ///
-/// Q4_K block: [d f16 | dmin f16 | scales[12] | qs[128]] = 144 bytes for 256 values
-/// Uses 4.5-bit quantization with multiple scales and mins per block.
+/// Q4_K block: [d f16 | dmin f16 | scales[12] | qs[128]] = 144 bytes for 256 values.
+/// Follows llama.cpp `dequantize_row_q4_K` exactly:
+///   - `scales[12]` packs 8 × (scale, min) pairs as unsigned 6-bit values.
+///   - Output values are split into 4 outer groups of 64; each outer group
+///     takes the low nibbles of 32 qs bytes (sub-block 2k, scale sc_{2k},
+///     min m_{2k}) followed by the high nibbles of the same 32 bytes
+///     (sub-block 2k+1, sc_{2k+1}, m_{2k+1}).
+///   - Dequant formula: `value = (d * sc_j) * nibble - (dmin * m_j)`.
 pub fn embed_q4_k(token_id: usize, emb: &[u8], out: &mut [f32], hidden_size: usize) {
     let num_blocks = hidden_size / Q4_K_BLOCK_ELEMS;
     let row_offset = token_id * num_blocks * Q4_K_BLOCK_BYTES;
@@ -243,35 +249,46 @@ pub fn embed_q4_k(token_id: usize, emb: &[u8], out: &mut [f32], hidden_size: usi
             &emb[row_offset + b * Q4_K_BLOCK_BYTES..row_offset + (b + 1) * Q4_K_BLOCK_BYTES];
         let d = load_f16_scale(&block[0..2]);
         let dmin = load_f16_scale(&block[2..4]);
-        let scales = &block[4..16]; // 12 bytes of packed 6-bit scales + mins
-        let qs = &block[16..144]; // 128 bytes of 4-bit quants
+        let scales = &block[4..16];
+        let qs = &block[16..144];
         let base = b * Q4_K_BLOCK_ELEMS;
 
-        // Helper to unpack scale and min (following llama.cpp's get_scale_min_k4)
-        let get_scale_min = |j: usize| -> (i8, i8) {
+        // Unsigned 6-bit (scale, min) per sub-block, matching llama.cpp
+        // `get_scale_min_k4`. Values are NOT signed; do not subtract 32.
+        let get_scale_min = |j: usize| -> (u8, u8) {
             if j < 4 {
-                let sc = ((scales[j] & 63) as i8).wrapping_sub(32);
-                let m = ((scales[j + 4] & 63) as i8).wrapping_sub(32);
-                (sc, m)
+                (scales[j] & 0x3F, scales[j + 4] & 0x3F)
             } else {
-                let sc = ((scales[j + 4] & 0xF) as i8 | (((scales[j - 4] >> 6) as i8) << 4))
-                    .wrapping_sub(32);
-                let m =
-                    ((scales[j + 4] >> 4) as i8 | (((scales[j] >> 6) as i8) << 4)).wrapping_sub(32);
-                (sc, m)
+                let sc = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
+                let mn = (scales[j + 4] >> 4) | ((scales[j] >> 6) << 4);
+                (sc, mn)
             }
         };
 
-        // Dequantize 256 values, 32 at a time (8 groups of 32)
-        for j in 0..8 {
-            let offset = j * 32;
-            for i in 0..32 {
-                let q = (qs[(offset + i) / 2] >> (((offset + i) % 2) * 4)) & 0x0F;
-                let (sc, m) = get_scale_min(j);
-                let ls = (d * (sc as f32)) * (q as f32);
-                let lm = dmin * (m as f32);
-                out[base + offset + i] = ls + lm;
+        // 4 outer groups, each pair (even j, odd j) covers 64 elements
+        // and consumes 32 qs bytes. Even sub-block = low nibbles, odd =
+        // high nibbles of the same 32 bytes.
+        let mut out_idx = base;
+        let mut qs_off = 0usize;
+        for k in 0..4 {
+            let even_j = 2 * k;
+            let odd_j = 2 * k + 1;
+            let (sc_e, m_e) = get_scale_min(even_j);
+            let (sc_o, m_o) = get_scale_min(odd_j);
+            let d_e = d * sc_e as f32;
+            let m_offset_e = dmin * m_e as f32;
+            let d_o = d * sc_o as f32;
+            let m_offset_o = dmin * m_o as f32;
+            for l in 0..32 {
+                let q_lo = (qs[qs_off + l] & 0x0F) as f32;
+                out[out_idx + l] = d_e * q_lo - m_offset_e;
             }
+            for l in 0..32 {
+                let q_hi = (qs[qs_off + l] >> 4) as f32;
+                out[out_idx + 32 + l] = d_o * q_hi - m_offset_o;
+            }
+            out_idx += 64;
+            qs_off += 32;
         }
     }
 }
