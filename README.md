@@ -7,7 +7,7 @@ for RDNA 4.
 ## Acknowledgement
 
 This project builds on the foundational work of
-[oldnordic](https://github.com/oldnordic/ROCmForge). Without their
+[oldnordic](https://github.com/oldnordic/ROCmForge). Without his
 original ROCmForge implementation — the model loader, the CPU
 inference path, the GGUF parser, and the overall architecture — none
 of the WMMA matrix-core optimisations, the multi-model support, or
