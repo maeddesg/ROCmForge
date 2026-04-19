@@ -785,6 +785,9 @@ pub struct GpuModelWeights {
     pub lm_head_meta: WeightMeta,
     /// Whether LM head is tied to token embeddings
     pub lm_head_tied: bool,
+    /// Optional per-dim RoPE frequency divisors (mirrors `config.rope_freqs`).
+    /// Uploaded once; shared across all layers and call sites.
+    pub rope_freqs: Option<GpuBuffer>,
     /// Cached pointer-mix used by decode-graph key construction.
     decode_binding_tag: u64,
 }
@@ -860,6 +863,25 @@ impl GpuModelWeights {
             layers.push(layer);
         }
 
+        let rope_freqs = match &config.rope_freqs {
+            Some(freqs) => {
+                let bytes = std::mem::size_of_val(freqs.as_slice());
+                let mut buf = GpuBuffer::alloc(bytes)?;
+                // SAFETY: freqs is Vec<f32>; reinterpret as bytes of the same length.
+                let byte_slice = unsafe {
+                    std::slice::from_raw_parts(freqs.as_ptr() as *const u8, bytes)
+                };
+                buf.copy_from_host(byte_slice)?;
+                tracing::debug!(
+                    ptr = ?buf.as_ptr(),
+                    bytes,
+                    "Uploaded rope_freqs to GPU",
+                );
+                Some(buf)
+            }
+            None => None,
+        };
+
         let decode_binding_tag = compute_model_binding_tag(&layers, &output_norm, &lm_head);
 
         Ok(Self {
@@ -870,8 +892,17 @@ impl GpuModelWeights {
             lm_head,
             lm_head_meta,
             lm_head_tied,
+            rope_freqs,
             decode_binding_tag,
         })
+    }
+
+    /// Device pointer to the optional freq-scale buffer, or `None` if absent.
+    #[inline]
+    pub fn rope_freqs_ptr(&self) -> Option<*const f32> {
+        self.rope_freqs
+            .as_ref()
+            .map(|b| b.as_ptr() as *const f32)
     }
 
     /// Get weights for a specific layer.
@@ -975,6 +1006,7 @@ mod matrix_meta_tests {
             attention_layout: AttentionLayout::SplitQkv,
             architecture: "test".to_string(),
             tensor_registry: TensorNameRegistry::from_scheme(&TensorNamingScheme::Gguf),
+            rope_freqs: None,
         }
     }
 

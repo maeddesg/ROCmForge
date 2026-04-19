@@ -259,6 +259,7 @@ fn test_gpu_decode_real_model_matches_cpu_greedy_token() {
             0,
             0,
             &config,
+            gpu_weights.rope_freqs_ptr(),
         )
         .expect("GPU layer 0 should succeed");
 
@@ -341,6 +342,7 @@ fn test_gpu_decode_real_model_matches_cpu_greedy_token() {
                     layer_idx,
                     diag_pos,
                     &config,
+                    gpu_weights.rope_freqs_ptr(),
                 )
                 .expect("diag GPU layer should succeed");
 
@@ -1015,6 +1017,7 @@ fn test_gpu_prefill_real_model_matches_cpu_greedy_token() {
             0,
             0,
             &config,
+            gpu_weights.rope_freqs_ptr(),
         )
         .expect("GPU batched layer0 should succeed");
         let gpu_prefill_l0_hidden =
@@ -1055,6 +1058,7 @@ fn test_gpu_prefill_real_model_matches_cpu_greedy_token() {
                 0,
                 pos,
                 &config,
+                gpu_weights.rope_freqs_ptr(),
             )
             .expect("GPU decode L0 step should succeed");
             let row_hidden = download_gpu_f32(&scratch_decode_l0.hidden, config.hidden_size);

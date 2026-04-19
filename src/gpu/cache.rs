@@ -267,6 +267,7 @@ mod tests {
             tensor_registry: crate::config::TensorNameRegistry::from_scheme(
                 &crate::config::TensorNamingScheme::Gguf,
             ),
+            rope_freqs: None,
         }
     }
 
@@ -1065,6 +1066,7 @@ mod scratch_tests {
             tensor_registry: crate::config::TensorNameRegistry::from_scheme(
                 &crate::config::TensorNamingScheme::Gguf,
             ),
+            rope_freqs: None,
         }
     }
 

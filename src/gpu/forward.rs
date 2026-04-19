@@ -13,15 +13,16 @@ use super::kernels::attention::{
     flash_attn_decode_gqa_from_state_on_stream, flash_attn_decode_gqa_on_stream,
     flash_attn_decode_strided_multi_head_from_state_on_stream,
     flash_attn_decode_strided_multi_head_on_stream, flash_attn_prefill_strided,
-    kv_write_rope_from_state_on_stream, kv_write_rope_on_stream,
+    kv_write_rope_from_state_on_stream,
 };
 use super::kernels::elementwise::{
     add, add_batched, add_on_stream, argmax_f32, argmax_f32_on_stream, embed_q8_0_batch,
     embed_q8_0_token, silu,
 };
+use super::kernels::attention::kv_write_rope_on_stream_scaled;
 use super::kernels::norm::{rms_norm, rms_norm_batched, rms_norm_on_stream};
 use super::kernels::rope::{
-    rope_heads_batched, rope_heads_from_state_on_stream, rope_heads_on_stream,
+    rope_heads_batched_scaled, rope_heads_from_state_on_stream, rope_heads_on_stream_scaled,
 };
 use super::kernels::q8_decode::q8_0_workspace_bytes;
 use super::ops::{
@@ -661,8 +662,11 @@ fn gpu_rope_rows(
     head_dim: usize,
     theta: f32,
     neox: bool,
+    freq_scale: Option<*const f32>,
 ) -> GpuResult<()> {
-    rope_heads_batched(buffer, start_pos, num_heads, head_dim, theta, seq_len, neox)
+    rope_heads_batched_scaled(
+        buffer, start_pos, num_heads, head_dim, theta, seq_len, neox, freq_scale,
+    )
 }
 
 fn gpu_attention_prefill(
@@ -872,6 +876,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
     layer_idx: usize,
     start_pos: usize,
     config: &ModelConfig,
+    rope_freqs_ptr: Option<*const f32>,
 ) -> GpuResult<()> {
     let seq_len = scratch.seq_len;
     let h = config.hidden_size;
@@ -988,6 +993,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
         config.head_dim,
         config.rope_theta,
         config.rope_neox,
+        rope_freqs_ptr,
     )?;
     if profiling { ffi::hip_device_synchronize()?; us_rope_q = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
     gpu_rope_rows(
@@ -998,6 +1004,7 @@ pub fn gpu_prefill_layer_forward_hybrid(
         config.head_dim,
         config.rope_theta,
         config.rope_neox,
+        rope_freqs_ptr,
     )?;
     if profiling { ffi::hip_device_synchronize()?; us_rope_k = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
 
@@ -1227,6 +1234,7 @@ pub fn gpu_prefill_forward_hybrid(
             layer_idx,
             start_pos,
             config,
+            gpu_weights.rope_freqs_ptr(),
         )?;
         tracing::trace!(
             layer = layer_idx,
@@ -1387,6 +1395,7 @@ pub fn gpu_verify_layer_forward(
     layer_idx: usize,
     start_pos: usize,
     config: &ModelConfig,
+    rope_freqs_ptr: Option<*const f32>,
 ) -> GpuResult<()> {
     use super::spec_step_profile::VerifyLayerTimer;
 
@@ -1433,9 +1442,9 @@ pub fn gpu_verify_layer_forward(
     if let Some(ref mut t) = vt { t.mark()?; } // → attn_rope
 
     gpu_rope_rows(scratch.q.as_ptr() as *mut f32, start_pos, seq_len,
-        config.num_heads, config.head_dim, config.rope_theta, config.rope_neox)?;
+        config.num_heads, config.head_dim, config.rope_theta, config.rope_neox, rope_freqs_ptr)?;
     gpu_rope_rows(scratch.k.as_ptr() as *mut f32, start_pos, seq_len,
-        config.num_kv_heads, config.head_dim, config.rope_theta, config.rope_neox)?;
+        config.num_kv_heads, config.head_dim, config.rope_theta, config.rope_neox, rope_freqs_ptr)?;
     if let Some(ref mut t) = vt { t.mark()?; } // → attn_kv_write
 
     // Write new K/V to cache at start_pos..start_pos+seq_len
@@ -1624,6 +1633,7 @@ pub fn gpu_verify_forward(
             layer_idx,
             start_pos,
             config,
+            gpu_weights.rope_freqs_ptr(),
         )?;
     }
 
@@ -2259,6 +2269,7 @@ pub fn gpu_layer_forward_hybrid(
     layer_idx: usize,
     pos: usize,
     config: &ModelConfig,
+    rope_freqs_ptr: Option<*const f32>,
 ) -> GpuResult<()> {
     let h = config.hidden_size;
     let q_size = config.num_heads * config.head_dim;
@@ -2308,19 +2319,20 @@ profile_decode_stage(device, DecodeStage::Qkv, || {
     })?;
 
 profile_decode_stage(device, DecodeStage::QRope, || {
-        rope_heads_on_stream(
+        rope_heads_on_stream_scaled(
             scratch.q.as_ptr() as *mut f32,
             pos,
             config.num_heads,
             config.head_dim,
             config.rope_theta,
             config.rope_neox,
+            rope_freqs_ptr,
             device.stream(),
         )
     })?;
 
     profile_decode_stage(device, DecodeStage::KvWrite, || {
-        kv_write_rope_on_stream(
+        kv_write_rope_on_stream_scaled(
             kv,
             layer_idx,
             scratch.k.as_ptr() as *mut f32,
@@ -2330,6 +2342,7 @@ profile_decode_stage(device, DecodeStage::QRope, || {
             config.head_dim,
             config.rope_theta,
             config.rope_neox,
+            rope_freqs_ptr,
             device.stream(),
         )
     })?;
@@ -2516,6 +2529,7 @@ pub fn gpu_full_forward_hybrid(
             layer_idx,
             pos,
             config,
+            gpu_weights.rope_freqs_ptr(),
         )?;
     }
 

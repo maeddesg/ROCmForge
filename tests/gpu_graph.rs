@@ -21,6 +21,7 @@ fn make_test_config() -> ModelConfig {
         attention_layout: AttentionLayout::SplitQkv,
         architecture: "test".to_string(),
         tensor_registry: TensorNameRegistry::from_scheme(&TensorNamingScheme::Gguf),
+        rope_freqs: None,
     }
 }
 

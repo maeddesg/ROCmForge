@@ -1418,7 +1418,8 @@ __global__ void kv_write_rope_state_kernel(
     const int num_kv_heads,
     const int head_dim,
     const float theta_base,
-    const int neox
+    const int neox,
+    const float* __restrict__ freq_scale
 ) {
     const int pos = *pos_ptr;
     const int kv_size = num_kv_heads * head_dim;
@@ -1457,7 +1458,10 @@ __global__ void kv_write_rope_state_kernel(
     }
 
     const float exponent = (float)(2 * pair_idx) / (float)head_dim;
-    const float theta = 1.0f / pow(theta_base, exponent);
+    float theta = 1.0f / pow(theta_base, exponent);
+    if (freq_scale != nullptr) {
+        theta /= freq_scale[pair_idx];
+    }
     const float angle = (float)pos * theta;
     const float cos_val = cos(angle);
     const float sin_val = sin(angle);
@@ -1563,7 +1567,8 @@ __global__ void kv_write_rope_kernel(
     const int num_kv_heads,
     const int head_dim,
     const float theta_base,
-    const int neox
+    const int neox,
+    const float* __restrict__ freq_scale
 ) {
     const int kv_size = num_kv_heads * head_dim;
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1599,7 +1604,10 @@ __global__ void kv_write_rope_kernel(
     }
 
     const float exponent = (float)(2 * pair_idx) / (float)head_dim;
-    const float theta = 1.0f / powf(theta_base, exponent);
+    float theta = 1.0f / powf(theta_base, exponent);
+    if (freq_scale != nullptr) {
+        theta /= freq_scale[pair_idx];
+    }
     const float angle = (float)pos * theta;
     const float cos_val = cosf(angle);
     const float sin_val = sinf(angle);
@@ -1614,9 +1622,18 @@ __global__ void kv_write_rope_kernel(
 
 extern "C" {
 
+// Forward declarations so the non-scaled wrappers can delegate to the
+// scaled ones even though the scaled definitions come later.
+hipError_t gpu_kv_write_rope_scaled(half* d_k_cache, half* d_v_cache, const float* d_k, const float* d_v, const int pos, const int num_kv_heads, const int head_dim, const float theta_base, const int neox, const float* d_freq_scale, hipStream_t stream);
+hipError_t gpu_kv_write_rope_state_scaled(half* d_k_cache, half* d_v_cache, const float* d_k, const float* d_v, const int* d_pos, const int num_kv_heads, const int head_dim, const float theta_base, const int neox, const float* d_freq_scale, hipStream_t stream);
+
 hipError_t gpu_kv_write_rope(half* d_k_cache, half* d_v_cache, const float* d_k, const float* d_v, const int pos, const int num_kv_heads, const int head_dim, const float theta_base, const int neox, hipStream_t stream) {
+    return gpu_kv_write_rope_scaled(d_k_cache, d_v_cache, d_k, d_v, pos, num_kv_heads, head_dim, theta_base, neox, nullptr, stream);
+}
+
+hipError_t gpu_kv_write_rope_scaled(half* d_k_cache, half* d_v_cache, const float* d_k, const float* d_v, const int pos, const int num_kv_heads, const int head_dim, const float theta_base, const int neox, const float* d_freq_scale, hipStream_t stream) {
     const int kv_size = num_kv_heads * head_dim;
-    hipLaunchKernelGGL(kv_write_rope_kernel, (kv_size + 255) / 256, 256, 0, stream, d_k_cache, d_v_cache, d_k, d_v, pos, num_kv_heads, head_dim, theta_base, neox);
+    hipLaunchKernelGGL(kv_write_rope_kernel, (kv_size + 255) / 256, 256, 0, stream, d_k_cache, d_v_cache, d_k, d_v, pos, num_kv_heads, head_dim, theta_base, neox, d_freq_scale);
     return hipGetLastError();
 }
 
@@ -1635,11 +1652,15 @@ hipError_t gpu_kv_write_state(half* d_k_cache, half* d_v_cache, const float* d_k
 }
 
 hipError_t gpu_kv_write_rope_state(half* d_k_cache, half* d_v_cache, const float* d_k, const float* d_v, const int* d_pos, const int num_kv_heads, const int head_dim, const float theta_base, const int neox, hipStream_t stream) {
+    return gpu_kv_write_rope_state_scaled(d_k_cache, d_v_cache, d_k, d_v, d_pos, num_kv_heads, head_dim, theta_base, neox, nullptr, stream);
+}
+
+hipError_t gpu_kv_write_rope_state_scaled(half* d_k_cache, half* d_v_cache, const float* d_k, const float* d_v, const int* d_pos, const int num_kv_heads, const int head_dim, const float theta_base, const int neox, const float* d_freq_scale, hipStream_t stream) {
     if (d_pos == nullptr) {
         return hipErrorInvalidValue;
     }
     const int kv_size = num_kv_heads * head_dim;
-    hipLaunchKernelGGL(kv_write_rope_state_kernel, (kv_size + 255) / 256, 256, 0, stream, d_k_cache, d_v_cache, d_k, d_v, d_pos, num_kv_heads, head_dim, theta_base, neox);
+    hipLaunchKernelGGL(kv_write_rope_state_kernel, (kv_size + 255) / 256, 256, 0, stream, d_k_cache, d_v_cache, d_k, d_v, d_pos, num_kv_heads, head_dim, theta_base, neox, d_freq_scale);
     return hipGetLastError();
 }
 

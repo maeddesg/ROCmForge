@@ -7,7 +7,7 @@
 //!
 //! `ModelConfig::from_gguf()` combines both into one validated struct.
 
-use crate::loader::{GgufFile, LoadError};
+use crate::loader::{GgmlType, GgufFile, LoadError};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -532,6 +532,14 @@ pub struct ModelConfig {
 
     /// Tensor name registry for this model
     pub tensor_registry: TensorNameRegistry,
+
+    /// Optional per-dim RoPE frequency divisors loaded from `rope_freqs.weight`.
+    ///
+    /// When present, the RoPE angle for dim-pair `i` becomes
+    /// `pos * base^(-2i/d) / rope_freqs[i]` (matches llama.cpp `freq_factors`).
+    /// Llama-3.1 ships this tensor for the 4K→128K context extension; Qwen2/3
+    /// and pre-3.1 Llama models omit it and stay on the standard formula.
+    pub rope_freqs: Option<Vec<f32>>,
 }
 
 impl ModelConfig {
@@ -567,6 +575,8 @@ impl ModelConfig {
             }
         };
 
+        let rope_freqs = load_rope_freqs(file, head_dim);
+
         let config = Self {
             num_layers,
             hidden_size,
@@ -583,6 +593,7 @@ impl ModelConfig {
             attention_layout: traits.attention_layout,
             architecture: meta.architecture.clone(),
             tensor_registry: TensorNameRegistry::from_scheme(&traits.tensor_naming),
+            rope_freqs,
         };
 
         config.validate()?;
@@ -599,6 +610,7 @@ impl ModelConfig {
             rope_neox = config.rope_neox,
             attn_bias = config.use_attention_bias,
             rms_eps = config.rms_norm_eps,
+            has_rope_freqs = config.rope_freqs.is_some(),
             "ModelConfig::from_gguf"
         );
         Ok(config)
@@ -642,6 +654,56 @@ impl ModelConfig {
 
 /// Infer `intermediate_size` from MLP gate tensor shape when not in metadata.
 /// Tries common tensor naming patterns for Qwen2/LLaMA/Phi.
+/// Load optional `rope_freqs.weight` (a.k.a. `freq_factors`) from GGUF.
+///
+/// Shape is `head_dim/2` f32 values. Meta ships this with Llama-3.1 for the
+/// 4K→128K RoPE scaling; interpretation matches llama.cpp CUDA `rope_norm`:
+/// `theta = pos * base^(-2i/d) / rope_freqs[i]` (divisive).
+///
+/// Returns `None` when the tensor is absent, has the wrong dtype, or a
+/// mismatched length — all of these cases fall back to the standard formula.
+fn load_rope_freqs(file: &GgufFile, head_dim: usize) -> Option<Vec<f32>> {
+    let view = file.tensor("rope_freqs.weight").ok().flatten()?;
+    if view.ggml_type != GgmlType::F32 {
+        tracing::warn!(
+            dtype = ?view.ggml_type,
+            "rope_freqs.weight has unexpected dtype; ignoring",
+        );
+        return None;
+    }
+    let expected = head_dim / 2;
+    let elems = view.element_count();
+    if elems != expected {
+        tracing::warn!(
+            got = elems,
+            expected,
+            "rope_freqs.weight length != head_dim/2; ignoring",
+        );
+        return None;
+    }
+    let byte_len = expected * std::mem::size_of::<f32>();
+    if view.data.len() < byte_len {
+        return None;
+    }
+    let mut freqs = vec![0f32; expected];
+    // SAFETY: `view.data` is a byte slice of a mmap'd F32 tensor; length
+    // checked above. Endianness: GGUF is little-endian, target is x86_64.
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            view.data.as_ptr(),
+            freqs.as_mut_ptr() as *mut u8,
+            byte_len,
+        );
+    }
+    tracing::debug!(
+        len = freqs.len(),
+        first_5 = ?&freqs[..freqs.len().min(5)],
+        last_5 = ?&freqs[freqs.len().saturating_sub(5)..],
+        "Loaded rope_freqs.weight"
+    );
+    Some(freqs)
+}
+
 fn infer_intermediate_size(file: &GgufFile, hidden_size: usize) -> Option<usize> {
     let candidates = [
         "blk.0.ffn_gate.weight",
@@ -852,6 +914,7 @@ mod tests {
             attention_layout: AttentionLayout::SplitQkv,
             architecture: "qwen2".to_string(),
             tensor_registry: TensorNameRegistry::from_scheme(&TensorNamingScheme::Gguf),
+            rope_freqs: None,
         };
         assert!(cfg.validate().is_err());
     }
@@ -875,6 +938,7 @@ mod tests {
             attention_layout: AttentionLayout::SplitQkv,
             architecture: "qwen2".to_string(),
             tensor_registry: TensorNameRegistry::from_scheme(&TensorNamingScheme::Gguf),
+            rope_freqs: None,
         };
         assert!(cfg.validate().is_err());
     }

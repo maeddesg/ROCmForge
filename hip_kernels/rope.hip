@@ -43,13 +43,16 @@ __global__ void rope_kernel(
 /// Multi-head RoPE kernel for decode.
 ///
 /// Supports both classic consecutive-pair RoPE and NeoX split-half pairing.
+/// If freq_scale is non-null, divides the per-dim theta by freq_scale[i] —
+/// matches llama.cpp's freq_factors (e.g. Llama-3.1 rope_freqs.weight).
 __global__ void rope_heads_kernel(
     float* __restrict__ x,
     const int pos,
     const int num_heads,
     const int head_dim,
     const float theta_base,
-    const int neox
+    const int neox,
+    const float* __restrict__ freq_scale
 ) {
     const int half = head_dim / 2;
     const int pair_idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -62,7 +65,10 @@ __global__ void rope_heads_kernel(
     const int base = head * head_dim;
 
     const float exponent = (float)(2 * i) / (float)head_dim;
-    const float theta = 1.0f / pow(theta_base, exponent);
+    float theta = 1.0f / pow(theta_base, exponent);
+    if (freq_scale != nullptr) {
+        theta /= freq_scale[i];
+    }
     const float angle = (float)pos * theta;
     const float cos_val = cos(angle);
     const float sin_val = sin(angle);
@@ -90,7 +96,8 @@ __global__ void rope_heads_state_kernel(
     const int num_heads,
     const int head_dim,
     const float theta_base,
-    const int neox
+    const int neox,
+    const float* __restrict__ freq_scale
 ) {
     const int pos = *pos_ptr;
     const int half = head_dim / 2;
@@ -104,7 +111,10 @@ __global__ void rope_heads_state_kernel(
     const int base = head * head_dim;
 
     const float exponent = (float)(2 * i) / (float)head_dim;
-    const float theta = 1.0f / pow(theta_base, exponent);
+    float theta = 1.0f / pow(theta_base, exponent);
+    if (freq_scale != nullptr) {
+        theta /= freq_scale[i];
+    }
     const float angle = (float)pos * theta;
     const float cos_val = cos(angle);
     const float sin_val = sin(angle);
@@ -175,7 +185,8 @@ __global__ void rope_heads_batched_kernel(
     const int head_dim,
     const float theta_base,
     const int seq_len,
-    const int neox
+    const int neox,
+    const float* __restrict__ freq_scale
 ) {
     const int s = blockIdx.y;
     const int half = head_dim / 2;
@@ -194,7 +205,10 @@ __global__ void rope_heads_batched_kernel(
     const int pos = start_pos + s;
 
     const float exponent = (float)(2 * i) / (float)head_dim;
-    const float theta = 1.0f / pow(theta_base, exponent);
+    float theta = 1.0f / pow(theta_base, exponent);
+    if (freq_scale != nullptr) {
+        theta /= freq_scale[i];
+    }
     const float angle = (float)pos * theta;
     const float cos_val = cos(angle);
     const float sin_val = sin(angle);
@@ -218,6 +232,41 @@ __global__ void rope_heads_batched_kernel(
 
 // C wrapper functions for dynamic linking
 extern "C" {
+
+// Forward declarations so the non-scaled wrappers can delegate to the
+// scaled ones even though the scaled definitions come later in the file.
+hipError_t gpu_rope_heads_scaled(
+    float* d_x,
+    const int pos,
+    const int num_heads,
+    const int head_dim,
+    const float theta_base,
+    const int neox,
+    const float* d_freq_scale,
+    hipStream_t stream
+);
+
+hipError_t gpu_rope_heads_state_scaled(
+    float* d_x,
+    const int* d_pos,
+    const int num_heads,
+    const int head_dim,
+    const float theta_base,
+    const int neox,
+    const float* d_freq_scale,
+    hipStream_t stream
+);
+
+hipError_t gpu_rope_heads_batched_scaled(
+    float* d_x,
+    const int start_pos,
+    const int num_heads,
+    const int head_dim,
+    const float theta_base,
+    const int seq_len,
+    const int neox,
+    const float* d_freq_scale
+);
 
 hipError_t gpu_rope(
     float* d_x,
@@ -250,6 +299,19 @@ hipError_t gpu_rope_heads(
     const int neox,
     hipStream_t stream
 ) {
+    return gpu_rope_heads_scaled(d_x, pos, num_heads, head_dim, theta_base, neox, nullptr, stream);
+}
+
+hipError_t gpu_rope_heads_scaled(
+    float* d_x,
+    const int pos,
+    const int num_heads,
+    const int head_dim,
+    const float theta_base,
+    const int neox,
+    const float* d_freq_scale,
+    hipStream_t stream
+) {
     if (num_heads <= 0 || head_dim <= 0 || head_dim % 2 != 0) {
         return hipErrorInvalidValue;
     }
@@ -261,7 +323,7 @@ hipError_t gpu_rope_heads(
     hipLaunchKernelGGL(
         rope_heads_kernel,
         grid_size, block_size, 0, stream,
-        d_x, pos, num_heads, head_dim, theta_base, neox
+        d_x, pos, num_heads, head_dim, theta_base, neox, d_freq_scale
     );
 
     return hipGetLastError();
@@ -276,6 +338,19 @@ hipError_t gpu_rope_heads_state(
     const int neox,
     hipStream_t stream
 ) {
+    return gpu_rope_heads_state_scaled(d_x, d_pos, num_heads, head_dim, theta_base, neox, nullptr, stream);
+}
+
+hipError_t gpu_rope_heads_state_scaled(
+    float* d_x,
+    const int* d_pos,
+    const int num_heads,
+    const int head_dim,
+    const float theta_base,
+    const int neox,
+    const float* d_freq_scale,
+    hipStream_t stream
+) {
     if (d_pos == nullptr || num_heads <= 0 || head_dim <= 0 || head_dim % 2 != 0) {
         return hipErrorInvalidValue;
     }
@@ -287,7 +362,7 @@ hipError_t gpu_rope_heads_state(
     hipLaunchKernelGGL(
         rope_heads_state_kernel,
         grid_size, block_size, 0, stream,
-        d_x, d_pos, num_heads, head_dim, theta_base, neox
+        d_x, d_pos, num_heads, head_dim, theta_base, neox, d_freq_scale
     );
 
     return hipGetLastError();
@@ -328,6 +403,19 @@ hipError_t gpu_rope_heads_batched(
     const int seq_len,
     const int neox
 ) {
+    return gpu_rope_heads_batched_scaled(d_x, start_pos, num_heads, head_dim, theta_base, seq_len, neox, nullptr);
+}
+
+hipError_t gpu_rope_heads_batched_scaled(
+    float* d_x,
+    const int start_pos,
+    const int num_heads,
+    const int head_dim,
+    const float theta_base,
+    const int seq_len,
+    const int neox,
+    const float* d_freq_scale
+) {
     if (num_heads <= 0 || head_dim <= 0 || head_dim % 2 != 0 || seq_len <= 0) {
         return hipErrorInvalidValue;
     }
@@ -340,7 +428,7 @@ hipError_t gpu_rope_heads_batched(
     hipLaunchKernelGGL(
         rope_heads_batched_kernel,
         grid, block_size, 0, 0,
-        d_x, start_pos, num_heads, head_dim, theta_base, seq_len, neox
+        d_x, start_pos, num_heads, head_dim, theta_base, seq_len, neox, d_freq_scale
     );
 
     return hipGetLastError();

@@ -85,6 +85,7 @@ mod tests {
             tensor_registry: crate::config::TensorNameRegistry::from_scheme(
                 &crate::config::TensorNamingScheme::Gguf,
             ),
+            rope_freqs: None,
         };
 
         let batch = derive_batch_config(&caps, &config);

@@ -28,7 +28,8 @@ pub use attention::{
     flash_attn_verify_all_heads_on_stream, flash_attn_verify_strided_on_stream,
     kv_write, kv_write_batched,
     kv_write_from_state_on_stream, kv_write_on_stream, kv_write_rope_from_state_on_stream,
-    kv_write_rope_on_stream,
+    kv_write_rope_from_state_on_stream_scaled, kv_write_rope_on_stream,
+    kv_write_rope_on_stream_scaled,
 };
 pub use elementwise::{
     add, add_batched, add_on_stream, argmax_f32, argmax_f32_on_stream, embed_q4_0_batch,
@@ -72,6 +73,7 @@ pub use quant::{
     verify_q5_k_accuracy, verify_q8_0_accuracy,
 };
 pub use rope::{
-    rope, rope_batched, rope_heads, rope_heads_batched, rope_heads_from_state_on_stream,
-    rope_heads_on_stream,
+    rope, rope_batched, rope_heads, rope_heads_batched, rope_heads_batched_scaled,
+    rope_heads_from_state_on_stream, rope_heads_from_state_on_stream_scaled,
+    rope_heads_on_stream, rope_heads_on_stream_scaled,
 };

@@ -43,6 +43,20 @@ unsafe extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 
+    fn gpu_kv_write_rope_scaled(
+        d_k_cache: *mut u16,
+        d_v_cache: *mut u16,
+        d_k: *const f32,
+        d_v: *const f32,
+        pos: c_int,
+        num_kv_heads: c_int,
+        head_dim: c_int,
+        theta_base: f32,
+        neox: c_int,
+        freq_scale: *const f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
     fn gpu_kv_write_rope_state(
         d_k_cache: *mut u16,
         d_v_cache: *mut u16,
@@ -53,6 +67,20 @@ unsafe extern "C" {
         head_dim: c_int,
         theta_base: c_float,
         neox: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    fn gpu_kv_write_rope_state_scaled(
+        d_k_cache: *mut u16,
+        d_v_cache: *mut u16,
+        d_k: *const f32,
+        d_v: *const f32,
+        d_pos: *const c_int,
+        num_kv_heads: c_int,
+        head_dim: c_int,
+        theta_base: c_float,
+        neox: c_int,
+        freq_scale: *const f32,
         stream: hipStream_t,
     ) -> hipError_t;
 
@@ -244,6 +272,25 @@ pub fn kv_write_rope_on_stream(
     neox: bool,
     stream: hipStream_t,
 ) -> GpuResult<()> {
+    kv_write_rope_on_stream_scaled(
+        kv, layer_idx, d_k, d_v, pos, num_kv_heads, head_dim, theta_base, neox, None, stream,
+    )
+}
+
+/// Fused KV cache write + RoPE with optional per-dim freq scaling.
+pub fn kv_write_rope_on_stream_scaled(
+    kv: &mut GpuKvCache,
+    layer_idx: usize,
+    d_k: *const f32,
+    d_v: *const f32,
+    pos: usize,
+    num_kv_heads: usize,
+    head_dim: usize,
+    theta_base: f32,
+    neox: bool,
+    freq_scale: Option<*const f32>,
+    stream: hipStream_t,
+) -> GpuResult<()> {
     if pos >= kv.max_seq_len {
         return Err(GpuError::InvalidSequencePosition {
             pos,
@@ -251,8 +298,9 @@ pub fn kv_write_rope_on_stream(
         });
     }
 
+    let freq_ptr = freq_scale.unwrap_or(std::ptr::null());
     let result = unsafe {
-        gpu_kv_write_rope(
+        gpu_kv_write_rope_scaled(
             kv.k_ptr(layer_idx)?,
             kv.v_ptr(layer_idx)?,
             d_k,
@@ -262,6 +310,7 @@ pub fn kv_write_rope_on_stream(
             head_dim as c_int,
             theta_base,
             if neox { 1 } else { 0 },
+            freq_ptr,
             stream,
         )
     };
@@ -336,6 +385,25 @@ pub fn kv_write_rope_from_state_on_stream(
     neox: bool,
     stream: hipStream_t,
 ) -> GpuResult<()> {
+    kv_write_rope_from_state_on_stream_scaled(
+        k_cache, v_cache, k, v, pos_ptr, num_kv_heads, head_dim, theta_base, neox, None, stream,
+    )
+}
+
+/// Apply RoPE (with optional freq scaling) to K and write K/V into the cache.
+pub fn kv_write_rope_from_state_on_stream_scaled(
+    k_cache: *mut u16,
+    v_cache: *mut u16,
+    k: *const f32,
+    v: *const f32,
+    pos_ptr: *const i32,
+    num_kv_heads: usize,
+    head_dim: usize,
+    theta_base: f32,
+    neox: bool,
+    freq_scale: Option<*const f32>,
+    stream: hipStream_t,
+) -> GpuResult<()> {
     if num_kv_heads == 0 || head_dim == 0 {
         return Err(GpuError::HipApiError {
             code: -1,
@@ -355,8 +423,9 @@ pub fn kv_write_rope_from_state_on_stream(
         });
     }
 
+    let freq_ptr = freq_scale.unwrap_or(std::ptr::null());
     let result = unsafe {
-        gpu_kv_write_rope_state(
+        gpu_kv_write_rope_state_scaled(
             k_cache,
             v_cache,
             k,
@@ -366,6 +435,7 @@ pub fn kv_write_rope_from_state_on_stream(
             head_dim as c_int,
             theta_base,
             neox as c_int,
+            freq_ptr,
             stream,
         )
     };

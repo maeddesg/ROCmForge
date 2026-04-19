@@ -84,6 +84,24 @@ pub fn rope_heads_on_stream(
     neox: bool,
     stream: hipStream_t,
 ) -> GpuResult<()> {
+    rope_heads_on_stream_scaled(x, pos, num_heads, head_dim, theta_base, neox, None, stream)
+}
+
+/// Multi-head RoPE for decode with optional per-dim frequency scaling.
+///
+/// When `freq_scale` is `Some`, each pair's theta is divided by
+/// `freq_scale[i]` (matches llama.cpp `freq_factors`). Used for
+/// Llama-3.1 `rope_freqs.weight`.
+pub fn rope_heads_on_stream_scaled(
+    x: *mut f32,
+    pos: usize,
+    num_heads: usize,
+    head_dim: usize,
+    theta_base: f32,
+    neox: bool,
+    freq_scale: Option<*const f32>,
+    stream: hipStream_t,
+) -> GpuResult<()> {
     if num_heads == 0 || head_dim == 0 {
         return Err(GpuError::HipApiError {
             code: -1,
@@ -98,14 +116,16 @@ pub fn rope_heads_on_stream(
         });
     }
 
+    let freq_ptr = freq_scale.unwrap_or(std::ptr::null());
     let result = unsafe {
-        gpu_rope_heads(
+        gpu_rope_heads_scaled(
             x,
             pos as c_int,
             num_heads as c_int,
             head_dim as c_int,
             theta_base,
             neox as c_int,
+            freq_ptr,
             stream,
         )
     };
@@ -130,6 +150,22 @@ pub fn rope_heads_from_state_on_stream(
     neox: bool,
     stream: hipStream_t,
 ) -> GpuResult<()> {
+    rope_heads_from_state_on_stream_scaled(
+        x, pos_ptr, num_heads, head_dim, theta_base, neox, None, stream,
+    )
+}
+
+/// Multi-head RoPE from device-resident position with optional freq scaling.
+pub fn rope_heads_from_state_on_stream_scaled(
+    x: *mut f32,
+    pos_ptr: *const i32,
+    num_heads: usize,
+    head_dim: usize,
+    theta_base: f32,
+    neox: bool,
+    freq_scale: Option<*const f32>,
+    stream: hipStream_t,
+) -> GpuResult<()> {
     if num_heads == 0 || head_dim == 0 {
         return Err(GpuError::HipApiError {
             code: -1,
@@ -149,14 +185,16 @@ pub fn rope_heads_from_state_on_stream(
         });
     }
 
+    let freq_ptr = freq_scale.unwrap_or(std::ptr::null());
     let result = unsafe {
-        gpu_rope_heads_state(
+        gpu_rope_heads_state_scaled(
             x,
             pos_ptr,
             num_heads as c_int,
             head_dim as c_int,
             theta_base,
             neox as c_int,
+            freq_ptr,
             stream,
         )
     };
@@ -230,6 +268,22 @@ pub fn rope_heads_batched(
     seq_len: usize,
     neox: bool,
 ) -> GpuResult<()> {
+    rope_heads_batched_scaled(
+        x, start_pos, num_heads, head_dim, theta_base, seq_len, neox, None,
+    )
+}
+
+/// Batched multi-head RoPE for prefill with optional freq scaling.
+pub fn rope_heads_batched_scaled(
+    x: *mut f32,
+    start_pos: usize,
+    num_heads: usize,
+    head_dim: usize,
+    theta_base: f32,
+    seq_len: usize,
+    neox: bool,
+    freq_scale: Option<*const f32>,
+) -> GpuResult<()> {
     if num_heads == 0 || head_dim == 0 || seq_len == 0 {
         return Err(GpuError::HipApiError {
             code: -1,
@@ -245,8 +299,9 @@ pub fn rope_heads_batched(
         });
     }
 
+    let freq_ptr = freq_scale.unwrap_or(std::ptr::null());
     let result = unsafe {
-        gpu_rope_heads_batched(
+        gpu_rope_heads_batched_scaled(
             x,
             start_pos as c_int,
             num_heads as c_int,
@@ -254,6 +309,7 @@ pub fn rope_heads_batched(
             theta_base,
             seq_len as c_int,
             neox as c_int,
+            freq_ptr,
         )
     };
 
@@ -281,6 +337,17 @@ unsafe extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 
+    fn gpu_rope_heads_scaled(
+        x: *mut f32,
+        pos: c_int,
+        num_heads: c_int,
+        head_dim: c_int,
+        theta_base: f32,
+        neox: c_int,
+        freq_scale: *const f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
     fn gpu_rope_heads_state(
         x: *mut f32,
         pos_ptr: *const c_int,
@@ -288,6 +355,17 @@ unsafe extern "C" {
         head_dim: c_int,
         theta_base: f32,
         neox: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    fn gpu_rope_heads_state_scaled(
+        x: *mut f32,
+        pos_ptr: *const c_int,
+        num_heads: c_int,
+        head_dim: c_int,
+        theta_base: f32,
+        neox: c_int,
+        freq_scale: *const f32,
         stream: hipStream_t,
     ) -> hipError_t;
 
@@ -307,6 +385,17 @@ unsafe extern "C" {
         theta_base: f32,
         seq_len: c_int,
         neox: c_int,
+    ) -> hipError_t;
+
+    fn gpu_rope_heads_batched_scaled(
+        x: *mut f32,
+        start_pos: c_int,
+        num_heads: c_int,
+        head_dim: c_int,
+        theta_base: f32,
+        seq_len: c_int,
+        neox: c_int,
+        freq_scale: *const f32,
     ) -> hipError_t;
 }
 

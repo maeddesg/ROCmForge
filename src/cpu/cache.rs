@@ -206,6 +206,7 @@ mod tests {
             attention_layout: crate::config::AttentionLayout::SplitQkv,
             architecture: "qwen2".to_string(),
             tensor_registry: TensorNameRegistry::from_scheme(&TensorNamingScheme::Gguf),
+            rope_freqs: None,
         }
     }
 
