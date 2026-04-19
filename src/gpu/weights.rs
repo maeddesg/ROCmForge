@@ -548,6 +548,10 @@ pub struct GpuLayerWeights {
     /// FFN down projection (quantized)
     pub ffn_down: GpuBuffer,
     pub ffn_down_meta: WeightMeta,
+    /// Per-head RMSNorm gain for Q (Qwen3 only). Shape `[head_dim]` f32.
+    pub attn_q_norm: Option<GpuBuffer>,
+    /// Per-head RMSNorm gain for K (Qwen3 only). Shape `[head_dim]` f32.
+    pub attn_k_norm: Option<GpuBuffer>,
 }
 
 impl GpuLayerWeights {
@@ -741,6 +745,30 @@ impl GpuLayerWeights {
                 load_weight(&ffn_down_name)?
             };
 
+        // Qwen3 ships per-head Q/K RMSNorm gains that are applied between
+        // the QKV projection and RoPE. Shape is `[head_dim]` f32; the same
+        // gain vector is reused for every head and every sequence position.
+        // Qwen2/Qwen2.5/Llama don't have these tensors, so `load_f32_opt`
+        // returns `None` and the forward pass skips the extra norm pass.
+        let attn_q_norm = if config.use_qk_norm {
+            let name = config
+                .tensor_registry
+                .resolve_optional(TensorName::AttnQNorm, layer)
+                .unwrap_or_default();
+            load_f32_opt(&name)?
+        } else {
+            None
+        };
+        let attn_k_norm = if config.use_qk_norm {
+            let name = config
+                .tensor_registry
+                .resolve_optional(TensorName::AttnKNorm, layer)
+                .unwrap_or_default();
+            load_f32_opt(&name)?
+        } else {
+            None
+        };
+
         Ok(Self {
             attn_norm,
             attn_q,
@@ -763,6 +791,8 @@ impl GpuLayerWeights {
             ffn_gate_up_interleaved_tile4,
             ffn_down,
             ffn_down_meta,
+            attn_q_norm,
+            attn_k_norm,
         })
     }
 }
@@ -1007,6 +1037,7 @@ mod matrix_meta_tests {
             architecture: "test".to_string(),
             tensor_registry: TensorNameRegistry::from_scheme(&TensorNamingScheme::Gguf),
             rope_freqs: None,
+            use_qk_norm: false,
         }
     }
 

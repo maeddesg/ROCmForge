@@ -86,6 +86,7 @@ mod tests {
                 &crate::config::TensorNamingScheme::Gguf,
             ),
             rope_freqs: None,
+            use_qk_norm: false,
         };
 
         let batch = derive_batch_config(&caps, &config);

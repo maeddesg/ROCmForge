@@ -90,6 +90,9 @@ pub struct ModelTraits {
     pub default_norm_eps: f32,
     /// Tensor naming convention used by this architecture
     pub tensor_naming: TensorNamingScheme,
+    /// Whether the architecture applies a per-head RMSNorm to Q and K
+    /// after the QKV projection and before RoPE (Qwen3 dense + MoE).
+    pub use_qk_norm: bool,
 }
 
 /// Registry for resolving semantic tensor names to actual tensor names
@@ -160,6 +163,16 @@ impl TensorNameRegistry {
         // Normalization
         templates.insert(TensorName::AttnNorm, "blk.{}.attn_norm.weight".to_string());
         templates.insert(TensorName::FfnNorm, "blk.{}.ffn_norm.weight".to_string());
+
+        // Per-head attention Q/K RMSNorm (optional; Qwen3 dense ships these)
+        templates.insert(
+            TensorName::AttnQNorm,
+            "blk.{}.attn_q_norm.weight".to_string(),
+        );
+        templates.insert(
+            TensorName::AttnKNorm,
+            "blk.{}.attn_k_norm.weight".to_string(),
+        );
 
         // Embeddings (no layer number)
         templates.insert(TensorName::TokenEmb, "token_embd.weight".to_string());
@@ -368,6 +381,7 @@ static DEFAULT_TRAITS: ModelTraits = ModelTraits {
     default_rope_theta: 10000.0,
     default_norm_eps: 1e-5,
     tensor_naming: TensorNamingScheme::Gguf,
+    use_qk_norm: false,
 };
 
 fn registry() -> &'static HashMap<&'static str, ModelTraits> {
@@ -386,6 +400,7 @@ fn registry() -> &'static HashMap<&'static str, ModelTraits> {
             default_rope_theta: 10000.0,
             default_norm_eps: 1e-5,
             tensor_naming: TensorNamingScheme::Gguf,
+            use_qk_norm: false,
         };
         for arch in &["llama", "mistral", "baichuan", "internlm2", "deepseek"] {
             m.insert(*arch, llama.clone());
@@ -407,6 +422,7 @@ fn registry() -> &'static HashMap<&'static str, ModelTraits> {
             default_rope_theta: 1_000_000.0,
             default_norm_eps: 1e-6,
             tensor_naming: TensorNamingScheme::Gguf,
+            use_qk_norm: false,
         };
         for arch in &["qwen2", "qwen2moe"] {
             m.insert(*arch, qwen2.clone());
@@ -426,6 +442,7 @@ fn registry() -> &'static HashMap<&'static str, ModelTraits> {
             default_rope_theta: 1_000_000.0,
             default_norm_eps: 1e-6,
             tensor_naming: TensorNamingScheme::Gguf,
+            use_qk_norm: true,
         };
         m.insert("qwen3", qwen3.clone());
         m.insert(
@@ -455,6 +472,7 @@ fn registry() -> &'static HashMap<&'static str, ModelTraits> {
                 default_rope_theta: 10000.0,
                 default_norm_eps: 1e-5,
                 tensor_naming: TensorNamingScheme::Gguf,
+                use_qk_norm: false,
             },
         );
         m.insert("phi2", llama.clone());
@@ -467,6 +485,7 @@ fn registry() -> &'static HashMap<&'static str, ModelTraits> {
             default_rope_theta: 10000.0,
             default_norm_eps: 1e-6,
             tensor_naming: TensorNamingScheme::Gguf,
+            use_qk_norm: false,
         };
         for arch in &["gemma", "gemma2", "gemma3"] {
             m.insert(*arch, gemma.clone());
@@ -482,6 +501,7 @@ fn registry() -> &'static HashMap<&'static str, ModelTraits> {
                 default_rope_theta: 10000.0,
                 default_norm_eps: 1e-5,
                 tensor_naming: TensorNamingScheme::Gguf,
+                use_qk_norm: false,
             },
         );
 
@@ -540,6 +560,12 @@ pub struct ModelConfig {
     /// Llama-3.1 ships this tensor for the 4K→128K context extension; Qwen2/3
     /// and pre-3.1 Llama models omit it and stay on the standard formula.
     pub rope_freqs: Option<Vec<f32>>,
+
+    /// Whether the architecture applies a per-head RMSNorm to Q and K after
+    /// the QKV projection and before RoPE (Qwen3 dense + MoE). The actual
+    /// `attn_q_norm.weight` / `attn_k_norm.weight` tensors live per-layer in
+    /// `GpuLayerWeights`.
+    pub use_qk_norm: bool,
 }
 
 impl ModelConfig {
@@ -594,6 +620,7 @@ impl ModelConfig {
             architecture: meta.architecture.clone(),
             tensor_registry: TensorNameRegistry::from_scheme(&traits.tensor_naming),
             rope_freqs,
+            use_qk_norm: traits.use_qk_norm,
         };
 
         config.validate()?;
@@ -611,6 +638,7 @@ impl ModelConfig {
             attn_bias = config.use_attention_bias,
             rms_eps = config.rms_norm_eps,
             has_rope_freqs = config.rope_freqs.is_some(),
+            use_qk_norm = config.use_qk_norm,
             "ModelConfig::from_gguf"
         );
         Ok(config)
@@ -915,6 +943,7 @@ mod tests {
             architecture: "qwen2".to_string(),
             tensor_registry: TensorNameRegistry::from_scheme(&TensorNamingScheme::Gguf),
             rope_freqs: None,
+            use_qk_norm: false,
         };
         assert!(cfg.validate().is_err());
     }
@@ -939,6 +968,7 @@ mod tests {
             architecture: "qwen2".to_string(),
             tensor_registry: TensorNameRegistry::from_scheme(&TensorNamingScheme::Gguf),
             rope_freqs: None,
+            use_qk_norm: false,
         };
         assert!(cfg.validate().is_err());
     }

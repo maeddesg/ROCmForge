@@ -36,7 +36,10 @@ pub use elementwise::{
     embed_q4_0_token, embed_q8_0_batch, embed_q8_0_token, gelu, increment_decode_state_on_stream,
     mul, mul_batched, mul_on_stream, scale, silu, silu_on_stream, zero_fill,
 };
-pub use norm::{rms_norm, rms_norm_batched, rms_norm_on_stream, rms_norm_vulkan_style};
+pub use norm::{
+    rms_norm, rms_norm_batched, rms_norm_batched_on_stream, rms_norm_on_stream,
+    rms_norm_vulkan_style,
+};
 pub use q8_decode::{
     gemv_gate_up_q4_0_q8_0_on_stream, gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_on_stream,
     gemv_gate_up_swiglu_q4_0_f32_q8_inline_interleaved_tile4_on_stream,

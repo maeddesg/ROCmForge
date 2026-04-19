@@ -268,6 +268,7 @@ mod tests {
                 &crate::config::TensorNamingScheme::Gguf,
             ),
             rope_freqs: None,
+            use_qk_norm: false,
         }
     }
 
@@ -1067,6 +1068,7 @@ mod scratch_tests {
                 &crate::config::TensorNamingScheme::Gguf,
             ),
             rope_freqs: None,
+            use_qk_norm: false,
         }
     }
 

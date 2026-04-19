@@ -139,6 +139,18 @@ __global__ void rms_norm_batched_kernel(
 // C wrapper functions for dynamic linking
 extern "C" {
 
+// Forward declaration so gpu_rms_norm_batched can delegate to the
+// stream-aware variant defined further down.
+hipError_t gpu_rms_norm_batched_on_stream(
+    const float* d_x,
+    const float* d_weight,
+    float* d_out,
+    const int n,
+    const float eps,
+    const int seq_len,
+    hipStream_t stream
+);
+
 hipError_t gpu_rms_norm(
     const float* d_x,
     const float* d_weight,
@@ -166,12 +178,24 @@ hipError_t gpu_rms_norm_batched(
     const float eps,
     const int seq_len
 ) {
+    return gpu_rms_norm_batched_on_stream(d_x, d_weight, d_out, n, eps, seq_len, 0);
+}
+
+hipError_t gpu_rms_norm_batched_on_stream(
+    const float* d_x,
+    const float* d_weight,
+    float* d_out,
+    const int n,
+    const float eps,
+    const int seq_len,
+    hipStream_t stream
+) {
     const int block_size = 256;
     const int smem_size = block_size * sizeof(float);
 
     hipLaunchKernelGGL(
         rms_norm_batched_kernel,
-        seq_len, block_size, smem_size, 0,
+        seq_len, block_size, smem_size, stream,
         d_x, d_weight, d_out, n, eps, seq_len
     );
 

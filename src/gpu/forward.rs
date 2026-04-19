@@ -20,7 +20,9 @@ use super::kernels::elementwise::{
     embed_q8_0_token, silu,
 };
 use super::kernels::attention::kv_write_rope_on_stream_scaled;
-use super::kernels::norm::{rms_norm, rms_norm_batched, rms_norm_on_stream};
+use super::kernels::norm::{
+    rms_norm, rms_norm_batched, rms_norm_batched_on_stream, rms_norm_on_stream,
+};
 use super::kernels::rope::{
     rope_heads_batched_scaled, rope_heads_from_state_on_stream, rope_heads_on_stream_scaled,
 };
@@ -985,6 +987,31 @@ pub fn gpu_prefill_layer_forward_hybrid(
     }
     if profiling { ffi::hip_device_synchronize()?; us_qkv_bias = t.elapsed().as_micros() as u64; t = std::time::Instant::now(); }
 
+    // Qwen3 per-head Q/K RMSNorm (between projection+bias and RoPE).
+    // Treat each attention head on each sequence position as one row of
+    // length head_dim: `n_rows = seq_len * num_heads` for Q, analogous
+    // for K. No-op when gpu_layer.attn_q_norm is None (Qwen2.5/Llama).
+    if let Some(ref q_norm) = gpu_layer.attn_q_norm {
+        rms_norm_batched(
+            scratch.q.as_ptr() as *const f32,
+            q_norm.as_ptr() as *const f32,
+            scratch.q.as_ptr() as *mut f32,
+            config.head_dim,
+            eps,
+            seq_len * config.num_heads,
+        )?;
+    }
+    if let Some(ref k_norm) = gpu_layer.attn_k_norm {
+        rms_norm_batched(
+            scratch.k.as_ptr() as *const f32,
+            k_norm.as_ptr() as *const f32,
+            scratch.k.as_ptr() as *mut f32,
+            config.head_dim,
+            eps,
+            seq_len * config.num_kv_heads,
+        )?;
+    }
+
     gpu_rope_rows(
         scratch.q.as_ptr() as *mut f32,
         start_pos,
@@ -1440,6 +1467,29 @@ pub fn gpu_verify_layer_forward(
             scratch.v.as_ptr() as *mut f32, kv_size, seq_len)?;
     }
     if let Some(ref mut t) = vt { t.mark()?; } // → attn_rope
+
+    // Qwen3 per-head Q/K RMSNorm, same as prefill (between projection+bias
+    // and RoPE). No-op for Qwen2.5 / Llama.
+    if let Some(ref q_norm) = gpu_layer.attn_q_norm {
+        rms_norm_batched(
+            scratch.q.as_ptr() as *const f32,
+            q_norm.as_ptr() as *const f32,
+            scratch.q.as_ptr() as *mut f32,
+            config.head_dim,
+            eps,
+            seq_len * config.num_heads,
+        )?;
+    }
+    if let Some(ref k_norm) = gpu_layer.attn_k_norm {
+        rms_norm_batched(
+            scratch.k.as_ptr() as *const f32,
+            k_norm.as_ptr() as *const f32,
+            scratch.k.as_ptr() as *mut f32,
+            config.head_dim,
+            eps,
+            seq_len * config.num_kv_heads,
+        )?;
+    }
 
     gpu_rope_rows(scratch.q.as_ptr() as *mut f32, start_pos, seq_len,
         config.num_heads, config.head_dim, config.rope_theta, config.rope_neox, rope_freqs_ptr)?;
@@ -2317,6 +2367,32 @@ profile_decode_stage(device, DecodeStage::Qkv, || {
             device.stream(),
         )
     })?;
+
+    // Qwen3 per-head Q/K RMSNorm: reshape [num_heads × head_dim] as
+    // `num_heads` rows of length `head_dim` and normalise each row with
+    // the same gain vector. No-op for Qwen2.5 / Llama (attn_q_norm=None).
+    if let Some(ref q_norm) = gpu_layer.attn_q_norm {
+        rms_norm_batched_on_stream(
+            scratch.q.as_ptr() as *const f32,
+            q_norm.as_ptr() as *const f32,
+            scratch.q.as_ptr() as *mut f32,
+            config.head_dim,
+            eps,
+            config.num_heads,
+            device.stream(),
+        )?;
+    }
+    if let Some(ref k_norm) = gpu_layer.attn_k_norm {
+        rms_norm_batched_on_stream(
+            scratch.k.as_ptr() as *const f32,
+            k_norm.as_ptr() as *const f32,
+            scratch.k.as_ptr() as *mut f32,
+            config.head_dim,
+            eps,
+            config.num_kv_heads,
+            device.stream(),
+        )?;
+    }
 
 profile_decode_stage(device, DecodeStage::QRope, || {
         rope_heads_on_stream_scaled(

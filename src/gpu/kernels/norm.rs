@@ -113,6 +113,19 @@ pub fn rms_norm_batched(
     eps: f32,
     seq_len: usize,
 ) -> GpuResult<()> {
+    rms_norm_batched_on_stream(x, weight, out, n, eps, seq_len, hipStream_t::null())
+}
+
+/// Batched RMS norm on an explicit HIP stream.
+pub fn rms_norm_batched_on_stream(
+    x: *const f32,
+    weight: *const f32,
+    out: *mut f32,
+    n: usize,
+    eps: f32,
+    seq_len: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
     if n == 0 || seq_len == 0 {
         return Err(GpuError::HipApiError {
             code: -1,
@@ -120,7 +133,9 @@ pub fn rms_norm_batched(
         });
     }
 
-    let result = unsafe { gpu_rms_norm_batched(x, weight, out, n as c_int, eps, seq_len as c_int) };
+    let result = unsafe {
+        gpu_rms_norm_batched_on_stream(x, weight, out, n as c_int, eps, seq_len as c_int, stream)
+    };
 
     if result != hipError_t::hipSuccess {
         return Err(GpuError::HipApiError {
@@ -159,6 +174,16 @@ unsafe extern "C" {
         n: c_int,
         eps: f32,
         seq_len: c_int,
+    ) -> hipError_t;
+
+    fn gpu_rms_norm_batched_on_stream(
+        x: *const f32,
+        weight: *const f32,
+        out: *mut f32,
+        n: c_int,
+        eps: f32,
+        seq_len: c_int,
+        stream: hipStream_t,
     ) -> hipError_t;
 }
 

@@ -22,6 +22,7 @@ fn make_test_config() -> ModelConfig {
         architecture: "test".to_string(),
         tensor_registry: TensorNameRegistry::from_scheme(&TensorNamingScheme::Gguf),
         rope_freqs: None,
+        use_qk_norm: false,
     }
 }
 
