@@ -1,0 +1,111 @@
+
+========== Qwen2.5-7B-Instruct-Q4_0.gguf ==========
+--- pp=64 ---
+Prefill: 82.4ms (788.7 tok/s)
+1 tokens in 11.4ms = 88.0 tok/s
+Prefill: 81.5ms (797.3 tok/s)
+1 tokens in 11.4ms = 88.0 tok/s
+Prefill: 82.6ms (787.2 tok/s)
+1 tokens in 11.3ms = 88.8 tok/s
+--- pp=128 ---
+Prefill: 114.1ms (1130.5 tok/s)
+1 tokens in 11.4ms = 87.4 tok/s
+Prefill: 114.2ms (1130.1 tok/s)
+1 tokens in 11.5ms = 86.8 tok/s
+Prefill: 113.7ms (1134.4 tok/s)
+1 tokens in 11.5ms = 86.7 tok/s
+--- pp=256 ---
+Prefill: 173.4ms (1482.0 tok/s)
+1 tokens in 11.8ms = 84.6 tok/s
+Prefill: 173.4ms (1482.2 tok/s)
+1 tokens in 11.8ms = 84.4 tok/s
+Prefill: 173.1ms (1484.5 tok/s)
+1 tokens in 11.9ms = 84.0 tok/s
+--- pp=512 ---
+Prefill: 303.5ms (1690.3 tok/s)
+1 tokens in 12.4ms = 80.7 tok/s
+Prefill: 302.7ms (1695.0 tok/s)
+1 tokens in 12.4ms = 80.8 tok/s
+Prefill: 303.0ms (1692.9 tok/s)
+1 tokens in 12.4ms = 80.5 tok/s
+--- decode 128 ---
+Prefill: 32.2ms (31.1 tok/s)
+128 tokens in 1251.9ms = 102.2 tok/s
+Prefill: 32.0ms (31.3 tok/s)
+128 tokens in 1249.3ms = 102.5 tok/s
+Prefill: 32.1ms (31.2 tok/s)
+128 tokens in 1251.1ms = 102.3 tok/s
+
+========== Qwen3-8B-Q4_K_M.gguf ==========
+--- pp=64 ---
+Prefill: 167.2ms (388.7 tok/s)
+1 tokens in 37.2ms = 26.9 tok/s
+Prefill: 167.7ms (387.7 tok/s)
+1 tokens in 37.2ms = 26.9 tok/s
+Prefill: 167.9ms (387.2 tok/s)
+1 tokens in 37.4ms = 26.8 tok/s
+--- pp=128 ---
+Prefill: 289.0ms (446.3 tok/s)
+1 tokens in 37.6ms = 26.6 tok/s
+Prefill: 288.3ms (447.5 tok/s)
+1 tokens in 37.3ms = 26.8 tok/s
+Prefill: 288.7ms (446.9 tok/s)
+1 tokens in 37.4ms = 26.8 tok/s
+--- pp=256 ---
+Prefill: 548.9ms (468.2 tok/s)
+1 tokens in 37.8ms = 26.5 tok/s
+Prefill: 547.4ms (469.5 tok/s)
+1 tokens in 37.9ms = 26.4 tok/s
+Prefill: 544.9ms (471.6 tok/s)
+1 tokens in 37.7ms = 26.5 tok/s
+--- pp=512 ---
+Prefill: 1088.1ms (471.5 tok/s)
+1 tokens in 37.5ms = 26.6 tok/s
+Prefill: 1090.4ms (470.5 tok/s)
+1 tokens in 38.0ms = 26.3 tok/s
+Prefill: 1079.4ms (475.3 tok/s)
+1 tokens in 38.0ms = 26.3 tok/s
+--- decode 128 ---
+Prefill: 56.6ms (17.7 tok/s)
+128 tokens in 4382.5ms = 29.2 tok/s
+Prefill: 55.1ms (18.1 tok/s)
+128 tokens in 4276.6ms = 29.9 tok/s
+Prefill: 54.8ms (18.3 tok/s)
+128 tokens in 4274.2ms = 29.9 tok/s
+
+========== Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf ==========
+--- pp=64 ---
+Prefill: 171.6ms (384.7 tok/s)
+1 tokens in 34.0ms = 29.4 tok/s
+Prefill: 165.1ms (399.8 tok/s)
+1 tokens in 35.6ms = 28.1 tok/s
+Prefill: 164.1ms (402.3 tok/s)
+1 tokens in 35.6ms = 28.1 tok/s
+--- pp=128 ---
+Prefill: 284.8ms (456.5 tok/s)
+1 tokens in 36.0ms = 27.8 tok/s
+Prefill: 285.0ms (456.2 tok/s)
+1 tokens in 35.7ms = 28.1 tok/s
+Prefill: 281.5ms (461.8 tok/s)
+1 tokens in 35.6ms = 28.1 tok/s
+--- pp=256 ---
+Prefill: 549.9ms (469.2 tok/s)
+1 tokens in 35.8ms = 27.9 tok/s
+Prefill: 543.4ms (474.8 tok/s)
+1 tokens in 35.8ms = 28.0 tok/s
+Prefill: 543.3ms (474.8 tok/s)
+1 tokens in 35.8ms = 27.9 tok/s
+--- pp=512 ---
+Prefill: 1092.3ms (470.6 tok/s)
+1 tokens in 36.2ms = 27.6 tok/s
+Prefill: 1091.6ms (470.9 tok/s)
+1 tokens in 36.1ms = 27.7 tok/s
+Prefill: 1092.0ms (470.7 tok/s)
+1 tokens in 36.0ms = 27.8 tok/s
+--- decode 128 ---
+Prefill: 51.1ms (39.2 tok/s)
+128 tokens in 4188.1ms = 30.6 tok/s
+Prefill: 51.4ms (38.9 tok/s)
+128 tokens in 4190.2ms = 30.5 tok/s
+Prefill: 51.4ms (38.9 tok/s)
+128 tokens in 4195.4ms = 30.5 tok/s

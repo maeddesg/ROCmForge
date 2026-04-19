@@ -1,0 +1,456 @@
+
+========== Qwen2.5-7B-Instruct-Q4_0.gguf ==========
+--- chat_01 ---
+Prompt: 22 tokens
+Prefill: 48.9ms (449.7 tok/s)
+128 tokens in 1255.7ms = 101.9 tok/s
+Prompt: 22 tokens
+Prefill: 48.7ms (451.6 tok/s)
+128 tokens in 1255.6ms = 101.9 tok/s
+Prompt: 22 tokens
+Prefill: 48.9ms (449.7 tok/s)
+128 tokens in 1254.7ms = 102.0 tok/s
+--- chat_02 ---
+Prompt: 24 tokens
+Prefill: 48.8ms (491.9 tok/s)
+128 tokens in 1256.1ms = 101.9 tok/s
+Prompt: 24 tokens
+Prefill: 49.2ms (488.2 tok/s)
+128 tokens in 1255.9ms = 101.9 tok/s
+Prompt: 24 tokens
+Prefill: 48.8ms (491.4 tok/s)
+128 tokens in 1256.5ms = 101.9 tok/s
+--- chat_03 ---
+Prompt: 22 tokens
+Prefill: 49.2ms (447.2 tok/s)
+128 tokens in 1255.9ms = 101.9 tok/s
+Prompt: 22 tokens
+Prefill: 48.9ms (449.7 tok/s)
+128 tokens in 1256.5ms = 101.9 tok/s
+Prompt: 22 tokens
+Prefill: 48.6ms (452.8 tok/s)
+128 tokens in 1255.9ms = 101.9 tok/s
+--- chat_04 ---
+Prompt: 24 tokens
+Prefill: 48.8ms (491.9 tok/s)
+128 tokens in 1254.4ms = 102.0 tok/s
+Prompt: 24 tokens
+Prefill: 48.7ms (493.2 tok/s)
+128 tokens in 1257.2ms = 101.8 tok/s
+Prompt: 24 tokens
+Prefill: 48.6ms (493.9 tok/s)
+128 tokens in 1257.4ms = 101.8 tok/s
+--- chat_05 ---
+Prompt: 24 tokens
+Prefill: 48.7ms (492.8 tok/s)
+128 tokens in 1256.0ms = 101.9 tok/s
+Prompt: 24 tokens
+Prefill: 48.8ms (491.4 tok/s)
+128 tokens in 1258.3ms = 101.7 tok/s
+Prompt: 24 tokens
+Prefill: 48.9ms (490.8 tok/s)
+128 tokens in 1254.5ms = 102.0 tok/s
+--- code_01 ---
+Prompt: 28 tokens
+Prefill: 48.7ms (574.5 tok/s)
+128 tokens in 1257.6ms = 101.8 tok/s
+Prompt: 28 tokens
+Prefill: 48.6ms (575.9 tok/s)
+128 tokens in 1257.7ms = 101.8 tok/s
+Prompt: 28 tokens
+Prefill: 49.0ms (571.5 tok/s)
+128 tokens in 1256.1ms = 101.9 tok/s
+--- code_02 ---
+Prompt: 28 tokens
+Prefill: 48.6ms (576.4 tok/s)
+128 tokens in 1256.6ms = 101.9 tok/s
+Prompt: 28 tokens
+Prefill: 48.8ms (573.8 tok/s)
+128 tokens in 1256.8ms = 101.8 tok/s
+Prompt: 28 tokens
+Prefill: 48.7ms (575.5 tok/s)
+128 tokens in 1258.2ms = 101.7 tok/s
+--- code_03 ---
+Prompt: 41 tokens
+Prefill: 49.1ms (835.8 tok/s)
+128 tokens in 1261.0ms = 101.5 tok/s
+Prompt: 41 tokens
+Prefill: 49.1ms (835.3 tok/s)
+128 tokens in 1260.5ms = 101.5 tok/s
+Prompt: 41 tokens
+Prefill: 49.1ms (834.4 tok/s)
+128 tokens in 1260.1ms = 101.6 tok/s
+--- code_04 ---
+Prompt: 23 tokens
+Prefill: 48.7ms (472.4 tok/s)
+128 tokens in 1258.8ms = 101.7 tok/s
+Prompt: 23 tokens
+Prefill: 49.1ms (468.1 tok/s)
+128 tokens in 1259.3ms = 101.6 tok/s
+Prompt: 23 tokens
+Prefill: 48.9ms (470.8 tok/s)
+128 tokens in 1255.0ms = 102.0 tok/s
+--- code_05 ---
+Prompt: 31 tokens
+Prefill: 49.0ms (632.2 tok/s)
+128 tokens in 1257.7ms = 101.8 tok/s
+Prompt: 31 tokens
+Prefill: 49.0ms (632.4 tok/s)
+128 tokens in 1257.8ms = 101.8 tok/s
+Prompt: 31 tokens
+Prefill: 49.0ms (632.1 tok/s)
+128 tokens in 1256.8ms = 101.8 tok/s
+--- prose_01 ---
+Prompt: 23 tokens
+Prefill: 48.8ms (471.3 tok/s)
+128 tokens in 1256.9ms = 101.8 tok/s
+Prompt: 23 tokens
+Prefill: 48.8ms (471.8 tok/s)
+128 tokens in 1255.3ms = 102.0 tok/s
+Prompt: 23 tokens
+Prefill: 48.8ms (471.7 tok/s)
+128 tokens in 1254.4ms = 102.0 tok/s
+--- prose_02 ---
+Prompt: 21 tokens
+Prefill: 48.7ms (431.1 tok/s)
+128 tokens in 1256.1ms = 101.9 tok/s
+Prompt: 21 tokens
+Prefill: 48.7ms (431.5 tok/s)
+128 tokens in 1255.0ms = 102.0 tok/s
+Prompt: 21 tokens
+Prefill: 48.7ms (431.0 tok/s)
+128 tokens in 1256.7ms = 101.9 tok/s
+--- prose_03 ---
+Prompt: 24 tokens
+Prefill: 48.7ms (492.7 tok/s)
+128 tokens in 1253.6ms = 102.1 tok/s
+Prompt: 24 tokens
+Prefill: 49.1ms (488.8 tok/s)
+128 tokens in 1260.6ms = 101.5 tok/s
+Prompt: 24 tokens
+Prefill: 48.8ms (492.1 tok/s)
+128 tokens in 1259.5ms = 101.6 tok/s
+--- prose_04 ---
+Prompt: 19 tokens
+Prefill: 48.7ms (390.3 tok/s)
+128 tokens in 1254.8ms = 102.0 tok/s
+Prompt: 19 tokens
+Prefill: 48.7ms (389.9 tok/s)
+128 tokens in 1252.6ms = 102.2 tok/s
+Prompt: 19 tokens
+Prefill: 48.6ms (391.1 tok/s)
+128 tokens in 1253.9ms = 102.1 tok/s
+--- prose_05 ---
+Prompt: 26 tokens
+Prefill: 48.7ms (534.1 tok/s)
+128 tokens in 1255.9ms = 101.9 tok/s
+Prompt: 26 tokens
+Prefill: 48.5ms (536.6 tok/s)
+128 tokens in 1254.7ms = 102.0 tok/s
+Prompt: 26 tokens
+Prefill: 48.6ms (535.3 tok/s)
+128 tokens in 1259.3ms = 101.6 tok/s
+
+========== Qwen3-8B-Q4_K_M.gguf ==========
+--- chat_01 ---
+Prompt: 22 tokens
+Prefill: 83.0ms (265.2 tok/s)
+128 tokens in 4375.1ms = 29.3 tok/s
+Prompt: 22 tokens
+Prefill: 82.6ms (266.3 tok/s)
+128 tokens in 4383.5ms = 29.2 tok/s
+Prompt: 22 tokens
+Prefill: 82.5ms (266.6 tok/s)
+128 tokens in 4381.3ms = 29.2 tok/s
+--- chat_02 ---
+Prompt: 24 tokens
+Prefill: 85.4ms (281.2 tok/s)
+128 tokens in 4280.1ms = 29.9 tok/s
+Prompt: 24 tokens
+Prefill: 85.4ms (281.0 tok/s)
+128 tokens in 4384.8ms = 29.2 tok/s
+Prompt: 24 tokens
+Prefill: 85.8ms (279.8 tok/s)
+128 tokens in 4387.6ms = 29.2 tok/s
+--- chat_03 ---
+Prompt: 22 tokens
+Prefill: 82.4ms (266.9 tok/s)
+128 tokens in 4270.5ms = 30.0 tok/s
+Prompt: 22 tokens
+Prefill: 82.8ms (265.7 tok/s)
+128 tokens in 4381.5ms = 29.2 tok/s
+Prompt: 22 tokens
+Prefill: 82.6ms (266.2 tok/s)
+128 tokens in 4379.5ms = 29.2 tok/s
+--- chat_04 ---
+Prompt: 24 tokens
+Prefill: 85.0ms (282.5 tok/s)
+128 tokens in 4280.7ms = 29.9 tok/s
+Prompt: 24 tokens
+Prefill: 85.4ms (280.9 tok/s)
+128 tokens in 4384.4ms = 29.2 tok/s
+Prompt: 24 tokens
+Prefill: 85.7ms (280.2 tok/s)
+128 tokens in 4386.7ms = 29.2 tok/s
+--- chat_05 ---
+Prompt: 24 tokens
+Prefill: 85.7ms (280.2 tok/s)
+128 tokens in 4383.6ms = 29.2 tok/s
+Prompt: 24 tokens
+Prefill: 85.6ms (280.4 tok/s)
+128 tokens in 4385.2ms = 29.2 tok/s
+Prompt: 24 tokens
+Prefill: 84.0ms (285.8 tok/s)
+128 tokens in 4276.9ms = 29.9 tok/s
+--- code_01 ---
+Prompt: 28 tokens
+Prefill: 90.9ms (308.1 tok/s)
+128 tokens in 4382.9ms = 29.2 tok/s
+Prompt: 28 tokens
+Prefill: 89.8ms (311.7 tok/s)
+128 tokens in 4273.4ms = 30.0 tok/s
+Prompt: 28 tokens
+Prefill: 91.0ms (307.6 tok/s)
+128 tokens in 4382.5ms = 29.2 tok/s
+--- code_02 ---
+Prompt: 28 tokens
+Prefill: 89.9ms (311.5 tok/s)
+128 tokens in 4274.2ms = 29.9 tok/s
+Prompt: 28 tokens
+Prefill: 91.2ms (307.0 tok/s)
+128 tokens in 4380.7ms = 29.2 tok/s
+Prompt: 28 tokens
+Prefill: 91.2ms (307.1 tok/s)
+128 tokens in 4379.1ms = 29.2 tok/s
+--- code_03 ---
+Prompt: 41 tokens
+Prefill: 110.4ms (371.5 tok/s)
+128 tokens in 4284.8ms = 29.9 tok/s
+Prompt: 41 tokens
+Prefill: 109.6ms (374.2 tok/s)
+128 tokens in 4386.3ms = 29.2 tok/s
+Prompt: 41 tokens
+Prefill: 110.9ms (369.8 tok/s)
+128 tokens in 4287.1ms = 29.9 tok/s
+--- code_04 ---
+Prompt: 23 tokens
+Prefill: 83.8ms (274.5 tok/s)
+128 tokens in 4383.2ms = 29.2 tok/s
+Prompt: 23 tokens
+Prefill: 83.9ms (274.2 tok/s)
+128 tokens in 4387.0ms = 29.2 tok/s
+Prompt: 23 tokens
+Prefill: 83.7ms (274.6 tok/s)
+128 tokens in 4383.1ms = 29.2 tok/s
+--- code_05 ---
+Prompt: 31 tokens
+Prefill: 95.3ms (325.4 tok/s)
+128 tokens in 4382.9ms = 29.2 tok/s
+Prompt: 31 tokens
+Prefill: 95.4ms (325.1 tok/s)
+128 tokens in 4384.0ms = 29.2 tok/s
+Prompt: 31 tokens
+Prefill: 94.5ms (327.9 tok/s)
+128 tokens in 4278.6ms = 29.9 tok/s
+--- prose_01 ---
+Prompt: 23 tokens
+Prefill: 83.9ms (274.1 tok/s)
+128 tokens in 4383.3ms = 29.2 tok/s
+Prompt: 23 tokens
+Prefill: 84.0ms (273.7 tok/s)
+128 tokens in 4385.6ms = 29.2 tok/s
+Prompt: 23 tokens
+Prefill: 84.2ms (273.2 tok/s)
+128 tokens in 4276.6ms = 29.9 tok/s
+--- prose_02 ---
+Prompt: 21 tokens
+Prefill: 81.1ms (258.9 tok/s)
+128 tokens in 4374.3ms = 29.3 tok/s
+Prompt: 21 tokens
+Prefill: 81.1ms (258.8 tok/s)
+128 tokens in 4384.2ms = 29.2 tok/s
+Prompt: 21 tokens
+Prefill: 81.0ms (259.2 tok/s)
+128 tokens in 4378.1ms = 29.2 tok/s
+--- prose_03 ---
+Prompt: 24 tokens
+Prefill: 85.0ms (282.5 tok/s)
+128 tokens in 4273.1ms = 30.0 tok/s
+Prompt: 24 tokens
+Prefill: 83.9ms (285.9 tok/s)
+128 tokens in 4270.1ms = 30.0 tok/s
+Prompt: 24 tokens
+Prefill: 85.7ms (280.0 tok/s)
+128 tokens in 4267.4ms = 30.0 tok/s
+--- prose_04 ---
+Prompt: 19 tokens
+Prefill: 77.2ms (246.0 tok/s)
+128 tokens in 4289.1ms = 29.8 tok/s
+Prompt: 19 tokens
+Prefill: 77.9ms (243.8 tok/s)
+128 tokens in 4272.6ms = 30.0 tok/s
+Prompt: 19 tokens
+Prefill: 78.5ms (242.2 tok/s)
+128 tokens in 4393.6ms = 29.1 tok/s
+--- prose_05 ---
+Prompt: 26 tokens
+Prefill: 87.8ms (296.0 tok/s)
+128 tokens in 4273.6ms = 30.0 tok/s
+Prompt: 26 tokens
+Prefill: 88.2ms (294.7 tok/s)
+128 tokens in 4400.3ms = 29.1 tok/s
+Prompt: 26 tokens
+Prefill: 89.3ms (291.0 tok/s)
+128 tokens in 4393.7ms = 29.1 tok/s
+
+========== Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf ==========
+--- chat_01 ---
+Prompt: 23 tokens
+Prefill: 81.8ms (281.2 tok/s)
+128 tokens in 4081.7ms = 31.4 tok/s
+Prompt: 23 tokens
+Prefill: 82.4ms (279.0 tok/s)
+128 tokens in 4080.8ms = 31.4 tok/s
+Prompt: 23 tokens
+Prefill: 82.1ms (280.3 tok/s)
+128 tokens in 4074.4ms = 31.4 tok/s
+--- chat_02 ---
+Prompt: 25 tokens
+Prefill: 83.9ms (297.9 tok/s)
+128 tokens in 4205.4ms = 30.4 tok/s
+Prompt: 25 tokens
+Prefill: 83.5ms (299.3 tok/s)
+128 tokens in 4208.2ms = 30.4 tok/s
+Prompt: 25 tokens
+Prefill: 83.7ms (298.5 tok/s)
+128 tokens in 4097.7ms = 31.2 tok/s
+--- chat_03 ---
+Prompt: 23 tokens
+Prefill: 82.1ms (280.1 tok/s)
+128 tokens in 4082.3ms = 31.4 tok/s
+Prompt: 23 tokens
+Prefill: 81.8ms (281.2 tok/s)
+128 tokens in 4079.2ms = 31.4 tok/s
+Prompt: 23 tokens
+Prefill: 82.0ms (280.5 tok/s)
+128 tokens in 4202.0ms = 30.5 tok/s
+--- chat_04 ---
+Prompt: 25 tokens
+Prefill: 83.9ms (298.1 tok/s)
+128 tokens in 4217.6ms = 30.3 tok/s
+Prompt: 25 tokens
+Prefill: 85.0ms (294.2 tok/s)
+128 tokens in 4093.5ms = 31.3 tok/s
+Prompt: 25 tokens
+Prefill: 83.8ms (298.3 tok/s)
+128 tokens in 4215.6ms = 30.4 tok/s
+--- chat_05 ---
+Prompt: 25 tokens
+Prefill: 83.5ms (299.5 tok/s)
+128 tokens in 4099.4ms = 31.2 tok/s
+Prompt: 25 tokens
+Prefill: 83.5ms (299.2 tok/s)
+128 tokens in 4083.1ms = 31.3 tok/s
+Prompt: 25 tokens
+Prefill: 83.8ms (298.2 tok/s)
+128 tokens in 4205.0ms = 30.4 tok/s
+--- code_01 ---
+Prompt: 29 tokens
+Prefill: 86.9ms (333.7 tok/s)
+128 tokens in 4104.2ms = 31.2 tok/s
+Prompt: 29 tokens
+Prefill: 90.7ms (319.8 tok/s)
+128 tokens in 4089.8ms = 31.3 tok/s
+Prompt: 29 tokens
+Prefill: 90.6ms (320.0 tok/s)
+128 tokens in 4090.5ms = 31.3 tok/s
+--- code_02 ---
+Prompt: 27 tokens
+Prefill: 86.8ms (311.2 tok/s)
+128 tokens in 4210.0ms = 30.4 tok/s
+Prompt: 27 tokens
+Prefill: 86.8ms (310.9 tok/s)
+128 tokens in 4208.6ms = 30.4 tok/s
+Prompt: 27 tokens
+Prefill: 87.8ms (307.4 tok/s)
+128 tokens in 4097.1ms = 31.2 tok/s
+--- code_03 ---
+Prompt: 42 tokens
+Prefill: 106.9ms (393.0 tok/s)
+128 tokens in 4202.2ms = 30.5 tok/s
+Prompt: 42 tokens
+Prefill: 107.4ms (391.1 tok/s)
+128 tokens in 4198.9ms = 30.5 tok/s
+Prompt: 42 tokens
+Prefill: 110.1ms (381.4 tok/s)
+128 tokens in 4096.3ms = 31.2 tok/s
+--- code_04 ---
+Prompt: 24 tokens
+Prefill: 82.6ms (290.7 tok/s)
+128 tokens in 4079.8ms = 31.4 tok/s
+Prompt: 24 tokens
+Prefill: 83.2ms (288.5 tok/s)
+128 tokens in 4079.0ms = 31.4 tok/s
+Prompt: 24 tokens
+Prefill: 82.5ms (290.9 tok/s)
+128 tokens in 4202.1ms = 30.5 tok/s
+--- code_05 ---
+Prompt: 32 tokens
+Prefill: 93.6ms (342.0 tok/s)
+128 tokens in 4093.1ms = 31.3 tok/s
+Prompt: 32 tokens
+Prefill: 94.9ms (337.2 tok/s)
+128 tokens in 4220.3ms = 30.3 tok/s
+Prompt: 32 tokens
+Prefill: 94.2ms (339.6 tok/s)
+128 tokens in 4094.0ms = 31.3 tok/s
+--- prose_01 ---
+Prompt: 24 tokens
+Prefill: 83.8ms (286.5 tok/s)
+128 tokens in 4080.5ms = 31.4 tok/s
+Prompt: 24 tokens
+Prefill: 84.0ms (285.7 tok/s)
+128 tokens in 4078.5ms = 31.4 tok/s
+Prompt: 24 tokens
+Prefill: 83.8ms (286.3 tok/s)
+128 tokens in 4083.8ms = 31.3 tok/s
+--- prose_02 ---
+Prompt: 21 tokens
+Prefill: 77.4ms (271.5 tok/s)
+128 tokens in 4087.3ms = 31.3 tok/s
+Prompt: 21 tokens
+Prefill: 78.7ms (266.8 tok/s)
+128 tokens in 4082.0ms = 31.4 tok/s
+Prompt: 21 tokens
+Prefill: 77.6ms (270.5 tok/s)
+128 tokens in 4085.3ms = 31.3 tok/s
+--- prose_03 ---
+Prompt: 25 tokens
+Prefill: 83.7ms (298.8 tok/s)
+128 tokens in 4079.5ms = 31.4 tok/s
+Prompt: 25 tokens
+Prefill: 83.9ms (297.8 tok/s)
+128 tokens in 4205.6ms = 30.4 tok/s
+Prompt: 25 tokens
+Prefill: 83.8ms (298.3 tok/s)
+128 tokens in 4204.1ms = 30.4 tok/s
+--- prose_04 ---
+Prompt: 20 tokens
+Prefill: 76.6ms (261.2 tok/s)
+128 tokens in 4197.9ms = 30.5 tok/s
+Prompt: 20 tokens
+Prefill: 76.6ms (260.9 tok/s)
+128 tokens in 4207.1ms = 30.4 tok/s
+Prompt: 20 tokens
+Prefill: 74.8ms (267.3 tok/s)
+128 tokens in 4102.9ms = 31.2 tok/s
+--- prose_05 ---
+Prompt: 27 tokens
+Prefill: 87.7ms (307.7 tok/s)
+128 tokens in 4086.3ms = 31.3 tok/s
+Prompt: 27 tokens
+Prefill: 86.8ms (311.0 tok/s)
+128 tokens in 4213.2ms = 30.4 tok/s
+Prompt: 27 tokens
+Prefill: 86.1ms (313.6 tok/s)
+128 tokens in 4095.9ms = 31.3 tok/s

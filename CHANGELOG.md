@@ -1,5 +1,125 @@
 # Changelog
 
+## [0.2.0] — 2026-04-19
+
+### Highlights
+
+- **Q4_K_M quantisation support** — industry-standard K-quant format.
+  WMMA matrix-core prefill kernel with hierarchical scale/min
+  unpacking (super-block = 256 elements / 144 bytes), Q4_K GEMV
+  decode path with fused gate+up+SwiGLU, multi-row Q6_K GEMV for
+  mixed-precision Q4_K_M GGUFs (V-projection + `ffn_down`).
+- **Multi-model, multi-architecture** — Qwen3-8B and Llama-3.1-8B
+  load from the same binary as Qwen2.5-7B. GQA ratio, RoPE base,
+  per-head Q/K RMSNorm, `rope_freqs` 128 k-context scaling, norm
+  epsilon, and chat templates are auto-configured from GGUF metadata.
+- **Llama-3 tokeniser** — GPT-4-style BPE pre-tokeniser with 7/7 token
+  parity against llama.cpp on Meta-Llama-3.1-8B-Instruct.
+- Coherent greedy decode on all three models:
+    * Qwen2.5-7B Q4_0 → "Paris. It is located in the northern…"
+    * Qwen3-8B Q4_K_M → "Paris. The capital of the United States is
+      Washington, D.C."
+    * Llama-3.1-8B Q4_K_M → "a city of love, a city of love, fashion,
+      art, fashion, …Paris…"
+- Qwen2.5-7B Q4_0 baseline **unchanged** (pp256 = 1,482 tok/s, decode
+  = 102 tok/s). No regression.
+
+### Phase 7 — Q4_K_M support and multi-model integration
+
+#### Step 1 — Q4_K_M dequant infrastructure
+
+- CPU dequant reference (`cpu/quant.rs::embed_q4_k`) written against
+  llama.cpp's `dequantize_row_q4_K`: unsigned 6-bit scale/min via
+  `get_scale_min_k4`, four outer groups of 64 elements, formula
+  `value = (d * sc_j) * nibble - (dmin * m_j)`. Later (Step 5d)
+  discovered that the initial CPU implementation had three
+  compounding bugs (signed vs unsigned scale, `+` instead of `-`,
+  wrong nibble layout) — fixed in commit `e11c01f`, unblocked the
+  entire Q4_K_M decode path including the GPU fallback embed.
+
+#### Step 2 — WMMA Q4_K_M prefill kernel
+
+- `hip_kernels/wmma/wmma_gemm_q4_k.hip` — hand-written RDNA 4 WMMA
+  kernel operating on Q4_K super-blocks. Same tile-and-accumulate
+  structure as the Q4_0 kernel but with super-block-aware K-loop,
+  6-bit scale unpacking, and sub-block-level min offsets.
+- Six shape tests (`wmma_q4_k_correctness`): Qwen3 QKV, gate_up,
+  down; Llama-3.1 gate_up; plus generic 64×64×256 and 64×256×256
+  shapes and a single-block byte-level round-trip.
+
+#### Step 3 — Q4_K_M WMMA prefill dispatch
+
+- `gpu_dispatch_gemm` extended to route Q4_K through the WMMA kernel
+  for `seq_len >= 64` when `out_dim % 64 == 0` and `in_dim % 256 == 0`.
+- Ordering: WMMA Q4_0 → WMMA Q4_K → WMMA Q4_1 → hipBLAS → scalar.
+
+#### Step 4 — Q4_K_M super-block GEMV decode
+
+- `hip_kernels/quant/q4_k_gemv.hip` — multi-row GEMV kernel
+  (8 waves × 4 cols per wave) mirroring the Q4_0 vulkan-style
+  layout. LDS input cache up to 32 KB; direct-global fallback for
+  K = 12,288 / 14,336 (Qwen3 / Llama-3.1 `ffn_down`).
+
+#### Step 5 — Multi-model integration
+
+- 5a: **Llama-3 `llama-bpe` pre-tokeniser**. GPT-4-style regex with
+  `\s+(?!\S)` lookahead emulated in Rust post-processing
+  (`regex` crate has no lookahead support). 7/7 token parity against
+  `llama-tokenize` on Meta-Llama-3.1-8B-Instruct. `add_bos` defaults
+  to `true` when the preset is `LlamaBpe` and the GGUF omits the
+  key. Llama-3 chat template (`<|start_header_id|>` / `<|eot_id|>`).
+- 5b: **Llama-3.1 `rope_freqs.weight`**. 64 × f32 divisors baked into
+  the GGUF as part of Meta's 4 k → 128 k context extension. Loaded
+  via `ModelConfig::rope_freqs`, uploaded to GPU once, threaded
+  through five HIP kernels (`rope_heads`, `rope_heads_state`,
+  `rope_heads_batched`, `kv_write_rope`, `kv_write_rope_state`) as
+  optional `freq_scale` pointer. Formula matches llama.cpp:
+  `theta = pos * base^(-2i/d) / rope_freqs[i]`.
+- Hotfix: **Q4_K embedding dequant**. Three compounding bugs in
+  `cpu/quant.rs::embed_q4_k` (see Step 1 above) turned out to be the
+  actual cause of Llama-3.1 garbage output — the GPU path falls
+  back to CPU embed for non-Q8_0 types. Fixing it unblocked
+  Llama-3.1; `rope_freqs` on its own only changed the garbage to
+  different garbage.
+- 5c: **Qwen3 per-head Q/K RMSNorm**. `blk.N.attn_q_norm.weight`
+  and `blk.N.attn_k_norm.weight` (128 f32 each) applied between
+  the QKV projection and RoPE in all three forward paths (prefill,
+  decode, verify). Re-uses the existing batched RMSNorm kernel with
+  `n = head_dim = 128` and `n_rows = seq_len × num_heads`.
+
+#### Step 5d — Q4_K_M decode throughput
+
+- **GPU Q4_K token embedding** (`embed_q4_k_token_kernel`) replaces
+  the CPU embed + H2D-memcpy fallback for Q4_K models. The CPU path
+  still exists for F32 / Q4_1 / Q5_K / Q6_K embeddings.
+- **Multi-row Q6_K GEMV** (8 waves × 4 cols) replaces the previous
+  1-warp-per-column kernel. 32× higher occupancy on V-projection
+  and `ffn_down`.
+- **Fused Q4_K gate + up + SwiGLU** kernel
+  (`gemv_gate_up_swiglu_q4_k_f32`) replaces four dispatches per FFN
+  per layer (gate GEMV, up GEMV, SiLU, elementwise mul) with one.
+  On Qwen3 this alone lifted decode from 19.7 → 27.8 tok/s; on
+  Llama-3.1 from 19.6 → 29.2 tok/s.
+
+#### Step 5e — Q4_K_M prefill unblocked (Q6_K dispatch)
+
+- `gpu_dispatch_gemm` match arm added for Q6_K (GEMV-loop over rows
+  using the optimised multi-row Q6_K GEMV). Without it the first
+  Q6_K tensor in a Q4_K_M GGUF (V-projection or `ffn_down`) raised
+  `UnsupportedWeightType` and `main.rs` caught it and re-ran the
+  entire prefill as 256 sequential decode steps, capping prefill
+  throughput at ~30 tok/s. 15× speedup: Qwen3 pp256 30 → 470 tok/s,
+  Llama-3.1 pp256 32 → 475 tok/s.
+
+#### Step 6 — Final measurement and documentation
+
+- Post-Phase-7 validation baseline captured (`benches/results/
+  rocm_baseline/rocm_<ver>_post_phase7/`).
+- 15-prompt benchmark extended to all three models. Qwen2.5 Q4_0
+  numbers unchanged vs. v0.1.0, Qwen3 / Llama-3.1 Q4_K_M measured
+  end-to-end.
+- `benches/results/phase7_final_analysis.md`.
+
 ## [0.1.0] — 2026-04-18
 
 ### Highlights

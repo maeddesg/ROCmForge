@@ -1,0 +1,75 @@
+{
+  "rocm_version": "7.2.2",
+  "git_sha": "e122e51",
+  "timestamp": "2026-04-19T12:00:00+02:00",
+  "gpu_arch": "gfx1201",
+  "wmma_intrinsic_available": true,
+  "build_ok": true,
+  "synthetic": {
+    "Qwen2.5-7B-Instruct-Q4_0": {
+      "prefill_pp64_tps_median": 788.7,
+      "prefill_pp128_tps_median": 1130.5,
+      "prefill_pp256_tps_median": 1482.2,
+      "prefill_pp512_tps_median": 1692.9,
+      "decode_128_tps_median": 102.3
+    },
+    "Qwen3-8B-Q4_K_M": {
+      "prefill_pp64_tps_median": 387.7,
+      "prefill_pp128_tps_median": 446.9,
+      "prefill_pp256_tps_median": 469.5,
+      "prefill_pp512_tps_median": 471.5,
+      "decode_128_tps_median": 29.9
+    },
+    "Meta-Llama-3.1-8B-Instruct-Q4_K_M": {
+      "prefill_pp64_tps_median": 399.8,
+      "prefill_pp128_tps_median": 456.5,
+      "prefill_pp256_tps_median": 474.8,
+      "prefill_pp512_tps_median": 470.7,
+      "decode_128_tps_median": 30.5
+    }
+  },
+  "real_prompts": {
+    "Qwen2.5-7B-Instruct-Q4_0": {
+      "count": 15,
+      "runs_per_prompt": 3,
+      "ttft_ms_median": 48.8,
+      "prefill_tps_median": 491.4,
+      "decode_tps_median": 101.9,
+      "total_ms_median_128tok": 1305.2
+    },
+    "Qwen3-8B-Q4_K_M": {
+      "count": 15,
+      "runs_per_prompt": 3,
+      "ttft_ms_median": 85.4,
+      "prefill_tps_median": 280.4,
+      "decode_tps_median": 29.2,
+      "total_ms_median_128tok": 4465.3
+    },
+    "Meta-Llama-3.1-8B-Instruct-Q4_K_M": {
+      "count": 15,
+      "runs_per_prompt": 3,
+      "ttft_ms_median": 83.8,
+      "prefill_tps_median": 298.2,
+      "decode_tps_median": 31.2,
+      "total_ms_median_128tok": 4182.9
+    }
+  },
+  "llama_cpp_reference": {
+    "Qwen2.5-7B-Instruct-Q4_0": {
+      "prefill_pp256_tps": 4951,
+      "prefill_pp512_tps": 5158,
+      "decode_tps": 121
+    },
+    "Qwen3-8B-Q4_K_M": {
+      "prefill_pp256_tps": 3661,
+      "prefill_pp512_tps": 3756,
+      "decode_tps": 87
+    },
+    "Meta-Llama-3.1-8B-Instruct-Q4_K_M": {
+      "prefill_pp256_tps": 3925,
+      "prefill_pp512_tps": 3922,
+      "decode_tps": 93
+    }
+  },
+  "baseline_note": "Post-Phase-7 reference. Q4_K_M support active (WMMA prefill GEMM + multi-row GEMV decode + fused gate+up+SwiGLU). Multi-model: Qwen2.5 Q4_0 unchanged vs. v0.1.0, Qwen3 Q4_K_M new (30 tok/s decode, 470 tok/s pp256), Llama-3.1 Q4_K_M new (31 tok/s decode, 475 tok/s pp256). Zero scalar GEMM fallbacks in the dispatch log. Known gaps: Q4_K_M decode 0.33x llama.cpp, Q4_K_M prefill 0.13x llama.cpp (Q6_K GEMV-loop is the remaining bottleneck)."
+}

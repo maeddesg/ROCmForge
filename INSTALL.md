@@ -62,14 +62,22 @@ Cold build takes about 60 seconds. The binary is at
 mkdir -p ~/models
 ```
 
-**Target model — required** (Qwen2.5-7B-Instruct Q4_0, ~4.1 GB):
+**Target model — required, pick one**:
 
-- Hugging Face page: <https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF>
-- Download the Q4_0 file (`qwen2.5-7b-instruct-q4_0.gguf` or similar)
-- Save to `~/models/Qwen2.5-7B-Instruct-Q4_0.gguf`
+- **Qwen2.5-7B-Instruct Q4_0** (~4.1 GB, v0.1.0 reference, 102 tok/s
+  decode, near-parity prefill with llama.cpp):
+  <https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF>. Save to
+  `~/models/Qwen2.5-7B-Instruct-Q4_0.gguf`.
+- **Qwen3-8B Q4_K_M** (~4.7 GB, new in v0.2.0, ~30 tok/s decode):
+  <https://huggingface.co/Qwen/Qwen3-8B-GGUF>. Save to
+  `~/models/Qwen3-8B-Q4_K_M.gguf`.
+- **Meta-Llama-3.1-8B-Instruct Q4_K_M** (~4.6 GB, new in v0.2.0,
+  ~31 tok/s decode):
+  <https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF>.
+  Save to `~/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf`.
 
 **Draft model — optional** (Qwen2.5-0.5B-Instruct Q4_0, ~0.4 GB,
-only needed for speculative decoding):
+only needed for speculative decoding with the Qwen2.5-7B target):
 
 - Hugging Face page: <https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF>
 - Download the Q4_0 file
