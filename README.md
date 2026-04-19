@@ -214,6 +214,12 @@ For production inference, use `--gpu`.
 - **Chat CLI does not persist KV cache between turns:** each turn
   re-prefills the entire conversation history. Multi-turn TTFT grows
   with history length (roughly linear in total tokens so far).
+- **Llama-3.1 multi-turn chat produces degraded output.** Single-turn
+  works correctly. Root cause is a position/content-dependent prefill
+  divergence for longer prompts (~50+ tokens). Qwen3 multi-turn works
+  perfectly. Workaround: use Qwen3 for interactive chat, or use
+  Llama-3.1 in single-turn mode with `--no-template`.
+  Tracked in [`docs/known_issues/llama3_multiturn_prefill_bug.md`](docs/known_issues/llama3_multiturn_prefill_bug.md).
 - **Full-decode HIP graph disabled on RDNA 4:** graph replay of
   device-pointer reads in large graphs (~200+ nodes) returns stale
   values — see [`hip_graph_device_pointer_bug.md`](hip_graph_device_pointer_bug.md).

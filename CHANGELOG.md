@@ -73,6 +73,21 @@
   chat-single-turn smoke test.
 - Phase 7 Q4_K_M performance numbers from v0.2.0 still hold.
 
+### Known issues
+
+- **Llama-3.1 multi-turn chat produces degraded output.** Turn 1 is
+  correct; turn 2+ collapses to a 2–4 token echo of the prior turn's
+  topic. Investigation on 2026-04-19 narrowed this to a position- and
+  content-dependent prefill divergence: single-shot `--no-template`
+  feeding the exact 50 token IDs reproduces the collapse, so chat-loop
+  and KV state are ruled out. FP32 overlay for special-token
+  embeddings, WMMA-attention disable, decode-graph disable, tiled-GEMV
+  disable, `rope_freqs` disable, and KV-clear between turns had no
+  effect. Qwen3 Q4_K_M and Qwen2.5 Q4_0 multi-turn work correctly.
+  Workaround: use Qwen3 for interactive chat, or run Llama-3.1 in
+  single-turn mode. Full diagnosis and next steps in
+  [`docs/known_issues/llama3_multiturn_prefill_bug.md`](docs/known_issues/llama3_multiturn_prefill_bug.md).
+
 ## [0.2.0] — 2026-04-19
 
 ### Highlights
