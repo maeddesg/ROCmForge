@@ -1,5 +1,94 @@
 # Changelog
 
+## [0.3.0] — 2026-04-19
+
+Phase 8b — Q4_K_M performance milestone. Both prefill and decode move
+materially closer to llama.cpp on the mixed-precision Q4_K_M models
+(Qwen3-8B, Llama-3.1-8B) without touching the Q4_0 hot path.
+
+### Highlights
+
+- **Prefill +194 %** on Qwen3-8B Q4_K_M pp256: 470 → 1,381 tok/s
+  (0.13× → 0.38× of llama.cpp ROCm).
+- **Decode +52 %** on Qwen3-8B Q4_K_M: 29.9 → 43.3 tok/s
+  (0.34× → 0.50× of llama.cpp ROCm).
+- **Llama-3.1-8B Q4_K_M** sees the same uplift: pp256 475 → 1,420,
+  decode 30.5 → 44.3 tok/s.
+
+### Features
+
+- **Q6_K WMMA prefill GEMM** (`hip_kernels/wmma/wmma_gemm_q6_k.hip`,
+  `docs/q6_k_block_format.md`). Target of Q4_K_M's Q6_K layers
+  (`attn_v`, `ffn_down`). Replaces the 257-dispatch GEMV loop
+  (9,252 Q6_K dispatches per pp257 prefill on Qwen3) with ~36 WMMA
+  kernel launches. Inline 6-bit dequant from `ql` (low nibble) + `qh`
+  (stride-32 interleaved high bits), int8 scales, signed quant range
+  [-32, 31]. Same LDS / WMMA cadence as `wmma_gemm_q4_k.hip`; only the
+  per-thread dequant block differs.
+- **Q4_K Q8-inline GEMV family** (`hip_kernels/quant/q4_k_q8_inline.hip`).
+  FP32 activation cooperatively quantised to Q8_0 (shared scale per
+  32-element block) into LDS once per token; dot-product runs as
+  integer MAC over raw Q4_K nibbles × Q8 bytes. Critical vs Q4_0's
+  q8_inline: Q4_K is an affine format (`d·scale_j·nib − dmin·min_j`),
+  so each sub-block needs **two** integer accumulators — `int_dot`
+  and `q8_sum` — to keep the `dmin` term correct. Three variants:
+  plain GEMV, GEMV + residual, and fused gate+up+SwiGLU.
+- **Dispatch wired through**: both the Q6_K prefill arm in
+  `gpu_dispatch_gemm` and the Q4_K plain/residual/fused-gate-up arms
+  in `gpu_dispatch_*` now route through the new kernels ahead of the
+  existing fallbacks. All new paths are gated on the same LDS-fit
+  check and opt-out via `ROCMFORGE_DISABLE_WMMA_PREFILL` or
+  `ROCMFORGE_ENABLE_EXPERIMENTAL_Q8_ACTIVATION_FASTPATH=0`.
+
+### Fixes
+
+- **Q4_K scalar GEMM fallback dequant formula** was `q/d + dmin` (a
+  Q4_0-style uniform-scale approximation) — produced `!!!!!!` output
+  for real Q4_K_M weights whenever the WMMA path fell back (e.g.
+  `ROCMFORGE_DISABLE_WMMA_PREFILL=1`). Rewritten to the correct
+  super-block formula `(d · scale_j) · nib − dmin · min_j` with
+  `get_scale_min_k4` 6-bit unpacking and sub-block-pair nibble
+  interleaving.
+
+### Per-op breakdown (Qwen3-8B Q4_K_M decode, profiled µs)
+
+| Op                  |  v0.2.0 |  v0.3.0 |  Δ     |
+|---------------------|--------:|--------:|-------:|
+| qkv (3× GEMV)       |   9,056 |   2,782 | −69 %  |
+| attn_proj (O)       |   6,100 |   1,585 | −74 %  |
+| gate_up (fused)     |  17,049 |  15,278 | −10 %  |
+| ffn_down (Q6_K half)|   3,317 |   3,338 | unchanged |
+| **wall / token**    | **35,087** | **23,022** | **−34 %** |
+
+### Tests
+
+- `tests/wmma_q6_k_correctness.rs` — 5 shape tests (byte-level smoke +
+  Qwen3 attn_v / ffn_down).
+- `tests/q4_k_q8_inline_correctness.rs` — 5 tests (plain GEMV, residual,
+  fused gate+up+SwiGLU) at real model shapes.
+- Full regression: `wmma_q4_0`, `wmma_q4_1`, `wmma_q4_k`, `wmma_q6_k`,
+  `q4_k_q8_inline`, `chat_single_turn`, `chat_multi_turn`,
+  `quant_unit` — all green (29 tests).
+- Qwen2.5-7B Q4_0 path untouched: decode 102 tok/s identical,
+  prefill pp256 1,482 tok/s identical.
+
+### Docs
+
+- `docs/q6_k_block_format.md` — ground-truth byte map and per-element
+  closed form derived directly from `ggml-quants.c::dequantize_row_q6_K`.
+- `profiling/results/phase8_q4_k_m_analysis.md` — the profiling pass
+  from Phase 8b Step 1 that pointed at the two bottlenecks.
+
+### Known issues
+
+- **Q4_K_M decode gap to llama.cpp** narrowed to ~0.50× but not closed.
+  The fused gate_up kernel is now LDS-bound; an interleaved-tile
+  variant would be the next lever. Tracked on the roadmap.
+- **Llama-3.1 multi-turn chat** still produces degraded output on
+  turn 2+ (same known issue as v0.2.1,
+  [`docs/known_issues/llama3_multiturn_prefill_bug.md`](docs/known_issues/llama3_multiturn_prefill_bug.md)).
+  Not related to Phase 8b kernels.
+
 ## [0.2.1] — 2026-04-19
 
 ### Highlights

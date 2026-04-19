@@ -55,48 +55,51 @@ speculative decoding (opt-in).
 - **CPU fallback path** — pure-Rust CPU backend with AVX-512 VNNI for
   debugging and zero-GPU environments. Not intended for production.
 
-## Performance
+## Performance (v0.3.0)
 
 Measured on AMD Radeon RX 9070 XT (gfx1201, RDNA 4), ROCm 7.2.2. All
-numbers are median of 3 runs.
+numbers are median of 3 runs at greedy decode (temperature = 0.0).
 
-### Qwen2.5-7B Q4_0 (v0.1.0 reference model)
+### Qwen2.5-7B Q4_0 (reference model, unchanged)
 
 | Prompt length (pp) | ROCmForge | llama.cpp ROCm | Ratio |
 |-------------------:|----------:|---------------:|------:|
-| pp64               |       788 |          2,912 | 0.27× |
-| pp128              |     1,131 |          3,966 | 0.29× |
+| pp64               |       799 |          2,912 | 0.27× |
+| pp128              |     1,132 |          3,966 | 0.29× |
 | pp256              | **1,482** |          4,951 | 0.30× |
-| pp512              |     1,693 |          5,158 | 0.33× |
+| pp512              |     1,689 |          5,158 | 0.33× |
 | Decode 128 (tok/s) |       102 |            121 | 0.84× |
 
-### Qwen3-8B Q4_K_M (new in v0.2.0)
+### Qwen3-8B Q4_K_M (+194 % prefill, +52 % decode vs v0.2.0)
 
-| Prompt length (pp) | ROCmForge | llama.cpp ROCm | Ratio |
-|-------------------:|----------:|---------------:|------:|
-| pp64               |       388 |          2,000 | 0.19× |
-| pp128              |       447 |          2,657 | 0.17× |
-| pp256              |   **470** |          3,661 | 0.13× |
-| pp512              |       472 |          3,756 | 0.13× |
-| Decode 128 (tok/s) |      29.9 |             87 | 0.34× |
+| Prompt length (pp) | v0.2.0 | **v0.3.0** | llama.cpp | Ratio |
+|-------------------:|-------:|-----------:|----------:|------:|
+| pp64               |    388 |        744 |     2,000 | 0.37× |
+| pp128              |    447 |      1,068 |     2,657 | 0.40× |
+| pp256              |    470 |  **1,381** |     3,661 | 0.38× |
+| pp512              |    472 |      1,579 |     3,756 | 0.42× |
+| Decode 128 (tok/s) |   29.9 |   **43.3** |        87 | 0.50× |
 
-### Llama-3.1-8B-Instruct Q4_K_M (new in v0.2.0)
+### Llama-3.1-8B-Instruct Q4_K_M (+199 % prefill, +49 % decode vs v0.2.0)
 
-| Prompt length (pp) | ROCmForge | llama.cpp ROCm | Ratio |
-|-------------------:|----------:|---------------:|------:|
-| pp64               |       400 |          2,198 | 0.18× |
-| pp128              |       457 |          2,975 | 0.15× |
-| pp256              |   **475** |          3,925 | 0.12× |
-| pp512              |       471 |          3,922 | 0.12× |
-| Decode 128 (tok/s) |      30.5 |             93 | 0.33× |
+| Prompt length (pp) | v0.2.0 | **v0.3.0** | llama.cpp | Ratio |
+|-------------------:|-------:|-----------:|----------:|------:|
+| pp64               |    400 |        784 |     2,198 | 0.36× |
+| pp128              |    457 |      1,117 |     2,975 | 0.38× |
+| pp256              |    475 |  **1,420** |     3,925 | 0.36× |
+| pp512              |    471 |      1,619 |     3,922 | 0.41× |
+| Decode 128 (tok/s) |   30.5 |   **44.3** |        93 | 0.48× |
 
-**Reading the three tables.** On the v0.1.0 reference Q4_0 model
-ROCmForge is within 6 % of llama.cpp on realistic prompt lengths
-(15-prompt benchmark, see below). Q4_K_M support is functional across
-both Qwen3 and Llama-3.1 — all three models emit coherent greedy
-decode — but the Q4_K GEMV kernel and Q6_K GEMV-loop fallback in the
-prefill path are not yet competitive with llama.cpp's batched Q4_K_M
-GEMM. See Known Issues below for the roadmap.
+**What changed in v0.3.0.** Phase 8b closed two bottlenecks that dominated
+Q4_K_M performance. A new **Q6_K WMMA prefill kernel** replaces the
+257-dispatch GEMV loop that used to eat 82 % of the pp256 budget on
+Qwen3/Llama-3.1 (their `attn_v` and `ffn_down` projections are stored
+as Q6_K inside the Q4_K_M mixture). A new **Q4_K Q8-inline GEMV family**
+quantises the activation vector to Q8_0 once per token and runs the
+dot-product as integer MAC — 3.3× faster QKV, 3.8× faster O-projection,
+with the correct dual accumulator needed for Q4_K's affine `dmin` term.
+The Q4_0 path is untouched. Full per-op profiling in
+[`profiling/results/phase8_q4_k_m_analysis.md`](profiling/results/phase8_q4_k_m_analysis.md).
 
 ### Real-world prompts — Qwen2.5-7B Q4_0 (15 prompts, 19–41 tokens, 128 generated)
 
@@ -109,18 +112,19 @@ GEMM. See Known Issues below for the roadmap.
 
 ### Optimisation history
 
-| Milestone                       | Prefill pp256 (Q4_0) | Decode (Q4_0) | Models |
-|---------------------------------|---------------------:|--------------:|:-------|
-| Project start                   |             64 tok/s |      82 tok/s | Qwen2.5 Q4_0 |
-| + WMMA GEMM (Phase 2)           |                   92 |           102 | Qwen2.5 Q4_0 |
-| + WMMA Attention (Phase 3)      |                  623 |           102 | Qwen2.5 Q4_0 |
-| + Dispatch fixes (Phase 4)      |          **1,484**   |           102 | Qwen2.5 Q4_0 |
-| + Decode profiling (Phase 6)    |                1,484 |           102 | Qwen2.5 Q4_0 |
-| **+ Q4_K_M + multi-model (Phase 7)** |           **1,482** |       **102** | **+ Qwen3 + Llama-3.1 (Q4_K_M)** |
+| Milestone                                    | Q4_0 prefill pp256 | Q4_0 decode | Q4_K_M prefill pp256 | Q4_K_M decode | Models |
+|----------------------------------------------|-------------------:|------------:|---------------------:|--------------:|:-------|
+| Project start                                |             64    |       82    |          —           |        —      | Qwen2.5 Q4_0 |
+| + WMMA GEMM (Phase 2)                        |             92    |      102    |          —           |        —      | Qwen2.5 Q4_0 |
+| + WMMA Attention (Phase 3)                   |            623    |      102    |          —           |        —      | Qwen2.5 Q4_0 |
+| + Dispatch fixes (Phase 4, v0.1.0)           |        **1,484**  |      102    |          —           |        —      | Qwen2.5 Q4_0 |
+| + Q4_K_M + multi-model (Phase 7, v0.2.0)     |          1,482    |      102    |         470          |      30       | Qwen2.5, Qwen3, Llama-3.1 |
+| **+ Q6_K WMMA + Q4_K Q8-inline (Phase 8b, v0.3.0)** | **1,482**  |  **102**    |      **1,381**       |     **43**    | Qwen2.5, Qwen3, Llama-3.1 |
 
 Full analyses:
 [`benches/results/phase4_final_analysis.md`](benches/results/phase4_final_analysis.md),
-[`benches/results/phase7_final_analysis.md`](benches/results/phase7_final_analysis.md).
+[`benches/results/phase7_final_analysis.md`](benches/results/phase7_final_analysis.md),
+[`profiling/results/phase8_q4_k_m_analysis.md`](profiling/results/phase8_q4_k_m_analysis.md).
 
 ### Speculative decoding
 
@@ -152,8 +156,8 @@ For production inference, use `--gpu`.
 | OS            | CachyOS (Arch Linux-based)         | Kernel 7.x |
 | ROCm          | 7.2.1 and 7.2.2                    | Both validated via upgrade diff tool |
 | Model         | Qwen2.5-7B-Instruct Q4_0           | GGUF, mixed 25×Q4_0 + 3×Q4_1 for `ffn_down`; 102 tok/s decode |
-| Model         | **Qwen3-8B Q4_K_M** (v0.2.0)       | **Q4_K + Q6_K mixed-precision, per-head Q/K RMSNorm, 30 tok/s decode** |
-| Model         | **Meta-Llama-3.1-8B-Instruct Q4_K_M** (v0.2.0) | **Q4_K + Q6_K, rope_freqs 128 k-context scaling, 31 tok/s decode** |
+| Model         | **Qwen3-8B Q4_K_M**                | **Q4_K + Q6_K mixed-precision, per-head Q/K RMSNorm, 43 tok/s decode (v0.3.0)** |
+| Model         | **Meta-Llama-3.1-8B-Instruct Q4_K_M** | **Q4_K + Q6_K, rope_freqs 128 k-context scaling, 44 tok/s decode (v0.3.0)** |
 | Draft model   | Qwen2.5-0.5B-Instruct Q4_0         | For speculative decoding (opt-in) |
 | RAM           | 64 GB DDR5                         | |
 
@@ -181,18 +185,17 @@ For production inference, use `--gpu`.
 
 ## Known issues
 
-- **Q4_K_M decode gap:** Qwen3-8B decode at ~30 tok/s and Llama-3.1-8B
-  at ~31 tok/s vs. llama.cpp's 87 / 93 tok/s (~0.33×). The dispatch
-  log is clean — every GEMV goes through the multi-row vulkan-style
-  Q4_K path and the FFN through a fused gate+up+SwiGLU kernel — but
-  the per-token kernel work is ~32 ms vs. ~11 ms on llama.cpp. Closing
-  this needs fused norm + QKV + RoPE for Q4_K (analogous to the Q4_0
-  fastpath) and a Q8-inline activation variant for Q4_K.
-- **Q4_K_M prefill gap:** pp256 at ~470 tok/s vs. llama.cpp 3,661–
-  3,925. Q4_K goes through the WMMA prefill kernel, but the Q6_K
-  layers (V-projection, `ffn_down`) use a GEMV-loop fallback because
-  there is no batched Q6_K GEMM kernel yet. Writing one would close
-  most of this gap.
+- **Q4_K_M decode gap:** Qwen3-8B decode at ~43 tok/s, Llama-3.1-8B at
+  ~44 tok/s vs. llama.cpp's 87 / 93 tok/s (~0.48–0.50×). Post-v0.3.0 the
+  dominant kernel is the fused Q4_K gate+up+SwiGLU with Q8-inline
+  activation (~15 ms / token, ~42 % of budget). It is now LDS-bound
+  rather than ALU-bound; an interleaved/tile variant modelled on the
+  Q4_0 `q8_inline_interleaved_tile4` fastpath is the next lever.
+- **Q4_K_M prefill gap:** pp256 at ~1,381 tok/s (Qwen3) / ~1,420 tok/s
+  (Llama-3.1) vs. llama.cpp 3,661 / 3,925 (~0.36–0.38×). The Q6_K WMMA
+  kernel added in v0.3.0 removed the GEMV-loop fallback; the remaining
+  gap is mostly unfused norm/RoPE orchestration and FP32↔FP16 activation
+  shuttling, same issue as the Q4_0 synthetic-prefill gap below.
 - **Q4_0 decode gap:** 102 tok/s vs. llama.cpp 117–121 tok/s (~0.84×),
   unchanged since project start. **Fully profiled in Phase 6.** The
   9.76 ms per-token budget splits: GEMV 77 % (memory-bandwidth-bound
