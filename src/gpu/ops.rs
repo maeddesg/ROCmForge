@@ -1827,6 +1827,34 @@ pub fn gpu_dispatch_gemm(
                 out_dim,
                 seq_len,
             )?,
+            GgmlType::Q6_K => {
+                // No batched Q6_K GEMM kernel yet; loop over rows with the
+                // optimised multi-row Q6_K GEMV instead of bailing out.
+                // Without this branch the Q6_K V-projection (Qwen3 / Llama-3.1)
+                // and Q6_K ffn_down raise `UnsupportedWeightType`, which
+                // forces the entire batched prefill to fall back to the
+                // decode-style path (256× single-token forwards) — the real
+                // reason the Q4_K_M prefill throughput sat at ~30 tok/s.
+                tracing::debug!(
+                    seq_len,
+                    n = out_dim,
+                    k = in_dim,
+                    path = "gemv_q6_k_loop",
+                    "GEMM dispatch: Q6_K GEMV-loop fallback"
+                );
+                for row in 0..seq_len {
+                    let row_input = input.add(row * in_dim);
+                    let row_output = output.add(row * out_dim);
+                    super::kernels::quant::gemv_q6_k_f32_on_stream(
+                        weights.as_ptr() as *const u8,
+                        row_input,
+                        row_output,
+                        in_dim,
+                        out_dim,
+                        hipStream_t::null(),
+                    )?;
+                }
+            }
             _ => {
                 return Err(GpuError::UnsupportedWeightType {
                     tensor: "gpu_dispatch_gemm".to_string(),
