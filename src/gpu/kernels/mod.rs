@@ -57,6 +57,10 @@ pub use q8_gemv::{
 };
 pub use quant::gemv_gate_up_swiglu_q4_k_f32_on_stream;
 pub use quant::{
+    gemv_gate_up_swiglu_q4_k_f32_q8_inline_on_stream, gemv_q4_k_f32_q8_inline_on_stream,
+    gemv_q4_k_f32_q8_inline_residual_on_stream, q4_k_q8_inline_fits,
+};
+pub use quant::{
     dequantize_q4_0, dequantize_q4_0_batched, dequantize_q4_1, dequantize_q4_1_batched,
     dequantize_q4_k, dequantize_q4_k_batched, dequantize_q5_k, dequantize_q5_k_batched,
     dequantize_q8_0, dequantize_q8_0_batched, finalize_q4_0_metrics, finalize_q4_1_metrics,

@@ -2141,6 +2141,36 @@ unsafe extern "C" {
         ncols_dst: c_int,
         stream: hipStream_t,
     ) -> hipError_t;
+
+    // Phase 8b Step 3 — Q4_K GEMV with inline Q8_0 activation.
+    fn gemv_q4_k_f32_q8_inline_launch(
+        weights_q4_k: *const u8,
+        input: *const f32,
+        output: *mut f32,
+        n_rows: c_int,
+        ncols_dst: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    fn gemv_q4_k_f32_q8_inline_residual_launch(
+        weights_q4_k: *const u8,
+        input: *const f32,
+        residual: *const f32,
+        output: *mut f32,
+        n_rows: c_int,
+        ncols_dst: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    fn gemv_gate_up_swiglu_q4_k_f32_q8_inline_launch(
+        weights_gate_q4_k: *const u8,
+        weights_up_q4_k: *const u8,
+        input: *const f32,
+        swiglu_out: *mut f32,
+        n_rows: c_int,
+        ncols_dst: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
 }
 
 // ── Q5_K GEMV FFI Declaration ───────────────────────────────────────────────────────────
@@ -3361,6 +3391,211 @@ pub fn gemv_q4_k_f32_residual_on_stream(
         return Err(GpuError::HipApiError {
             code: result as i32,
             description: format!("gemv_q4_k_f32_residual kernel failed: {:?}", result),
+        });
+    }
+    Ok(())
+}
+
+// ── Q4_K Q8-inline GEMV (Phase 8b Step 3) ────────────────────────────────
+//
+// FP32 activation is quantized to Q8_0 (shared per 32-element block) into
+// LDS once, then the dot-product runs as integer MACs over raw Q4_K
+// nibbles × Q8 bytes. Eliminates the FP32-dequant-per-element ALU cost
+// and halves activation LDS traffic versus the regular Q4_K GEMV path.
+
+const Q4_K_Q8_INLINE_LDS_LIMIT: usize = 32 * 1024;
+
+/// Returns true if the FP32 input fits in the Q8-inline kernel's LDS
+/// budget (n_rows/32 × 34 B ≤ 32 KB). For Qwen3/Llama-3.1 this covers
+/// all QKV / O-proj / gate / up / ffn_down shapes.
+#[inline]
+pub fn q4_k_q8_inline_fits(n_rows: usize) -> bool {
+    (n_rows / 32) * 34 <= Q4_K_Q8_INLINE_LDS_LIMIT
+}
+
+pub fn gemv_q4_k_f32_q8_inline_on_stream(
+    weights_q4_k: *const u8,
+    input: *const f32,
+    output: *mut f32,
+    n_rows: usize,
+    ncols_dst: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if n_rows == 0 || ncols_dst == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_q4_k_f32_q8_inline: n_rows and ncols_dst cannot be zero"
+                .to_string(),
+        });
+    }
+    if n_rows % 256 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_q4_k_f32_q8_inline: n_rows must be multiple of 256, got {}",
+                n_rows
+            ),
+        });
+    }
+    if !q4_k_q8_inline_fits(n_rows) {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_q4_k_f32_q8_inline: n_rows={} exceeds LDS budget",
+                n_rows
+            ),
+        });
+    }
+    if weights_q4_k.is_null() || input.is_null() || output.is_null() {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_q4_k_f32_q8_inline: null pointer".to_string(),
+        });
+    }
+    let result = unsafe {
+        gemv_q4_k_f32_q8_inline_launch(
+            weights_q4_k,
+            input,
+            output,
+            n_rows as c_int,
+            ncols_dst as c_int,
+            stream,
+        )
+    };
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!("gemv_q4_k_f32_q8_inline kernel failed: {:?}", result),
+        });
+    }
+    Ok(())
+}
+
+pub fn gemv_q4_k_f32_q8_inline_residual_on_stream(
+    weights_q4_k: *const u8,
+    input: *const f32,
+    residual: *const f32,
+    output: *mut f32,
+    n_rows: usize,
+    ncols_dst: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if n_rows == 0 || ncols_dst == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_q4_k_f32_q8_inline_residual: n_rows and ncols_dst cannot be zero"
+                .to_string(),
+        });
+    }
+    if n_rows % 256 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_q4_k_f32_q8_inline_residual: n_rows must be multiple of 256, got {}",
+                n_rows
+            ),
+        });
+    }
+    if !q4_k_q8_inline_fits(n_rows) {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_q4_k_f32_q8_inline_residual: n_rows={} exceeds LDS budget",
+                n_rows
+            ),
+        });
+    }
+    if weights_q4_k.is_null() || input.is_null() || residual.is_null() || output.is_null() {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_q4_k_f32_q8_inline_residual: null pointer".to_string(),
+        });
+    }
+    let result = unsafe {
+        gemv_q4_k_f32_q8_inline_residual_launch(
+            weights_q4_k,
+            input,
+            residual,
+            output,
+            n_rows as c_int,
+            ncols_dst as c_int,
+            stream,
+        )
+    };
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!(
+                "gemv_q4_k_f32_q8_inline_residual kernel failed: {:?}",
+                result
+            ),
+        });
+    }
+    Ok(())
+}
+
+pub fn gemv_gate_up_swiglu_q4_k_f32_q8_inline_on_stream(
+    weights_gate_q4_k: *const u8,
+    weights_up_q4_k: *const u8,
+    input: *const f32,
+    swiglu_out: *mut f32,
+    n_rows: usize,
+    ncols_dst: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if n_rows == 0 || ncols_dst == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_gate_up_swiglu_q4_k_q8_inline: n_rows and ncols_dst cannot be zero"
+                .to_string(),
+        });
+    }
+    if n_rows % 256 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_gate_up_swiglu_q4_k_q8_inline: n_rows must be multiple of 256, got {}",
+                n_rows
+            ),
+        });
+    }
+    if !q4_k_q8_inline_fits(n_rows) {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_gate_up_swiglu_q4_k_q8_inline: n_rows={} exceeds LDS budget",
+                n_rows
+            ),
+        });
+    }
+    if weights_gate_q4_k.is_null()
+        || weights_up_q4_k.is_null()
+        || input.is_null()
+        || swiglu_out.is_null()
+    {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_gate_up_swiglu_q4_k_q8_inline: null pointer".to_string(),
+        });
+    }
+    let result = unsafe {
+        gemv_gate_up_swiglu_q4_k_f32_q8_inline_launch(
+            weights_gate_q4_k,
+            weights_up_q4_k,
+            input,
+            swiglu_out,
+            n_rows as c_int,
+            ncols_dst as c_int,
+            stream,
+        )
+    };
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!(
+                "gemv_gate_up_swiglu_q4_k_q8_inline kernel failed: {:?}",
+                result
+            ),
         });
     }
     Ok(())

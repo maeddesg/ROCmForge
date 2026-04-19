@@ -413,6 +413,15 @@ set_target_properties(q4_k_gemv PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
 
+# Phase 8b Step 3 — Q4_K GEMV with inline Q8_0 activation quantization.
+# Base, residual, and fused Gate+Up+SwiGLU variants for decode hot paths.
+add_library(q4_k_q8_inline STATIC q4_k_q8_inline.hip)
+target_link_libraries(q4_k_q8_inline quant_common)
+set_target_properties(q4_k_q8_inline PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+)
+
 # Q5_K quantization kernel
 add_library(q5_k_quantize STATIC
     q5_k_quantize.hip

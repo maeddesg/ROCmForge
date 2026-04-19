@@ -19,7 +19,10 @@ use super::kernels::{
     gemv_q4_0_f32_residual_on_stream_unchecked, gemv_q4_0_q8_0_on_stream,
     gemv_q4_0_q8_0_residual_on_stream, gemv_q4_1_f32_on_stream_unchecked,
     gemv_q4_1_f32_residual_on_stream_unchecked, gemv_q4_1_f32_residual_on_stream_variant_unchecked,
-    gemv_q4_k_f32_on_stream, gemv_q5_k_f32_on_stream, gemv_q6_k_f32_on_stream,
+    gemv_q4_k_f32_on_stream, gemv_q4_k_f32_q8_inline_on_stream,
+    gemv_q4_k_f32_q8_inline_residual_on_stream, q4_k_q8_inline_fits,
+    gemv_gate_up_swiglu_q4_k_f32_q8_inline_on_stream,
+    gemv_q5_k_f32_on_stream, gemv_q6_k_f32_on_stream,
     gemv_q8_0_f32_lm_head_on_stream,
     gemv_q8_0_f32_lm_head_on_stream_variant, gemv_q8_0_f32_on_stream, gemv_qkv_q4_0_f32_on_stream,
     gemv_qkv_q4_0_f32_on_stream_variant, mul_on_stream, q8_0_workspace_bytes,
@@ -382,6 +385,24 @@ fn dispatch_gemv_impl(
                 }
             }
             GgmlType::Q4_K => {
+                // Phase 8b Step 3 — prefer Q8-inline activation path when
+                // it fits in LDS. Halves activation LDS traffic and runs
+                // the dot-product as int MACs over raw Q4_K nibbles.
+                if super::safety::experimental_q8_activation_fastpath_enabled()
+                    && q4_k_q8_inline_fits(in_dim)
+                {
+                    if let Ok(()) = gemv_q4_k_f32_q8_inline_on_stream(
+                        weights.as_ptr() as *const u8,
+                        input,
+                        output,
+                        in_dim,
+                        out_dim,
+                        stream,
+                    ) {
+                        return Ok(());
+                    }
+                }
+
                 if experimental_gpu_kernels_enabled() {
                     let n_waves = 8;
                     if let Ok(()) = super::kernels::quant::gemv_q4_k_f32_vulkan_style(
@@ -643,6 +664,22 @@ pub fn gpu_dispatch_gemv_residual_on_stream(
                 Ok(true)
             }
             GgmlType::Q4_K => {
+                // Phase 8b Step 3 — prefer Q8-inline variant when LDS fits.
+                if super::safety::experimental_q8_activation_fastpath_enabled()
+                    && q4_k_q8_inline_fits(in_dim)
+                {
+                    if let Ok(()) = gemv_q4_k_f32_q8_inline_residual_on_stream(
+                        weights.as_ptr() as *const u8,
+                        input,
+                        residual,
+                        output,
+                        in_dim,
+                        out_dim,
+                        stream,
+                    ) {
+                        return Ok(true);
+                    }
+                }
                 super::kernels::quant::gemv_q4_k_f32_residual_on_stream(
                     weights.as_ptr() as *const u8,
                     input,
@@ -1283,6 +1320,28 @@ pub(crate) fn gpu_dispatch_fused_gate_up_with_scratch_on_stream(
     if gate_meta.wtype == GgmlType::Q4_K && up_meta.wtype == GgmlType::Q4_K {
         validate_gemv_layout(gate_meta, ff_size, h)?;
         validate_gemv_layout(up_meta, ff_size, h)?;
+
+        // Phase 8b Step 3 — Q8-inline variant quantizes the input once
+        // into LDS and feeds both gate and up as integer dot-products.
+        // This is the single largest decode kernel (17 ms / token on
+        // Qwen3-8B, 42 % of budget); Q8-inline cuts activation LDS
+        // traffic in half and drops per-element FP32 dequant.
+        if super::safety::experimental_q8_activation_fastpath_enabled()
+            && q4_k_q8_inline_fits(h)
+        {
+            if let Ok(()) = gemv_gate_up_swiglu_q4_k_f32_q8_inline_on_stream(
+                w_gate.as_ptr() as *const u8,
+                w_up.as_ptr() as *const u8,
+                input,
+                output,
+                h,
+                ff_size,
+                stream,
+            ) {
+                return Ok(());
+            }
+        }
+
         use super::kernels::quant::gemv_gate_up_swiglu_q4_k_f32_on_stream;
         gemv_gate_up_swiglu_q4_k_f32_on_stream(
             w_gate.as_ptr() as *const u8,
