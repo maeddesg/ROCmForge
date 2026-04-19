@@ -1276,6 +1276,26 @@ pub(crate) fn gpu_dispatch_fused_gate_up_with_scratch_on_stream(
         return Ok(());
     }
 
+    // Fused Q4_K gate + up + SwiGLU path (Phase 7 Step 5d). Replaces the
+    // gate GEMV, up GEMV, SiLU and elementwise-mul dispatches with one
+    // kernel that reads the input vector from shared memory once and
+    // writes `silu(gate[c]) * up[c]` directly.
+    if gate_meta.wtype == GgmlType::Q4_K && up_meta.wtype == GgmlType::Q4_K {
+        validate_gemv_layout(gate_meta, ff_size, h)?;
+        validate_gemv_layout(up_meta, ff_size, h)?;
+        use super::kernels::quant::gemv_gate_up_swiglu_q4_k_f32_on_stream;
+        gemv_gate_up_swiglu_q4_k_f32_on_stream(
+            w_gate.as_ptr() as *const u8,
+            w_up.as_ptr() as *const u8,
+            input,
+            output,
+            h,
+            ff_size,
+            stream,
+        )?;
+        return Ok(());
+    }
+
     if gate_scratch.is_null() {
         return Err(GpuError::HipApiError {
             code: -1,

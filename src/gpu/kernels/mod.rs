@@ -33,8 +33,9 @@ pub use attention::{
 };
 pub use elementwise::{
     add, add_batched, add_on_stream, argmax_f32, argmax_f32_on_stream, embed_q4_0_batch,
-    embed_q4_0_token, embed_q8_0_batch, embed_q8_0_token, gelu, increment_decode_state_on_stream,
-    mul, mul_batched, mul_on_stream, scale, silu, silu_on_stream, zero_fill,
+    embed_q4_0_token, embed_q4_k_batch_on_stream, embed_q4_k_token_on_stream, embed_q8_0_batch,
+    embed_q8_0_token, gelu, increment_decode_state_on_stream, mul, mul_batched, mul_on_stream,
+    scale, silu, silu_on_stream, zero_fill,
 };
 pub use norm::{
     rms_norm, rms_norm_batched, rms_norm_batched_on_stream, rms_norm_on_stream,
@@ -54,6 +55,7 @@ pub use q8_gemv::{
     gemv_q8_0_f32, gemv_q8_0_f32_lm_head, gemv_q8_0_f32_lm_head_on_stream,
     gemv_q8_0_f32_lm_head_on_stream_variant, gemv_q8_0_f32_on_stream,
 };
+pub use quant::gemv_gate_up_swiglu_q4_k_f32_on_stream;
 pub use quant::{
     dequantize_q4_0, dequantize_q4_0_batched, dequantize_q4_1, dequantize_q4_1_batched,
     dequantize_q4_k, dequantize_q4_k_batched, dequantize_q5_k, dequantize_q5_k_batched,

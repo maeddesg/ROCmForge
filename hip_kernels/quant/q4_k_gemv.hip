@@ -323,6 +323,195 @@ __global__ void gemv_q4_k_f32_residual_direct_kernel(
     }
 }
 
+// ── Fused Gate/Up + SwiGLU (Phase 7 Step 5d) ───────────────────────────
+// Replaces four dispatches (gate-GEMV, up-GEMV, SiLU, mul) with one.
+// For each block of 32 output columns (8 waves × 4 cols/wave) the kernel
+// computes both gate[c] and up[c] from the shared input, then writes
+// swiglu_out[c] = silu(gate[c]) * up[c]. The shared-memory input cache
+// is loaded once and reused across both weight matrices.
+
+__device__ __forceinline__ float silu_f32(float x) {
+    // SiLU (swish) = x * sigmoid(x) = x / (1 + exp(-x))
+    return x / (1.0f + expf(-x));
+}
+
+template<int N_WAVES>
+__launch_bounds__(Q4_K_THREADS_PER_BLOCK, 1)
+__global__ void gemv_gate_up_swiglu_q4_k_f32_multi_row_kernel(
+    const void* __restrict__ weights_gate_q4_k,
+    const void* __restrict__ weights_up_q4_k,
+    const float* __restrict__ input,
+    float* __restrict__ swiglu_out,
+    int n_rows,
+    int ncols_dst
+) {
+    const int tid = threadIdx.x;
+    const int wave_id = tid / WARP_SIZE;
+    const int lane_id = tid % WARP_SIZE;
+
+    const int col_base = (blockIdx.x * N_WAVES + wave_id) * Q4_K_MULTI_ROW_COLS;
+    const int super_blocks_per_row = n_rows / Q4_K_ELEMS_PER_BLOCK;
+    if (col_base >= ncols_dst) return;
+
+    extern __shared__ float s_input[];
+    for (int i = tid; i < n_rows; i += blockDim.x) {
+        s_input[i] = input[i];
+    }
+    __syncthreads();
+
+    const uint8_t* w_gate_cols[Q4_K_MULTI_ROW_COLS];
+    const uint8_t* w_up_cols[Q4_K_MULTI_ROW_COLS];
+    #pragma unroll
+    for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+        const int col = col_base + c;
+        if (col < ncols_dst) {
+            const size_t off = (size_t)col * (size_t)super_blocks_per_row * Q4_K_BLOCK_BYTES;
+            w_gate_cols[c] = static_cast<const uint8_t*>(weights_gate_q4_k) + off;
+            w_up_cols[c]   = static_cast<const uint8_t*>(weights_up_q4_k) + off;
+        } else {
+            w_gate_cols[c] = nullptr;
+            w_up_cols[c]   = nullptr;
+        }
+    }
+
+    float gate_sums[Q4_K_MULTI_ROW_COLS] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float up_sums[Q4_K_MULTI_ROW_COLS]   = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    for (int sb = lane_id; sb < super_blocks_per_row; sb += WARP_SIZE) {
+        const float* in_base = s_input + sb * Q4_K_ELEMS_PER_BLOCK;
+        #pragma unroll
+        for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+            if (w_gate_cols[c]) {
+                gate_sums[c] +=
+                    q4_k_super_block_dot(w_gate_cols[c] + (size_t)sb * Q4_K_BLOCK_BYTES, in_base);
+                up_sums[c] +=
+                    q4_k_super_block_dot(w_up_cols[c] + (size_t)sb * Q4_K_BLOCK_BYTES, in_base);
+            }
+        }
+    }
+
+    #pragma unroll
+    for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            gate_sums[c] += __shfl_down(gate_sums[c], offset);
+            up_sums[c]   += __shfl_down(up_sums[c], offset);
+        }
+    }
+
+    if (lane_id == 0) {
+        #pragma unroll
+        for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+            const int col = col_base + c;
+            if (col < ncols_dst) {
+                swiglu_out[col] = silu_f32(gate_sums[c]) * up_sums[c];
+            }
+        }
+    }
+}
+
+template<int N_WAVES>
+__launch_bounds__(Q4_K_THREADS_PER_BLOCK, 1)
+__global__ void gemv_gate_up_swiglu_q4_k_f32_direct_kernel(
+    const void* __restrict__ weights_gate_q4_k,
+    const void* __restrict__ weights_up_q4_k,
+    const float* __restrict__ input,
+    float* __restrict__ swiglu_out,
+    int n_rows,
+    int ncols_dst
+) {
+    const int tid = threadIdx.x;
+    const int wave_id = tid / WARP_SIZE;
+    const int lane_id = tid % WARP_SIZE;
+
+    const int col_base = (blockIdx.x * N_WAVES + wave_id) * Q4_K_MULTI_ROW_COLS;
+    const int super_blocks_per_row = n_rows / Q4_K_ELEMS_PER_BLOCK;
+    if (col_base >= ncols_dst) return;
+
+    const uint8_t* w_gate_cols[Q4_K_MULTI_ROW_COLS];
+    const uint8_t* w_up_cols[Q4_K_MULTI_ROW_COLS];
+    #pragma unroll
+    for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+        const int col = col_base + c;
+        if (col < ncols_dst) {
+            const size_t off = (size_t)col * (size_t)super_blocks_per_row * Q4_K_BLOCK_BYTES;
+            w_gate_cols[c] = static_cast<const uint8_t*>(weights_gate_q4_k) + off;
+            w_up_cols[c]   = static_cast<const uint8_t*>(weights_up_q4_k) + off;
+        } else {
+            w_gate_cols[c] = nullptr;
+            w_up_cols[c]   = nullptr;
+        }
+    }
+
+    float gate_sums[Q4_K_MULTI_ROW_COLS] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float up_sums[Q4_K_MULTI_ROW_COLS]   = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    for (int sb = lane_id; sb < super_blocks_per_row; sb += WARP_SIZE) {
+        const float* in_base = input + sb * Q4_K_ELEMS_PER_BLOCK;
+        #pragma unroll
+        for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+            if (w_gate_cols[c]) {
+                gate_sums[c] +=
+                    q4_k_super_block_dot(w_gate_cols[c] + (size_t)sb * Q4_K_BLOCK_BYTES, in_base);
+                up_sums[c] +=
+                    q4_k_super_block_dot(w_up_cols[c] + (size_t)sb * Q4_K_BLOCK_BYTES, in_base);
+            }
+        }
+    }
+
+    #pragma unroll
+    for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            gate_sums[c] += __shfl_down(gate_sums[c], offset);
+            up_sums[c]   += __shfl_down(up_sums[c], offset);
+        }
+    }
+
+    if (lane_id == 0) {
+        #pragma unroll
+        for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+            const int col = col_base + c;
+            if (col < ncols_dst) {
+                swiglu_out[col] = silu_f32(gate_sums[c]) * up_sums[c];
+            }
+        }
+    }
+}
+
+extern "C" hipError_t gemv_gate_up_swiglu_q4_k_f32_launch(
+    const void* weights_gate_q4_k,
+    const void* weights_up_q4_k,
+    const float* input,
+    float* swiglu_out,
+    int n_rows,
+    int ncols_dst,
+    hipStream_t stream
+) {
+    if (n_rows <= 0 || ncols_dst <= 0) return hipErrorInvalidValue;
+    if ((n_rows % Q4_K_ELEMS_PER_BLOCK) != 0) return hipErrorInvalidValue;
+    if (weights_gate_q4_k == nullptr || weights_up_q4_k == nullptr) {
+        return hipErrorInvalidValue;
+    }
+
+    const int threads_per_block = Q4_K_THREADS_PER_BLOCK;
+    const int n_blocks_x =
+        (ncols_dst + (Q4_K_FIXED_WAVES * Q4_K_MULTI_ROW_COLS) - 1)
+        / (Q4_K_FIXED_WAVES * Q4_K_MULTI_ROW_COLS);
+
+    if ((size_t)n_rows * sizeof(float) <= Q4_K_MULTI_ROW_SHARED_MEM_LIMIT) {
+        const size_t shared_mem = (size_t)n_rows * sizeof(float);
+        gemv_gate_up_swiglu_q4_k_f32_multi_row_kernel<Q4_K_FIXED_WAVES>
+            <<<n_blocks_x, threads_per_block, shared_mem, stream>>>(
+                weights_gate_q4_k, weights_up_q4_k, input, swiglu_out, n_rows, ncols_dst
+            );
+    } else {
+        gemv_gate_up_swiglu_q4_k_f32_direct_kernel<Q4_K_FIXED_WAVES>
+            <<<n_blocks_x, threads_per_block, 0, stream>>>(
+                weights_gate_q4_k, weights_up_q4_k, input, swiglu_out, n_rows, ncols_dst
+            );
+    }
+    return hipGetLastError();
+}
+
 // ── Launchers — signatures match the prior stub for the base GEMV ──────
 
 extern "C" hipError_t gemv_q4_k_f32_launch(

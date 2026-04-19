@@ -323,6 +323,94 @@ __global__ void embed_q4_0_token_kernel(
     out[i] = static_cast<float>(q) * scale;
 }
 
+// Q4_K embedding: each super-block is 144 bytes covering 256 elements.
+// Layout mirrors cpu/quant.rs::embed_q4_k: 4 outer groups of 64, each
+// outer group takes the low nibbles of 32 qs bytes (sub-block 2k) followed
+// by the high nibbles of the same 32 bytes (sub-block 2k+1).
+// Dequant formula: y = (d * sc_j) * nibble - (dmin * m_j).
+#define Q4_K_EMBED_BLOCK_ELEMS 256
+#define Q4_K_EMBED_BLOCK_BYTES 144
+
+__device__ inline void q4_k_unpack_scale_min(const uint8_t* scales, int j, int& sc, int& m) {
+    if (j < 4) {
+        sc = scales[j] & 0x3F;
+        m = scales[j + 4] & 0x3F;
+    } else {
+        sc = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
+        m = (scales[j + 4] >> 4) | ((scales[j] >> 6) << 4);
+    }
+}
+
+__device__ inline float q4_k_dequant_elem(const uint8_t* block, int in_block) {
+    half d_h;
+    half dmin_h;
+    memcpy(&d_h, block, sizeof(half));
+    memcpy(&dmin_h, block + 2, sizeof(half));
+    const float d = __half2float(d_h);
+    const float dmin = __half2float(dmin_h);
+    const uint8_t* scales = block + 4;
+    const uint8_t* qs = block + 16;
+
+    const int k = in_block / 64;        // outer group 0..3
+    const int pos = in_block % 64;      // 0..63
+    const int j = 2 * k + (pos >= 32 ? 1 : 0);
+    const int l = pos & 31;
+
+    int sc_j;
+    int m_j;
+    q4_k_unpack_scale_min(scales, j, sc_j, m_j);
+
+    const uint8_t packed = qs[32 * k + l];
+    const int nibble = (pos < 32) ? (packed & 0xF) : (packed >> 4);
+    return d * (float)sc_j * (float)nibble - dmin * (float)m_j;
+}
+
+__global__ void embed_q4_k_token_kernel(
+    const uint8_t* __restrict__ embedding,
+    float* __restrict__ out,
+    const int hidden_size,
+    const int vocab_size,
+    const int token_id
+) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= hidden_size || token_id < 0 || token_id >= vocab_size) {
+        return;
+    }
+    const int blocks_per_token = hidden_size / Q4_K_EMBED_BLOCK_ELEMS;
+    const int block_idx = i / Q4_K_EMBED_BLOCK_ELEMS;
+    const int in_block = i % Q4_K_EMBED_BLOCK_ELEMS;
+    const size_t token_offset =
+        static_cast<size_t>(token_id) * blocks_per_token * Q4_K_EMBED_BLOCK_BYTES;
+    const uint8_t* block = embedding + token_offset + block_idx * Q4_K_EMBED_BLOCK_BYTES;
+    out[i] = q4_k_dequant_elem(block, in_block);
+}
+
+__global__ void embed_q4_k_batch_kernel(
+    const uint8_t* __restrict__ embedding,
+    const int* __restrict__ token_ids,
+    float* __restrict__ out,
+    const int hidden_size,
+    const int vocab_size,
+    const int seq_len
+) {
+    const int s = blockIdx.y;
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (s >= seq_len || i >= hidden_size) {
+        return;
+    }
+    const int token_id = token_ids[s];
+    if (token_id < 0 || token_id >= vocab_size) {
+        return;
+    }
+    const int blocks_per_token = hidden_size / Q4_K_EMBED_BLOCK_ELEMS;
+    const int block_idx = i / Q4_K_EMBED_BLOCK_ELEMS;
+    const int in_block = i % Q4_K_EMBED_BLOCK_ELEMS;
+    const size_t token_offset =
+        static_cast<size_t>(token_id) * blocks_per_token * Q4_K_EMBED_BLOCK_BYTES;
+    const uint8_t* block = embedding + token_offset + block_idx * Q4_K_EMBED_BLOCK_BYTES;
+    out[static_cast<size_t>(s) * hidden_size + i] = q4_k_dequant_elem(block, in_block);
+}
+
 __global__ void embed_q4_0_batch_kernel(
     const uint8_t* __restrict__ embedding,
     const int* __restrict__ token_ids,
@@ -686,6 +774,55 @@ hipError_t gpu_embed_q4_0_token(
         d_embedding, d_out, hidden_size, vocab_size, token_id
     );
 
+    return hipGetLastError();
+}
+
+hipError_t gpu_embed_q4_k_token(
+    const uint8_t* d_embedding,
+    float* d_out,
+    const int hidden_size,
+    const int vocab_size,
+    const int token_id,
+    hipStream_t stream
+) {
+    if (d_embedding == nullptr || d_out == nullptr ||
+        hidden_size <= 0 || vocab_size <= 0 ||
+        token_id < 0 || token_id >= vocab_size ||
+        (hidden_size % Q4_K_EMBED_BLOCK_ELEMS) != 0) {
+        return hipErrorInvalidValue;
+    }
+    const int block_size = 256;
+    const int grid_size = (hidden_size + block_size - 1) / block_size;
+    hipLaunchKernelGGL(
+        embed_q4_k_token_kernel,
+        dim3(grid_size), dim3(block_size), 0, stream,
+        d_embedding, d_out, hidden_size, vocab_size, token_id
+    );
+    return hipGetLastError();
+}
+
+hipError_t gpu_embed_q4_k_batch(
+    const uint8_t* d_embedding,
+    const int* d_token_ids,
+    float* d_out,
+    const int hidden_size,
+    const int vocab_size,
+    const int seq_len,
+    hipStream_t stream
+) {
+    if (d_embedding == nullptr || d_token_ids == nullptr || d_out == nullptr ||
+        hidden_size <= 0 || vocab_size <= 0 || seq_len <= 0 ||
+        (hidden_size % Q4_K_EMBED_BLOCK_ELEMS) != 0) {
+        return hipErrorInvalidValue;
+    }
+    const int block_size = 256;
+    const int grid_x = (hidden_size + block_size - 1) / block_size;
+    dim3 grid(grid_x, seq_len);
+    hipLaunchKernelGGL(
+        embed_q4_k_batch_kernel,
+        grid, dim3(block_size), 0, stream,
+        d_embedding, d_token_ids, d_out, hidden_size, vocab_size, seq_len
+    );
     return hipGetLastError();
 }
 

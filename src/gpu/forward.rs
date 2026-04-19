@@ -16,8 +16,8 @@ use super::kernels::attention::{
     kv_write_rope_from_state_on_stream,
 };
 use super::kernels::elementwise::{
-    add, add_batched, add_on_stream, argmax_f32, argmax_f32_on_stream, embed_q8_0_batch,
-    embed_q8_0_token, silu,
+    add, add_batched, add_on_stream, argmax_f32, argmax_f32_on_stream, embed_q4_k_batch_on_stream,
+    embed_q4_k_token_on_stream, embed_q8_0_batch, embed_q8_0_token, silu,
 };
 use super::kernels::attention::kv_write_rope_on_stream_scaled;
 use super::kernels::norm::{
@@ -831,19 +831,19 @@ fn gpu_embed_tokens_hybrid(
     config: &ModelConfig,
 ) -> GpuResult<()> {
     let h = config.hidden_size;
+    if tokens
+        .iter()
+        .any(|&token| (token as usize) >= config.vocab_size)
+    {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "prefill token id out of vocab range".to_string(),
+        });
+    }
     match gpu_weights.token_emb_meta.wtype {
         GgmlType::Q8_0 => {
             validate_token_embedding_layout(&gpu_weights.token_emb_meta, config)?;
             let token_ids: Vec<i32> = tokens.iter().map(|&token| token as i32).collect();
-            if token_ids
-                .iter()
-                .any(|&token| token < 0 || token as usize >= config.vocab_size)
-            {
-                return Err(GpuError::HipApiError {
-                    code: -1,
-                    description: "prefill token id out of vocab range".to_string(),
-                });
-            }
             upload_i32_partial(&mut scratch.token_ids, &token_ids)?;
             embed_q8_0_batch(
                 gpu_weights.token_emb.as_ptr(),
@@ -852,6 +852,19 @@ fn gpu_embed_tokens_hybrid(
                 h,
                 config.vocab_size,
                 tokens.len(),
+            )
+        }
+        GgmlType::Q4_K => {
+            let token_ids: Vec<i32> = tokens.iter().map(|&token| token as i32).collect();
+            upload_i32_partial(&mut scratch.token_ids, &token_ids)?;
+            embed_q4_k_batch_on_stream(
+                gpu_weights.token_emb.as_ptr(),
+                scratch.token_ids.as_ptr() as *const i32,
+                scratch.hidden.as_ptr() as *mut f32,
+                h,
+                config.vocab_size,
+                tokens.len(),
+                ffi::hipStream_t::null(),
             )
         }
         _ => {
@@ -2542,6 +2555,14 @@ pub fn gpu_embed_token_hybrid(
                 token_id,
             )
         }
+        GgmlType::Q4_K => embed_q4_k_token_on_stream(
+            gpu_weights.token_emb.as_ptr(),
+            scratch.hidden.as_ptr() as *mut f32,
+            h,
+            config.vocab_size,
+            token_id,
+            device.stream(),
+        ),
         _ => {
             // CPU embed into pinned buffer
             cpu_embed_token(

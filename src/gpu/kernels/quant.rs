@@ -2113,6 +2113,16 @@ unsafe extern "C" {
 /// FFI declaration for Q4_K GEMV kernel launch
 /// Uses hipStream_t for stream parameter (opaque pointer)
 unsafe extern "C" {
+    fn gemv_gate_up_swiglu_q4_k_f32_launch(
+        weights_gate_q4_k: *const u8,
+        weights_up_q4_k: *const u8,
+        input: *const f32,
+        swiglu_out: *mut f32,
+        n_rows: c_int,
+        ncols_dst: c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
     fn gemv_q4_k_f32_launch(
         weights_q4_k: *const u8,
         input: *const f32,
@@ -3163,6 +3173,69 @@ pub fn gemv_q4_k_f32(
         ncols_dst,
         hipStream_t::null(),
     )
+}
+
+/// Fused gate + up GEMV with SwiGLU activation for Q4_K FFN decode.
+///
+/// Replaces four dispatches (gate GEMV, up GEMV, SiLU, elementwise mul)
+/// with a single kernel that reads the input vector once and writes
+/// `swiglu_out[c] = silu(gate[c]) * up[c]`.
+pub fn gemv_gate_up_swiglu_q4_k_f32_on_stream(
+    weights_gate_q4_k: *const u8,
+    weights_up_q4_k: *const u8,
+    input: *const f32,
+    swiglu_out: *mut f32,
+    n_rows: usize,
+    ncols_dst: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if n_rows == 0 || ncols_dst == 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_gate_up_swiglu_q4_k: n_rows and ncols_dst cannot be zero"
+                .to_string(),
+        });
+    }
+    if n_rows % 256 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "gemv_gate_up_swiglu_q4_k: n_rows must be multiple of 256, got {}",
+                n_rows
+            ),
+        });
+    }
+    if weights_gate_q4_k.is_null()
+        || weights_up_q4_k.is_null()
+        || input.is_null()
+        || swiglu_out.is_null()
+    {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: "gemv_gate_up_swiglu_q4_k: pointers must be non-null".to_string(),
+        });
+    }
+
+    let result = unsafe {
+        gemv_gate_up_swiglu_q4_k_f32_launch(
+            weights_gate_q4_k,
+            weights_up_q4_k,
+            input,
+            swiglu_out,
+            n_rows as c_int,
+            ncols_dst as c_int,
+            stream,
+        )
+    };
+
+    if result != hipError_t::hipSuccess {
+        return Err(GpuError::HipApiError {
+            code: result as i32,
+            description: format!("gemv_gate_up_swiglu_q4_k kernel failed: {:?}", result),
+        });
+    }
+
+    Ok(())
 }
 
 pub fn gemv_q4_k_f32_on_stream(
