@@ -1,6 +1,6 @@
 [package]
 name = "rocmforge"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "AMD-first LLM inference engine for Qwen2.5, Qwen3, and Llama-3.1 on RDNA 4"
 
@@ -30,6 +30,9 @@ serde_json = "1"
 dirs = "5"
 # Ctrl+C handler for interactive chat CLI
 ctrlc = "3.4"
+# Line editor for the interactive chat prompt: arrow-key cursor
+# navigation, in-session history, emacs-style shortcuts.
+rustyline = "14"
 # Structured logging and tracing (stderr, env-filtered)
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

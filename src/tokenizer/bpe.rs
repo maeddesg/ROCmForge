@@ -428,6 +428,36 @@ impl BpeTokenizer {
         }
     }
 
+    /// Decode a single token to its raw byte sequence without any lossy
+    /// UTF-8 conversion. Used by the streaming chat emitter, which buffers
+    /// partial multi-byte sequences (e.g. 4-byte emojis split across 2–3
+    /// tokens) until a complete codepoint is available. Single-token
+    /// `decode_token` still returns a `String` via `from_utf8_lossy`, which
+    /// is fine for diagnostics but replaces partial emojis with `��`.
+    pub fn decode_token_bytes(&self, id: u32) -> Vec<u8> {
+        let Some(vocab_bytes) = self.vocab.get(id as usize) else {
+            return format!("<unk_{}>", id).into_bytes();
+        };
+        // The vocab entry is the byte-level-BPE encoded form. Map it back
+        // through `byte_decoder` just like `decode_bytes` does, but emit
+        // raw bytes so the caller can stitch partial codepoints together.
+        let text = String::from_utf8_lossy(vocab_bytes);
+        let mut out = Vec::with_capacity(text.len());
+        for ch in text.chars() {
+            if ch == '▁' {
+                out.push(b' ');
+                continue;
+            }
+            if let Some(&b) = self.byte_decoder.get(&ch) {
+                out.push(b);
+            } else {
+                let mut buf = [0u8; 4];
+                out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+            }
+        }
+        out
+    }
+
     fn decode_bytes(&self, text: &str) -> String {
         // Qwen2 vocab contains proper UTF-8; skip the double-encoding repair
         let text = text.to_string();
@@ -592,6 +622,16 @@ fn redistribute_whitespace_llama_bpe(pieces: Vec<String>) -> Vec<String> {
     while let Some(piece) = iter.next() {
         let is_ws_run = !piece.is_empty() && piece.chars().all(|c| c.is_whitespace());
         if !is_ws_run {
+            out.push(piece);
+            continue;
+        }
+        // Newlines are handled by the regex alternative `\s*[\r\n]+`
+        // directly — llama.cpp captures the whole newline run without a
+        // lookahead. Only plain space runs use `\s+(?!\S)` and therefore
+        // need the last-space-joins-next-word emulation below. Leaving
+        // newline-containing runs alone matches llama-tokenize output
+        // (e.g. `\n\n` stays one piece → BPE merge 271 `\n\n`).
+        if piece.contains('\n') || piece.contains('\r') {
             out.push(piece);
             continue;
         }

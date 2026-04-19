@@ -8,5 +8,6 @@
 
 pub mod chat;
 pub mod context;
+pub mod stream;
 pub mod template;
 pub mod validate;

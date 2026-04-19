@@ -4,7 +4,7 @@
 //! commands, and Ctrl+C interrupt handling that aborts the in-flight
 //! generation but keeps the REPL open. Use `/quit` to leave.
 
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -67,6 +67,9 @@ pub struct ChatArgs {
     pub top_p: f32,
     pub draft_model: Option<String>,
     pub spec_depth: usize,
+    /// When true, keep the literal `<think>…</think>` block in the
+    /// visible output instead of stripping it.
+    pub show_thinking: bool,
 }
 
 fn usage() -> ! {
@@ -84,6 +87,7 @@ fn usage() -> ! {
     eprintln!("  --top-p F              Nucleus sampling threshold [default: 1.0]");
     eprintln!("  --draft-model <path>   Draft model for speculative decoding [recognised but ignored]");
     eprintln!("  --spec-depth N         Speculation depth [default: 5]");
+    eprintln!("  --show-thinking        Show Qwen3-style <think> reasoning block (stripped by default)");
     std::process::exit(1);
 }
 
@@ -95,6 +99,7 @@ fn parse_chat_args(args: &[String]) -> ChatArgs {
     let mut top_p = 1.0f32;
     let mut draft_model: Option<String> = None;
     let mut spec_depth = 5usize;
+    let mut show_thinking = false;
 
     let mut it = args.iter();
     while let Some(flag) = it.next() {
@@ -136,6 +141,7 @@ fn parse_chat_args(args: &[String]) -> ChatArgs {
                     .parse()
                     .unwrap_or_else(|_| usage())
             }
+            "--show-thinking" => show_thinking = true,
             "-h" | "--help" => usage(),
             other => {
                 eprintln!("Unknown flag: {}", other);
@@ -152,6 +158,7 @@ fn parse_chat_args(args: &[String]) -> ChatArgs {
         top_p,
         draft_model,
         spec_depth,
+        show_thinking,
     }
 }
 
@@ -338,29 +345,43 @@ fn handle_slash_command(input: &str, session: &mut ChatSession) -> SlashOutcome 
 
 #[cfg(feature = "gpu")]
 fn input_loop(session: &mut ChatSession) -> Result<(), String> {
-    let stdin = io::stdin();
-    let mut handle = stdin.lock();
+    // `rustyline` handles arrow-key cursor navigation (left/right), history
+    // (up/down), Home/End, and Ctrl+A / Ctrl+E out of the box. The
+    // default editor also echoes printable characters back to the
+    // terminal, so we no longer print the "> " prompt ourselves —
+    // `rustyline::readline` does it and returns a fully edited line.
+    //
+    // If the terminal isn't attached (e.g. a test piping a here-doc on
+    // stdin), `DefaultEditor::new` still works and falls back to line
+    // reads without terminal features. Ctrl+C interrupts the READLINE
+    // (returns `ReadlineError::Interrupted`) — we treat it like a blank
+    // line, mirroring the pre-rustyline behaviour where Ctrl+C cleared
+    // the in-flight generation but kept the REPL open.
+    let mut rl = rustyline::DefaultEditor::new()
+        .map_err(|e| format!("init rustyline: {}", e))?;
     loop {
         // Clear any stale interrupt from a previous turn.
         interrupt_flag().store(false, Ordering::SeqCst);
 
-        print!("  > ");
-        io::stdout().flush().ok();
-
-        let mut line = String::new();
-        match handle.read_line(&mut line) {
-            Ok(0) => {
+        let line = match rl.readline("  > ") {
+            Ok(l) => l,
+            Err(rustyline::error::ReadlineError::Interrupted) => {
+                // Ctrl+C at the prompt — just start a new line.
+                continue;
+            }
+            Err(rustyline::error::ReadlineError::Eof) => {
+                // Ctrl+D — end of input.
                 println!();
                 println!("  Goodbye.");
                 return Ok(());
             }
-            Ok(_) => {}
-            Err(e) => return Err(format!("read stdin: {}", e)),
-        }
+            Err(e) => return Err(format!("readline: {}", e)),
+        };
         let input = line.trim();
         if input.is_empty() {
             continue;
         }
+        let _ = rl.add_history_entry(input);
 
         match handle_slash_command(input, session) {
             SlashOutcome::Quit => return Ok(()),
@@ -376,22 +397,20 @@ fn input_loop(session: &mut ChatSession) -> Result<(), String> {
 
 #[cfg(not(feature = "gpu"))]
 fn cpu_only_loop() -> Result<(), String> {
-    let stdin = io::stdin();
-    let mut handle = stdin.lock();
     println!("  (GPU feature disabled — chat loop runs without inference.)");
+    let mut rl = rustyline::DefaultEditor::new()
+        .map_err(|e| format!("init rustyline: {}", e))?;
     loop {
-        print!("  > ");
-        io::stdout().flush().ok();
-        let mut line = String::new();
-        match handle.read_line(&mut line) {
-            Ok(0) => {
+        let line = match rl.readline("  > ") {
+            Ok(l) => l,
+            Err(rustyline::error::ReadlineError::Interrupted) => continue,
+            Err(rustyline::error::ReadlineError::Eof) => {
                 println!();
                 println!("  Goodbye.");
                 return Ok(());
             }
-            Ok(_) => {}
-            Err(e) => return Err(format!("read stdin: {}", e)),
-        }
+            Err(e) => return Err(format!("readline: {}", e)),
+        };
         let input = line.trim();
         if input.is_empty() {
             continue;
@@ -510,7 +529,7 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
     let mut generated = 0usize;
     let max_pos = session.max_seq;
     let max_tokens = session.args.max_tokens;
-    let mut accumulated = String::new();
+    let mut emitter = super::stream::StreamingEmitter::new(session.args.show_thinking);
     let mut stopped_by = StopReason::MaxTokens;
 
     print!("  ");
@@ -534,17 +553,19 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
             break;
         }
 
-        let text = session.tokenizer.decode_token(next_token);
-        if !text.is_empty() {
-            print!("{}", text);
-            io::stdout().flush().ok();
-            accumulated.push_str(&text);
-            if STOP_MARKERS.iter().any(|m| accumulated.ends_with(m)) {
-                // Strip the stop marker from the visible reply.
+        let bytes = session.tokenizer.decode_token_bytes(next_token);
+        if !bytes.is_empty() {
+            let visible = emitter.push_bytes(&bytes);
+            if !visible.is_empty() {
+                print!("{}", visible);
+                io::stdout().flush().ok();
+            }
+            let acc = emitter.accumulated();
+            if STOP_MARKERS.iter().any(|m| acc.ends_with(m)) {
                 for m in STOP_MARKERS {
-                    if accumulated.ends_with(m) {
-                        let cut = accumulated.len() - m.len();
-                        accumulated.truncate(cut);
+                    if emitter.accumulated().ends_with(m) {
+                        let cut = emitter.accumulated().len() - m.len();
+                        emitter.truncate_accumulated(cut);
                         break;
                     }
                 }
@@ -617,6 +638,7 @@ pub fn run_turn(session: &mut ChatSession, user_input: &str) -> Result<TurnOutco
     // Record history: append the user turn plus whatever the assistant
     // produced (even if interrupted — partial output is still relevant
     // context).
+    let accumulated = emitter.accumulated().to_string();
     session
         .ctx
         .push_turn(Role::User, user_input.to_string());

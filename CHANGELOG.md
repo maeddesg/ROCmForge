@@ -1,5 +1,78 @@
 # Changelog
 
+## [0.2.1] — 2026-04-19
+
+### Highlights
+
+- **Chat CLI polish** — six bug-fixes and a line-editor upgrade found
+  during real-world Qwen3 / Llama-3.1 multi-turn testing.
+
+### Fixes
+
+- **Banner WMMA status** (`cli/validate.rs`). Reported `WMMA: inactive
+  (requires gfx12 + Q4_0)` for Q4_K and Q4_1 models even though the
+  WMMA Q4_K and Q4_1 kernels were actually dispatching. The arch check
+  gated WMMA on `quant_type == "Q4_0"`; widened to
+  `Q4_0 | Q4_1 | Q4_K`. The stale "Q4_0 only" warning is gone.
+- **Banner ROCm version** (`cli/validate.rs`). Reported `ROCm:
+  unknown`. `hipRuntimeGetVersion` returns the HIP driver/runtime
+  version, which is unrelated to the user-facing ROCm release string.
+  Reads `/opt/rocm/.info/version` first and falls back to the HIP
+  driver value only if the file is missing.
+- **Llama-3 tokeniser `\n\n` pre-split** (`tokenizer/bpe.rs`). The
+  `redistribute_whitespace_llama_bpe` helper that emulates llama.cpp's
+  `\s+(?!\S)` lookahead was incorrectly applying its split to
+  **newline** runs as well, turning `\n\n` into `\n` + `\nYou` before
+  BPE merges. llama.cpp's own regex captures whole newline runs via
+  `\s*[\r\n]+` without a lookahead, so the lookahead emulation only
+  needs to fire for plain space runs. After the fix `\n\n` stays one
+  piece and BPE-merges into token 271 — byte-identical with
+  llama-tokenize on all realistic Llama-3 chat prompts, which fixes
+  the garbled `<|start_header_id|>` echo the chat CLI occasionally
+  showed. Numerical divergence on specific prompts (e.g. "What is
+  2+2?") is still present and is tracked as the ongoing Q4_K_M
+  accuracy gap from v0.2.0 — it is not a template bug.
+- **Qwen3 `<think>` block filtering** (new `cli/stream.rs`). Qwen3
+  instruct models emit `<think>…</think>` reasoning before the real
+  reply. The chat loop now strips them from visible output and keeps
+  the cleaned text in conversation history. Buffer survives tokens
+  that split `<`, `<t`, `<thi`, etc. A `--show-thinking` flag keeps
+  the reasoning visible for debugging / curiosity.
+- **UTF-8 multi-byte emojis / characters** (`cli/stream.rs` +
+  `BpeTokenizer::decode_token_bytes`). Decoding one token at a time
+  through `from_utf8_lossy` replaced the 2–3 leading bytes of a
+  4-byte emoji with `��`. The streaming emitter now buffers raw
+  bytes and only hands complete UTF-8 chunks to stdout — 😊 renders
+  as 😊.
+
+### Features
+
+- **`rustyline` line editor** (`cli/chat.rs`). Arrow-key cursor
+  navigation (←/→), in-session history (↑/↓), Home/End, Emacs
+  shortcuts (Ctrl+A / Ctrl+E). Ctrl+C at the prompt starts a new
+  line (same as before); Ctrl+D cleanly exits. Piped heredoc input
+  still works for tests.
+- **`--show-thinking`** flag on `rocmforge chat`. Keeps the
+  `<think>…</think>` reasoning block visible for models that emit
+  one.
+
+### Tests
+
+- New module `cli::stream` with 6 tests covering plain text,
+  split/unsplit `<think>` tags, UTF-8 emoji across single-byte
+  pushes, partial-tag handling, and post-tag whitespace trimming.
+- Tokeniser parity tests (`tokenizer_llama_bpe_parity`) still green
+  — the 7 reference strings didn't exercise `\n\n`-before-alnum, so
+  this release only adds new coverage via the chat emitter tests.
+- `wmma_q4_k_correctness`, `chat_single_turn_correctness`,
+  `chat_multi_turn_correctness` unchanged and green.
+
+### Unchanged
+
+- Qwen2.5-7B Q4_0: 101 tok/s decode, 49 ms TTFT on the
+  chat-single-turn smoke test.
+- Phase 7 Q4_K_M performance numbers from v0.2.0 still hold.
+
 ## [0.2.0] — 2026-04-19
 
 ### Highlights

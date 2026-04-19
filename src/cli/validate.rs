@@ -53,6 +53,23 @@ pub struct StartupInfo {
     pub warnings: Vec<String>,
 }
 
+/// Best-effort ROCm release version. `hipRuntimeGetVersion` returns the HIP
+/// runtime/driver version which is unrelated to the user-facing ROCm release
+/// string, so prefer `/opt/rocm/.info/version` when it exists and fall back
+/// to whatever `hip_driver_version` gave us.
+fn read_rocm_version() -> Option<String> {
+    let candidates = ["/opt/rocm/.info/version", "/opt/rocm/.info/version-dev"];
+    for path in candidates {
+        if let Ok(s) = std::fs::read_to_string(path) {
+            let trimmed = s.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Decode the HIP driver version packed as `major << 22 | minor << 12 | patch`.
 fn format_hip_driver(v: u32) -> String {
     if v == 0 {
@@ -139,16 +156,25 @@ pub fn validate_before_load(model_path: &str) -> Result<(StartupInfo, GgufFile, 
             gpu::GpuArchitecture::Unknown(id) => format!("gfx{:x} (unknown)", id),
         };
         let arch_is_gfx12 = matches!(effective_arch, gpu::GpuArchitecture::Gfx1201);
-        let wmma_active = arch_is_gfx12 && quant_type == "Q4_0";
+        // WMMA is implemented for Q4_0, Q4_1, and Q4_K. Mixed-precision
+        // GGUFs (e.g. Q4_K_M with Q6_K V / ffn_down) still go through the
+        // WMMA path for the Q4_K tensors; the Q6_K layers fall back to
+        // GEMV-loop but that is a separate dispatch-time decision, not a
+        // reason to say "WMMA inactive" on the banner.
+        let quant_supports_wmma = matches!(
+            quant_type.as_str(),
+            "Q4_0" | "Q4_1" | "Q4_K"
+        );
+        let wmma_active = arch_is_gfx12 && quant_supports_wmma;
         if !arch_is_gfx12 {
             warnings.push(format!(
                 "GPU is {} — WMMA kernels require gfx12 (RDNA 4). Inference falls back to scalar kernels.",
                 arch_name
             ));
         }
-        if quant_type != "Q4_0" {
+        if !quant_supports_wmma {
             warnings.push(format!(
-                "Model weights are {} — WMMA is implemented for Q4_0 only. Expect slower inference.",
+                "Model weights are {} — WMMA kernels are implemented for Q4_0, Q4_1, and Q4_K. Expect slower inference.",
                 quant_type
             ));
         }
@@ -207,8 +233,9 @@ pub fn print_banner(info: &StartupInfo) {
     let wmma_line = if info.wmma_active {
         "active (GEMM + Attention)".to_string()
     } else {
-        "inactive (requires gfx12 + Q4_0)".to_string()
+        "inactive (requires gfx12 + Q4_0 / Q4_1 / Q4_K)".to_string()
     };
+    let rocm_line = read_rocm_version().unwrap_or_else(|| info.hip_driver.clone());
     println!();
     println!("  ROCmForge v{}", version);
     println!("  ─────────────────────────────────────");
@@ -216,7 +243,7 @@ pub fn print_banner(info: &StartupInfo) {
         "  GPU:       {} ({})",
         info.gpu_name, info.gpu_arch
     );
-    println!("  ROCm:      {}", info.hip_driver);
+    println!("  ROCm:      {}", rocm_line);
     println!(
         "  Model:     {} ({}, {:.1} GB)",
         info.model_name, info.quant_type, info.model_size_gb
