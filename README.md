@@ -2,11 +2,24 @@
 
 GPU-accelerated LLM inference engine for AMD GPUs, written in Rust
 with hand-tuned HIP/C++ WMMA (Wave Matrix Multiply-Accumulate) kernels
-for RDNA 4. First open-source project to bypass hipBLAS/Tensile on
-gfx1201 with direct matrix-core utilisation.
+for RDNA 4.
 
-Supports Qwen2.5 (Q4_0), Qwen3, and Llama-3.1 (Q4_K_M) GGUFs with
-interactive chat, streaming output, and speculative decoding (opt-in).
+## Acknowledgement
+
+This project builds on the foundational work of
+[oldnordic](https://github.com/oldnordic/ROCmForge). Without their
+original ROCmForge implementation — the model loader, the CPU
+inference path, the GGUF parser, and the overall architecture — none
+of the WMMA matrix-core optimisations, the multi-model support, or
+the interactive chat CLI would have been possible. Thank you for
+making this project a reality.
+
+---
+
+First open-source project to bypass hipBLAS/Tensile on gfx1201 with
+direct matrix-core utilisation. Supports Qwen2.5 (Q4_0), Qwen3, and
+Llama-3.1 (Q4_K_M) GGUFs with interactive chat, streaming output, and
+speculative decoding (opt-in).
 
 - [Install](INSTALL.md)
 - [CLI guide](docs/cli-guide.md)
