@@ -197,6 +197,15 @@ set_target_properties(wmma_gemm_q4_k PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+# Phase 8b Step 2 — WMMA GEMM with inline Q6_K weight dequant.
+# Replaces the 257-dispatch GEMV loop for attn_v / ffn_down / LM-head
+# at prefill on Q4_K_M GGUFs (Qwen3-8B, Llama-3.1-8B).
+add_library(wmma_gemm_q6_k STATIC ../wmma/wmma_gemm_q6_k.hip)
+set_target_properties(wmma_gemm_q6_k PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    POSITION_INDEPENDENT_CODE ON
+)
+
 # Phase 3a — WMMA prefill attention PoC (single head, seq=64).
 add_library(wmma_attention_prefill STATIC ../wmma/wmma_attention_prefill.hip)
 set_target_properties(wmma_attention_prefill PROPERTIES

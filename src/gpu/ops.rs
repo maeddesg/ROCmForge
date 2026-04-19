@@ -1648,6 +1648,52 @@ pub fn gpu_dispatch_gemm(
         }
     }
 
+    // Phase 8b Step 2 — Q6_K super-block WMMA prefill path. Replaces the
+    // 257-dispatch GEMV loop that used to dominate Q4_K_M prefill (82 %
+    // of per-step time on Qwen3-8B). Same alignment as Q4_K: K multiple
+    // of 256 (Q6_K super-block size), N multiple of 64.
+    if seq_len >= WMMA_PREFILL_MIN_M
+        && meta.wtype == GgmlType::Q6_K
+        && (out_dim % 64) == 0
+        && (in_dim % 256) == 0
+        && super::safety::wmma_prefill_enabled()
+    {
+        let padded_m = seq_len.div_ceil(64) * 64;
+        tracing::debug!(
+            seq_len,
+            padded_m,
+            m = seq_len,
+            n = out_dim,
+            k = in_dim,
+            path = "wmma_q6_k",
+            "GEMM dispatch: WMMA Q6_K ({}→{})",
+            seq_len,
+            padded_m
+        );
+        match super::kernels::wmma::launch_wmma_gemm_q6_k(
+            input,
+            weights.as_ptr() as *const u8,
+            output,
+            padded_m,
+            out_dim,
+            in_dim,
+            super::ffi::hipStream_t::null(),
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "WMMA Q6_K prefill path failed, falling back to GEMV-loop"
+                );
+                eprintln!(
+                    "[rocmforge] WMMA Q6_K prefill path failed ({}), falling back to GEMV-loop",
+                    err
+                );
+                // fall through to the GEMV-loop at line ~1830
+            }
+        }
+    }
+
     // Phase 4 Step 4 — Q4_1 WMMA path for the handful of FFN-down layers
     // that mixed-precision quantizers leave at higher precision. Same
     // alignment constraints as Q4_0; only the kernel differs.

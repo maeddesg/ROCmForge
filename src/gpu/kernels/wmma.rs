@@ -72,6 +72,16 @@ unsafe extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 
+    fn wmma_gemm_q6_k_launch(
+        input: *const f32,
+        weights_q6_k: *const c_void,
+        output: *mut f32,
+        m: i32,
+        n: i32,
+        k: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
     fn wmma_attention_prefill_64_launch(
         q: *const c_void,
         k: *const c_void,
@@ -498,6 +508,53 @@ pub fn launch_wmma_gemm_q4_k(
         Err(GpuError::HipApiError {
             code: code as i32,
             description: format!("wmma_gemm_q4_k_launch failed: {:?}", code),
+        })
+    }
+}
+
+/// Launch the WMMA-Q6_K prefill GEMM kernel.
+///
+/// Q6_K super-block is 210 bytes / 256 elements (16 sub-blocks of 16 elems,
+/// int8 scales, signed 6-bit quants). The kernel shares its K-loop cadence
+/// and LDS layout with `launch_wmma_gemm_q4_k`; only the dequant block
+/// differs. `K` must be a multiple of 256, `M` and `N` multiples of 64.
+///
+/// Weight-layout reference: `docs/q6_k_block_format.md`.
+pub fn launch_wmma_gemm_q6_k(
+    input: *const f32,
+    weights_q6_k: *const u8,
+    output: *mut f32,
+    m: usize,
+    n: usize,
+    k: usize,
+    stream: hipStream_t,
+) -> GpuResult<()> {
+    if m % 64 != 0 || n % 64 != 0 || k % 256 != 0 {
+        return Err(GpuError::HipApiError {
+            code: -1,
+            description: format!(
+                "wmma_gemm_q6_k: M={} N={} K={} must be multiples of 64/64/256",
+                m, n, k
+            ),
+        });
+    }
+    let code = unsafe {
+        wmma_gemm_q6_k_launch(
+            input,
+            weights_q6_k as *const c_void,
+            output,
+            m as i32,
+            n as i32,
+            k as i32,
+            stream,
+        )
+    };
+    if code == hipError_t::hipSuccess {
+        Ok(())
+    } else {
+        Err(GpuError::HipApiError {
+            code: code as i32,
+            description: format!("wmma_gemm_q6_k_launch failed: {:?}", code),
         })
     }
 }
