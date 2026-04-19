@@ -16,43 +16,66 @@ struct Q4_K_block {
 
 // ── Device Functions ───────────────────────────────────────────────────────────────
 
-/// Vector dot product: Q4_K block × f32 vector segment (uniform quantization)
+/// Inline 6-bit (scale, min) unpack for Q4_K sub-block `j ∈ [0, 8)`.
+/// Mirrors llama.cpp `get_scale_min_k4` and the helper in
+/// `q4_k_gemv.hip` / `elementwise.hip`.
+__device__ __forceinline__
+void q4_k_get_scale_min(int j, const uint8_t* scales,
+                        int* scale_out, int* min_out) {
+    if (j < 4) {
+        *scale_out = scales[j]     & 0x3F;
+        *min_out   = scales[j + 4] & 0x3F;
+    } else {
+        *scale_out = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
+        *min_out   = (scales[j + 4] >>  4)  | ((scales[j]     >> 6) << 4);
+    }
+}
+
+/// Dot product of one Q4_K super-block (256 elements, 144 bytes) against a
+/// 256-element slice of the input vector, cooperatively computed by a
+/// 32-thread warp. Thread `t` owns 8 consecutive elements within a single
+/// sub-block (sub-block `j = t / 4`, positions `(t % 4) * 8 .. + 7`).
+///
+/// Dequant formula (super-block-aware, matches `q4_k_super_block_dot` in
+/// `q4_k_gemv.hip` and the WMMA prefill kernel):
+///     value = (d · scale_j) · nibble − (dmin · min_j)
 __device__ inline float vec_dot_q4_k(const void* block_ptr, const float* vec, int offset) {
     const int tid = threadIdx.x;
 
     const uint8_t* block_bytes = static_cast<const uint8_t*>(block_ptr);
 
-    half d_half;
-    memcpy(&d_half, block_bytes, sizeof(half));
-    const float d = __half2float(d_half);
-
-    half dmin_half;
+    half d_half, dmin_half;
+    memcpy(&d_half,    block_bytes,     sizeof(half));
     memcpy(&dmin_half, block_bytes + 2, sizeof(half));
+    const float d    = __half2float(d_half);
     const float dmin = __half2float(dmin_half);
 
-    const uint8_t* qs = block_bytes + 16;
+    const uint8_t* scales = block_bytes + 4;
+    const uint8_t* qs     = block_bytes + 16;
 
-    if (fabsf(d) < 1e-7f) {
-        return 0.0f;
-    }
+    // Sub-block + intra-sub-block position for this thread's 8 elements.
+    // Sub-blocks (2k, 2k+1) share a 32-byte qs region; even j takes the low
+    // nibbles, odd j takes the high nibbles of the same bytes.
+    const int j         = tid / 4;
+    const int pos_base  = (tid % 4) * 8;
+    const int pair_k    = j / 2;
+    const bool is_upper = (j & 1) != 0;
+    const uint8_t* qs_pair = qs + pair_k * 32;
+
+    int scale_j, min_j;
+    q4_k_get_scale_min(j, scales, &scale_j, &min_j);
+    const float d_scale = d    * (float)scale_j;
+    const float d_min   = dmin * (float)min_j;
 
     float sum = 0.0f;
-
+    #pragma unroll
     for (int l = 0; l < 8; ++l) {
-        const int i = tid * 8 + l;
-        const int byte_idx = i / 2;
-
-        const uint8_t packed = qs[byte_idx];
-        uint8_t q4;
-
-        if (i % 2 == 0) {
-            q4 = packed & 0x0F;
-        } else {
-            q4 = (packed >> 4) & 0x0F;
-        }
-
-        const float val = static_cast<float>(q4) / d + dmin;
-        sum += val * vec[offset + i];
+        const int pos = pos_base + l;
+        const uint8_t byte = qs_pair[pos];
+        const int nib = is_upper ? (byte >> 4) : (byte & 0x0F);
+        const float val = d_scale * (float)nib - d_min;
+        const int elem_idx = j * 32 + pos;
+        sum += val * vec[offset + elem_idx];
     }
 
     return sum;
