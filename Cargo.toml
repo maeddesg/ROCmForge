@@ -1,3 +1,11 @@
+[workspace]
+members = [
+    ".",
+    "tools/rf-forge",
+]
+# tests_v1/smoke/ is a standalone workspace (Milestone 0 smoke harness);
+# leave its own Cargo.toml intact so it stays isolated from the main build.
+
 [package]
 name = "rocmforge"
 version = "0.3.0"
@@ -41,6 +49,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 default = []
 # GPU support requires ROCm/HIP installation
 gpu = []
+# v1.0 rebuild — includes src_v1/ module tree and hip_kernels_v1/ kernels
+v1 = []
+# Phase 3: AVX-512 CPU-Backend — placeholder, no cfg-gates yet
+cpu-only = []
 
 [dev-dependencies]
 fastrand = "2"
@@ -89,6 +101,12 @@ harness = false
 name = "gpu_decode"
 harness = false
 required-features = ["gpu"]
+
+# v1.0 build-system smoke integration test.
+[[test]]
+name = "build_test"
+path = "tests_v1/build_test.rs"
+required-features = ["v1"]
 
 [profile.release]
 opt-level = 3

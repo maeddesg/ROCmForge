@@ -291,6 +291,95 @@ mod gpu_build {
         None
     }
 
+    /// v1.0 HIP kernel compilation via CMake. Builds only the subset
+    /// under `hip_kernels_v1/` and does not touch the v0.x pipeline in
+    /// `hip_kernels/`. Guarded at the call site by `CARGO_FEATURE_GPU`,
+    /// so `cpu-only` builds never invoke cmake / hipcc / link amdhip64.
+    pub fn compile_v1_kernels() {
+        use std::path::Path;
+        use std::process::Command;
+
+        let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+        let build_dir = PathBuf::from(&out_dir).join("hip_kernels_v1_build");
+
+        if let Err(e) = std::fs::create_dir_all(&build_dir) {
+            println!(
+                "cargo:warning=Failed to create v1 kernel build directory: {}",
+                e
+            );
+            return;
+        }
+
+        let cmake = find_cmake();
+        let cmake = cmake.as_deref().unwrap_or(Path::new("cmake"));
+
+        let rocm_path = find_rocm_path().unwrap_or_else(|| PathBuf::from("/opt/rocm"));
+        let hip_dir = rocm_path.join("lib/cmake/hip");
+
+        println!("cargo:warning=Compiling v1.0 HIP kernels (hip_kernels_v1/) with CMake");
+
+        let config_status = Command::new(cmake)
+            .arg("-S")
+            .arg("hip_kernels_v1")
+            .arg("-B")
+            .arg(&build_dir)
+            .arg("-DCMAKE_BUILD_TYPE=Release")
+            .arg(format!("-DCMAKE_PREFIX_PATH={}", rocm_path.display()))
+            .arg(format!("-Dhip_DIR={}", hip_dir.display()))
+            .status();
+
+        match config_status {
+            Ok(s) if s.success() => {}
+            Ok(s) => {
+                println!(
+                    "cargo:warning=v1 CMake configure returned non-zero: {:?}",
+                    s.code()
+                );
+                return;
+            }
+            Err(e) => {
+                println!("cargo:warning=v1 CMake configure failed: {:?}", e);
+                return;
+            }
+        }
+
+        let build_status = Command::new(cmake)
+            .arg("--build")
+            .arg(&build_dir)
+            .arg("--parallel")
+            .status();
+
+        match build_status {
+            Ok(s) if s.success() => {}
+            Ok(s) => {
+                println!(
+                    "cargo:warning=v1 CMake build returned non-zero: {:?}",
+                    s.code()
+                );
+                return;
+            }
+            Err(e) => {
+                println!("cargo:warning=v1 CMake build failed: {:?}", e);
+                return;
+            }
+        }
+
+        // Link the single Phase-1 smoke library. More libraries will be
+        // added by this function as v1.0 kernels come online.
+        let smoke_lib = build_dir.join("libv1_smoke.a");
+        if smoke_lib.exists() {
+            println!("cargo:rustc-link-search=native={}", build_dir.display());
+            println!("cargo:rustc-link-lib=static=v1_smoke");
+        } else {
+            println!(
+                "cargo:warning=v1 smoke library not found at {}",
+                smoke_lib.display()
+            );
+        }
+
+        println!("cargo:rerun-if-changed=hip_kernels_v1");
+    }
+
     fn find_rocm_path() -> Option<PathBuf> {
         if let Ok(hip_path) = env::var("HIP_PATH") {
             let path = PathBuf::from(&hip_path);
@@ -329,6 +418,9 @@ fn main() {
         // Compile quantization kernels via CMake
         gpu_build::compile_quant_kernels();
 
+        // Compile v1.0 HIP kernels (Phase 1 onwards).
+        gpu_build::compile_v1_kernels();
+
         // Link HIP runtime
         let hip_path = env::var("HIP_PATH")
             .ok()
@@ -359,5 +451,6 @@ fn main() {
         println!("cargo:rerun-if-env-changed=ROCM_PATH");
         println!("cargo:rerun-if-env-changed=ROCMFORGE_GPU_ARCH");
         println!("cargo:rerun-if-changed=hip_kernels");
+        println!("cargo:rerun-if-changed=hip_kernels_v1");
     }
 }

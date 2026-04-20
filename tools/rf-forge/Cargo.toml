@@ -1,0 +1,12 @@
+[package]
+name = "rf-forge"
+version = "0.1.0"
+edition = "2021"
+description = "ROCmForge v1.0 offline GA tuning tool — kernels, precision, fusion."
+
+[[bin]]
+name = "rf-forge"
+path = "src/main.rs"
+
+[dependencies]
+# Minimal for Phase 1 — real GA / cache / bench deps land in Phase 2.
