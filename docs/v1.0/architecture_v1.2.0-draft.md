@@ -429,6 +429,32 @@ pub enum DequantOp {
 
     /// FP8-spezifischer LDS-Store (halbiertes Byte-Budget ggü. FP16-Variante).
     StoreFP8 { src: RegId, variant: Fp8Variant, lds_offset_expr: Expr },
+
+    // --- Erweiterungen aus dequant_ir_spec.md §2 ---
+
+    /// Generische Bit-Extraktion: dst = (src >> shift) & mask.
+    /// Verallgemeinert ExtractNibble und wird für Q4_K-Scale-Entpackung benötigt.
+    ExtractBits { src: RegId, shift: u8, mask: u32, dst: RegId },
+
+    /// Generische Bit-Rekombination: dst = lo | (hi << hi_shift).
+    /// Verallgemeinert Combine6Bit und deckt Q5_K / Q4_K-Split-Scales ab.
+    CombineBits { lo: RegId, hi: RegId, hi_shift: u8, dst: RegId },
+
+    /// FP32-Subtraktion: dst = a - b. Nötig u. a. für Q4_K-Fma-mit-Subtraktion.
+    SubF32 { a: RegId, b: RegId, dst: RegId },
+
+    /// FP32-Addition: dst = a + b.
+    AddF32 { a: RegId, b: RegId, dst: RegId },
+
+    /// FP32-Negation: dst = -src.
+    NegF32 { src: RegId, dst: RegId },
+
+    /// Marker-Op: Beginn der Verarbeitung eines Sub-Blocks (Q6_K-Zentrierung,
+    /// K-getreue Akkumulation). Semantik siehe dequant_ir_spec.md §2.8.
+    ScaleBlockStart { sub_block_idx: u8 },
+
+    /// Kompilierzeit-Konstante in ein Register schreiben (z. B. -32 für Q6_K-Offset).
+    Const { value: f32, dst: RegId },
 }
 
 pub enum Fp8Variant {
