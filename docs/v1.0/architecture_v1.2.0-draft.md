@@ -578,6 +578,15 @@ fn generate_cpu_kernel(fmt: &QuantFormat, shape: KernelShape) -> CompiledKernel:
 
 Weil der Codegen regelbasiert ist und die `QuantFormat`-Definition deklarativ, ist das Hinzufügen eines neuen Formats eine Datenänderung, keine Codeänderung. Q5_K würde aussehen wie Q4_K mit einem zusätzlichen `qh` und einer `Combine5Bit`-Op — geschätzter Aufwand 30–60 Minuten, vs. 3–5 Tage in v0.x. Der FP8-Pfad wird automatisch mit generiert, ohne Zusatzaufwand pro Format.
 
+**Rounding-Konsistenz GPU ↔ CPU.** Der VALU-Parity-Pfad (Säule 6) verlangt bit-identische Ergebnisse zwischen Level-3-GPU-Kernel und CPU-FP32-Kernel. Dafür gelten vier Regeln:
+
+1. Der FMA-vs-MUL+ADD-Peephole-Pass ist **gemeinsam** implementiert für GPU- und CPU-Emitter — nicht zwei separate Module.
+2. FP32 → FP16 auf CPU explizit mit `_MM_FROUND_TO_NEAREST_INT` (nicht der MXCSR-Default).
+3. FP32 → BF16 nutzt den gemeinsamen SW-Algorithmus (5-Instruktionen-RN+NaN, siehe Meilenstein-0-Befund), **nicht** `_mm512_cvtneps_pbh` — dessen Rundungs-Modus weicht bei subnormalen Inputs von Clang's nativem `__bf16`-Cast ab.
+4. Denormal-Handling beidseitig IEEE-konform, keine FTZ/DAZ-Shortcuts (siehe §3.1 und §3.3 für die konkreten Register-Setups).
+
+Ohne diese Regeln würde Double-Rounding oder Rounding-Mode-Divergenz den Parity-Check systematisch brechen. Details: `dequant_ir_spec.md` §7.4.
+
 ### 2.5 Säule 4: Self-Tuning Runtime
 
 **Was sie tut.** Die GA (Säule 4) liefert pro Shape eine kleine Menge **Kernel-Varianten** (typischerweise 3–5 Pareto-optimale Konfigurationen: die schnellste, die bandbreiten-effizienteste, eine LDS-arme Variante, eine Direct-Global-Variante, eine mit hohem K-Unroll). Die Self-Tuning Runtime entscheidet zur Laufzeit, welche dieser Varianten für den konkreten Call verwendet wird. Die Entscheidung wird durch einen Multi-Armed-Bandit-Algorithmus (UCB1) getroffen, der Exploration und Exploitation balanciert.
