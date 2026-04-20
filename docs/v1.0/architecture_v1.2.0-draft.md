@@ -921,6 +921,8 @@ c_frag = __builtin_amdgcn_wmma_f32_16x16x16_fp8_fp8_w32(a_frag, b_frag, c_frag);
 
 Der Codegen (Säule 3) generiert je nach `target_dtype` die entsprechende Intrinsic-Variante und übergibt sie dem System-HIP-Compiler (`hipcc` mit Target `gfx1201`).
 
+**Denormal-Handling (FP32/FP16 IEEE-konform).** Jeder generierte Kernel setzt am Prolog das MODE-Register explizit auf IEEE-Verhalten (`s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 0xF`), unabhängig von `hipcc`-Defaults. Die Defaults variieren zwischen ROCm-Versionen und Compiler-Flags; ein expliziter Setup macht das Verhalten deterministisch und portabel. Das adressiert direkt das Llama-3.1-Special-Token-Problem (SNR-Drop bei kleinen Werten, siehe Memory-Erkenntnis in §2.2) und ist Voraussetzung für die Rounding-Konsistenz-Regel 4 aus §2.4.
+
 ### 3.2 Register-Pressure-Management (VGPR-Budget 104)
 
 Eine der wichtigsten Design-Entscheidungen auf `gfx1201` ist die **bewusste Beschränkung auf 104 VGPRs pro Wave**, obwohl die Hardware bis zu 256 erlaubt. Diese Sektion erklärt warum, und wie die Entscheidung trotz 64 CUs aufrechterhalten wird.
@@ -994,6 +996,8 @@ for (int k = 0; k < K; k += 16) {
 **FP8 auf CPU.** Zen4 hat keine dedizierten FP8-Instruktionen (das ist ein RDNA-4-Feature). Für den CPU-Pfad wird FP8-Dequant auf FP16 erweitert, bevor die FMAs laufen. Das ist akzeptabel, weil das CPU-Backend primär für GA-Läufe und Fallback genutzt wird, nicht als primärer Inference-Pfad.
 
 **Thread-Modell.** GEMV-Operationen werden über die Output-Dimension parallelisiert: 16 Threads × 4096 Output-Lanes = 256 Lanes pro Thread. Die KV-Cache-Aktualisierung läuft thread-lokal (kein Lock nötig, weil jeder Thread einen disjunkten Slice aktualisiert). Für GA-Läufe wird der Thread-Pool hingegen sequentiell genutzt (ein GA-Evaluation zur Zeit), um stabile Messungen zu bekommen.
+
+**Denormal-Handling (MXCSR explizit).** Der rayon-Worker-Prolog setzt `_MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_OFF)` und `_MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_OFF)` einmalig pro Thread. Ohne diesen expliziten Setup variiert das Default-MXCSR-Verhalten zwischen Build-Umgebungen und hat in v0.x bereits zu schwer reproduzierbaren Numerik-Drifts bei kleinen Werten geführt. Der explizite Setup garantiert Parity zum GPU-FP32-Pfad (§3.1) und erfüllt Rounding-Konsistenz-Regel 4 aus §2.4.
 
 ### 3.4 Codegen für beide Targets
 
