@@ -114,6 +114,12 @@ name = "v1_ffi_test"
 path = "tests_v1/ffi_test.rs"
 required-features = ["v1", "gpu"]
 
+# v1.0 VRAM arena integration test (hits the real GPU).
+[[test]]
+name = "v1_arena_test"
+path = "tests_v1/arena_test.rs"
+required-features = ["v1", "gpu"]
+
 [profile.release]
 opt-level = 3
 lto = "thin"
