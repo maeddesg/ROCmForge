@@ -4,5 +4,6 @@
 //! hardware-abstraction layer: kernels know their target and use native
 //! intrinsics directly. See architecture_v1.2.0-draft §3.
 
+#[cfg(feature = "gpu")]
 pub mod gpu;
 pub mod cpu;

@@ -364,17 +364,15 @@ mod gpu_build {
             }
         }
 
-        // Link the single Phase-1 smoke library. More libraries will be
-        // added by this function as v1.0 kernels come online.
-        let smoke_lib = build_dir.join("libv1_smoke.a");
-        if smoke_lib.exists() {
-            println!("cargo:rustc-link-search=native={}", build_dir.display());
-            println!("cargo:rustc-link-lib=static=v1_smoke");
-        } else {
-            println!(
-                "cargo:warning=v1 smoke library not found at {}",
-                smoke_lib.display()
-            );
+        // Link Phase-1 v1 libraries. More land here as v1.0 kernels come online.
+        println!("cargo:rustc-link-search=native={}", build_dir.display());
+        for lib in &["v1_smoke", "v1_device_info"] {
+            let path = build_dir.join(format!("lib{lib}.a"));
+            if path.exists() {
+                println!("cargo:rustc-link-lib=static={lib}");
+            } else {
+                println!("cargo:warning=v1 library not found at {}", path.display());
+            }
         }
 
         println!("cargo:rerun-if-changed=hip_kernels_v1");

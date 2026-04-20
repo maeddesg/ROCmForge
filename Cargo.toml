@@ -108,6 +108,12 @@ name = "build_test"
 path = "tests_v1/build_test.rs"
 required-features = ["v1"]
 
+# v1.0 FFI-layer integration test (hits the real GPU).
+[[test]]
+name = "v1_ffi_test"
+path = "tests_v1/ffi_test.rs"
+required-features = ["v1", "gpu"]
+
 [profile.release]
 opt-level = 3
 lto = "thin"

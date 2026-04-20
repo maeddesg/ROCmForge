@@ -30,3 +30,4 @@ function(add_hip_kernel NAME SOURCE)
 endfunction()
 
 add_hip_kernel(v1_smoke smoke_test.hip)
+add_hip_kernel(v1_device_info device_info.hip)
