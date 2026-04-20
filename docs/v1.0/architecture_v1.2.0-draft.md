@@ -488,6 +488,11 @@ pub enum HalfType { Fp16, Bf16 }
 pub type RegId = u32;
 pub type Expr = String; // kleines Ausdrucks-Sublanguage, vom Codegen geparst
 pub type QuantFormatId = u32;
+```
+
+**SSA-Invariante.** Jede `RegId` wird genau einmal als `dst` eines Ops produziert; der Typ eines `RegId` steht beim Producer fest und ändert sich nicht. Der Codegen mappt `RegId`s per Linear-Scan auf physische Register (VGPRs auf GPU, ZMM auf CPU). Die Lebensdauer endet beim letzten Consumer. Mehrfach-Assignments werden vom Validator abgelehnt.
+
+```rust
 
 /// Kompilierte Repräsentation — Binary und Metadaten.
 pub struct CompiledKernel {
