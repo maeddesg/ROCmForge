@@ -519,6 +519,8 @@ pub enum KernelKind {
 
 **Kernel-Cache-Key-Layout und Cache-Invalidierungsstrategie sind in `dequant_ir_spec.md` §5.6 spezifiziert.**
 
+**GEMV-Kernel-Varianten (`q8_inline`, `fuse_residual`, `fuse_norm`, `x_via_lds`) und ihre Invarianten sind in `dequant_ir_spec.md` §5.3 und §5.5 spezifiziert.**
+
 **Algorithmus (Codegen).** Der Codegen ist ein regelbasiertes Übersetzungsmodul, kein Optimierer. Das Optimierungswissen steckt in der `QuantFormat`-Definition und im Precision-Hint des konsumierenden `OpNode`; der Codegen spuckt nur die entsprechenden Instruktionen aus.
 
 ```
