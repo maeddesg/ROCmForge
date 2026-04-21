@@ -18,6 +18,9 @@ fn main() {
     let mut suite_path: Option<String> = None;
     let mut output_path: Option<String> = None;
     let mut interactive = false;
+    let mut show_introspection = false;
+    let mut show_quality = false;
+    let mut show_tuning = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -68,6 +71,14 @@ fn main() {
                 output_path = Some(args[i].clone());
             }
             "--interactive" => interactive = true,
+            "--show-introspection" => show_introspection = true,
+            "--show-quality" => show_quality = true,
+            "--show-tuning" => show_tuning = true,
+            "--show-all" => {
+                show_introspection = true;
+                show_quality = true;
+                show_tuning = true;
+            }
             "-h" | "--help" => {
                 print_help();
                 return;
@@ -109,9 +120,14 @@ fn main() {
             }
             return;
         }
+        let show = rocmforge::v1::cli::inference_test::ShowFlags {
+            introspection: show_introspection,
+            quality: show_quality,
+            tuning: show_tuning,
+        };
         if let Some(p) = prompt {
             if let Err(e) =
-                rocmforge::v1::cli::inference_test::run_single_prompt(&path, &p, max_tokens)
+                rocmforge::v1::cli::inference_test::run_single_prompt(&path, &p, max_tokens, show)
             {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
@@ -119,7 +135,7 @@ fn main() {
             return;
         }
         if interactive {
-            if let Err(e) = run_interactive(&path, max_tokens) {
+            if let Err(e) = run_interactive(&path, max_tokens, show) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -142,7 +158,11 @@ fn main() {
 }
 
 #[cfg(all(feature = "v1", feature = "gpu"))]
-fn run_interactive(model_path: &str, max_tokens: usize) -> Result<(), String> {
+fn run_interactive(
+    model_path: &str,
+    max_tokens: usize,
+    show: rocmforge::v1::cli::inference_test::ShowFlags,
+) -> Result<(), String> {
     use std::io::{BufRead, Write};
     println!("rocmforge-v1 interactive mode. Ctrl-D or empty line to exit.");
     println!("(Phase 1: each turn is independent — KV-cache resets between turns.)\n");
@@ -158,12 +178,15 @@ fn run_interactive(model_path: &str, max_tokens: usize) -> Result<(), String> {
             break;
         }
         let line = line.trim();
-        if line.is_empty() {
+        if line.is_empty() || line == "quit" || line == "exit" {
             break;
         }
-        if let Err(e) =
-            rocmforge::v1::cli::inference_test::run_single_prompt(model_path, line, max_tokens)
-        {
+        if let Err(e) = rocmforge::v1::cli::inference_test::run_single_prompt(
+            model_path,
+            line,
+            max_tokens,
+            show,
+        ) {
             eprintln!("error: {e}");
         }
         println!();
@@ -187,7 +210,13 @@ Options:
   --suite <path>                     Suite JSON for --inference-test
                                      (default: benches_v1/inference_test_prompts_15.json)
   --output <path>                    Report file for --inference-test
-                                     (default: results/inference_test_<date>.md)"
+                                     (default: results/inference_test_<date>.md)
+  --show-introspection               Print the ModelProfile summary
+  --show-quality                     Calibrate + print the Quality Monitor report
+  --show-tuning                      Attach the self-tuning runtime and print
+                                     the Bandit convergence report
+  --show-all                         Equivalent to --show-introspection
+                                     --show-quality --show-tuning"
     );
 }
 

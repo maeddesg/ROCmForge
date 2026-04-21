@@ -64,12 +64,13 @@ impl<'m> InferencePipeline<'m> {
                 context: "pipeline".into(),
             })?;
 
-        // Säule 1 — one-shot introspection. Cheap (< 5s for 8B) and
-        // drops a summary to the log. If the SNR risk score lands in
-        // the warn band we print a visible notice so the operator
-        // knows this model *might* need precision hints later.
+        // Säule 1 — one-shot introspection. Cheap (< 5s for 8B).
+        // The summary is not auto-printed; the CLI gates this via
+        // `--show-introspection` so programmatic callers don't get
+        // 20 lines of stderr noise per pipeline. The one-line SNR
+        // warn is kept — it's a single line and unambiguously
+        // signals a model that needs a second look.
         let profile = super::super::introspection::introspect(gguf);
-        profile.print_summary();
         if profile.snr_risk_score < 2.0 {
             eprintln!(
                 "⚠  SNR risk score {:.2} — precision upgrade may be needed (Phase 2 GA)",

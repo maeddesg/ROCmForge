@@ -242,6 +242,14 @@ name = "v1_monitor_test"
 path = "tests_v1/monitor_test.rs"
 required-features = ["v1"]
 
+# v1.0 CLI + integration smoke tests — Phase 1 Schritt 1.15.
+# End-to-end startup flow, Qwen3 + Llama-3.1 generation, sequential
+# model-load VRAM sanity.
+[[test]]
+name = "v1_integration_test"
+path = "tests_v1/integration_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

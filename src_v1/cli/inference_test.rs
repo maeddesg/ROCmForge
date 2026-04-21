@@ -306,12 +306,57 @@ fn write_report(
     Ok(())
 }
 
+/// Opt-in diagnostics for `run_single_prompt`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ShowFlags {
+    /// After load, re-print the ModelProfile summary (redundant
+    /// with the pipeline's own auto-print but useful as an
+    /// explicit cue in scripts that pipe stdout).
+    pub introspection: bool,
+    /// Run the monitor calibration so the quality-monitor band
+    /// is populated, and print the revision log at generation
+    /// end — zero events on a clean run, one line per event
+    /// otherwise.
+    pub quality: bool,
+    /// Attach the self-tuning runtime so the Q4_K GEMV bandit
+    /// is exercised; print the per-shape convergence report at
+    /// the end. Roughly doubles decode throughput vs. the
+    /// fixed-kernel fallback.
+    pub tuning: bool,
+}
+
+/// Startup banner — one line per model load so the user can see
+/// at a glance what they're running. Called after the pipeline is
+/// constructed but before any generation.
+pub fn print_banner(
+    model_path: &Path,
+    config: &ModelConfig,
+    device: &GpuDevice,
+) {
+    let model_name = model_path
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| model_path.display().to_string());
+    println!(
+        "ROCmForge v1.0-dev | {} | {} ({}) | arch={} | {} layers | hidden={} heads={} vocab={}",
+        model_name,
+        device.name,
+        device.gcn_arch_name,
+        config.architecture,
+        config.n_layers,
+        config.hidden_dim,
+        config.n_heads,
+        config.vocab_size,
+    );
+}
+
 /// Helper for the single-prompt CLI path. Builds a pipeline, runs one
 /// generation, prints the output.
 pub fn run_single_prompt(
     model_path: impl AsRef<Path>,
     prompt: &str,
     max_tokens: usize,
+    show: ShowFlags,
 ) -> Result<(), String> {
     let model_path = model_path.as_ref().to_path_buf();
     let device = GpuDevice::detect(0).map_err(|e| format!("GPU detect: {e}"))?;
@@ -320,6 +365,8 @@ pub fn run_single_prompt(
     let gguf = GGUFFile::open(&model_path).map_err(|e| format!("gguf reopen: {e}"))?;
     let cfg = ModelConfig::from_metadata(gguf.metadata(), gguf.tensors())
         .map_err(|e| format!("model config: {e}"))?;
+
+    print_banner(&model_path, &cfg, &device);
 
     let layers = group_tensors_by_layer(gguf.tensors());
     let mut globals: std::collections::HashMap<TensorRole, &TensorInfo> =
@@ -341,6 +388,22 @@ pub fn run_single_prompt(
     let max_seq = (max_tokens + 512).max(1024);
     let mut pipe = InferencePipeline::new(graph, plan, &model, &gguf, max_seq)
         .map_err(|e| format!("pipeline: {e}"))?;
+
+    if show.introspection {
+        pipe.profile.print_summary();
+    }
+
+    if show.tuning {
+        pipe.executor
+            .attach_runtime(crate::v1::runtime::Runtime::new(
+                crate::v1::runtime::VariantRegistry::new(),
+            ));
+    }
+    if show.quality {
+        pipe.calibrate_monitor()
+            .map_err(|e| format!("calibrate: {e}"))?;
+    }
+
     pipe.reset().map_err(|e| format!("reset: {e}"))?;
 
     let sampling = SamplingConfig::greedy();
@@ -356,6 +419,24 @@ pub fn run_single_prompt(
         result.decode_tok_s,
         result.total_ms
     );
+
+    if show.tuning {
+        if let Some(rt) = pipe.executor.runtime() {
+            rt.print_tuning_report();
+        }
+    }
+    if show.quality {
+        println!(
+            "Quality Monitor: {} event(s)",
+            pipe.monitor.revision_log.len()
+        );
+        for ev in pipe.monitor.revision_log.iter().take(8) {
+            println!(
+                "  token {} node {:?} — {:?}",
+                ev.token_index, ev.node_id, ev.signal.reason
+            );
+        }
+    }
     Ok(())
 }
 
