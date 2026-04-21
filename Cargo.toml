@@ -132,6 +132,12 @@ name = "v1_gguf_test"
 path = "tests_v1/gguf_test.rs"
 required-features = ["v1"]
 
+# v1.0 Dequant IR tests — Block 1: types, formats, validator, printer (CPU-only).
+[[test]]
+name = "v1_ir_test"
+path = "tests_v1/ir_test.rs"
+required-features = ["v1"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
