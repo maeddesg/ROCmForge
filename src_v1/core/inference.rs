@@ -37,6 +37,10 @@ pub struct InferencePipeline<'m> {
     pub executor: GraphExecutor<'m>,
     pub tokenizer: Tokenizer,
     pub config: ModelConfig,
+    /// Säule 1 — ModelProfile from the load-time introspection scan.
+    /// Phase 1 records it and surfaces warnings; Phase 2's precision
+    /// GA and the FP32-overlay path consume it downstream.
+    pub profile: super::super::introspection::ModelProfile,
 }
 
 impl<'m> InferencePipeline<'m> {
@@ -56,11 +60,31 @@ impl<'m> InferencePipeline<'m> {
                 message: format!("tokenizer init: {e}"),
                 context: "pipeline".into(),
             })?;
+
+        // Säule 1 — one-shot introspection. Cheap (< 5s for 8B) and
+        // drops a summary to the log. If the SNR risk score lands in
+        // the warn band we print a visible notice so the operator
+        // knows this model *might* need precision hints later.
+        let profile = super::super::introspection::introspect(gguf);
+        profile.print_summary();
+        if profile.snr_risk_score < 2.0 {
+            eprintln!(
+                "⚠  SNR risk score {:.2} — precision upgrade may be needed (Phase 2 GA)",
+                profile.snr_risk_score
+            );
+            eprintln!(
+                "   critical embedding tokens: {} of {} vocab",
+                profile.critical_embedding_tokens.len(),
+                config.vocab_size
+            );
+        }
+
         let executor = GraphExecutor::new(graph, plan, model, gguf, max_seq)?;
         Ok(Self {
             executor,
             tokenizer,
             config,
+            profile,
         })
     }
 
