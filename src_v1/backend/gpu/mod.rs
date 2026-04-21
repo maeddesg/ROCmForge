@@ -9,6 +9,7 @@ pub mod arena;
 pub mod dequant_parity;
 pub mod device;
 pub mod error;
+pub mod gemv;
 pub mod hip_ffi;
 pub mod wmma;
 pub mod wrappers;
