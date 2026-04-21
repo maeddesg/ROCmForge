@@ -126,6 +126,18 @@ name = "v1_telemetry_test"
 path = "tests_v1/telemetry_test.rs"
 required-features = ["v1"]
 
+# v1.0 GGUF loader test — CPU-only parser/metadata + GPU-gated VRAM upload tests.
+[[test]]
+name = "v1_gguf_test"
+path = "tests_v1/gguf_test.rs"
+required-features = ["v1"]
+
+# v1.0 inference CLI entry point (Phase 1: --list-tensors only).
+[[bin]]
+name = "rocmforge-v1"
+path = "src/bin/rocmforge_v1.rs"
+required-features = ["v1"]
+
 [profile.release]
 opt-level = 3
 lto = "thin"
