@@ -69,3 +69,57 @@ extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 }
+
+#[link(name = "v1_wmma_q4_0_fp8", kind = "static")]
+extern "C" {
+    /// Q4_0 FP8 (Level 0) WMMA launcher. Same geometry as the FP16
+    /// kernel — `M`/`N`/`K` multiples of 64/64/32.
+    pub fn rocmforge_launch_wmma_gemm_q4_0_fp8(
+        input: *const f32,
+        weights: *const u8,
+        output: *mut f32,
+        M: i32,
+        N: i32,
+        K: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_wmma_q4_k_fp8", kind = "static")]
+extern "C" {
+    pub fn rocmforge_launch_wmma_gemm_q4_k_fp8(
+        input: *const f32,
+        weights: *const u8,
+        output: *mut f32,
+        M: i32,
+        N: i32,
+        K: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_wmma_q6_k_fp8", kind = "static")]
+extern "C" {
+    pub fn rocmforge_launch_wmma_gemm_q6_k_fp8(
+        input: *const f32,
+        weights: *const u8,
+        output: *mut f32,
+        M: i32,
+        N: i32,
+        K: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_wmma_q8_0_fp8", kind = "static")]
+extern "C" {
+    pub fn rocmforge_launch_wmma_gemm_q8_0_fp8(
+        input: *const f32,
+        weights: *const u8,
+        output: *mut f32,
+        M: i32,
+        N: i32,
+        K: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
