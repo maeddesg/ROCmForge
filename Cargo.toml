@@ -191,6 +191,19 @@ name = "v1_gemv_test"
 path = "tests_v1/gemv_test.rs"
 required-features = ["v1", "gpu"]
 
+# v1.0 elementwise codegen emit / drift test.
+[[test]]
+name = "v1_codegen_elementwise_emit_test"
+path = "tests_v1/codegen_elementwise_emit_test.rs"
+required-features = ["v1"]
+
+# v1.0 elementwise kernel tests — embedding, RMSNorm, residual add,
+# RoPE, attention. Phase 1 Schritt 1.9.
+[[test]]
+name = "v1_elementwise_test"
+path = "tests_v1/elementwise_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
