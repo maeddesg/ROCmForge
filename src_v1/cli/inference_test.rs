@@ -102,6 +102,15 @@ pub fn run(
     let mut pipe = InferencePipeline::new(graph, plan, &model, &gguf, max_seq)
         .map_err(|e| format!("pipeline: {e}"))?;
 
+    // Attach the Self-Tuning Runtime so Q4_K GEMVs go through the
+    // Bandit. On the first few layers the Bandit explores both
+    // variants; once q8_inline proves faster the rest of the run
+    // stays on it. Kept unconditional so the Phase-1 validation
+    // suite reflects the runtime users actually hit.
+    pipe.executor.attach_runtime(crate::v1::runtime::Runtime::new(
+        crate::v1::runtime::VariantRegistry::new(),
+    ));
+
     // Greedy with a light repeat-penalty. Pre-fix, greedy degenerated
     // into number-soup after ~30 decode tokens because the RoPE pair
     // layout was wrong — that bug is now resolved. A repeat_penalty
@@ -144,6 +153,9 @@ pub fn run(
     }
 
     write_report(&output_path, &model_path, &suite.model_target, &outcomes)?;
+    if let Some(rt) = pipe.executor.runtime() {
+        rt.print_tuning_report();
+    }
     println!("\nReport: {}", output_path.display());
     Ok(())
 }

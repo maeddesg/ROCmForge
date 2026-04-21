@@ -219,6 +219,14 @@ name = "v1_inference_test"
 path = "tests_v1/inference_test.rs"
 required-features = ["v1", "gpu"]
 
+# v1.0 self-tuning runtime tests — Phase 1 Schritt 1.12.
+# CPU unit tests for the UCB1 Bandit + GPU integration tests that
+# attach the Runtime to a real executor.
+[[test]]
+name = "v1_runtime_test"
+path = "tests_v1/runtime_test.rs"
+required-features = ["v1"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

@@ -1,6 +1,6 @@
 # ROCmForge v1.0 — Inference Validation Report
 
-- **Date:** 2026-04-21 14:28:06
+- **Date:** 2026-04-21 14:56:55
 - **Model file:** `/home/maeddes/models/Qwen3-8B-Q4_K_M.gguf`
 - **Suite target:** `Qwen3-8B-Q4_K_M.gguf`
 - **Sampling:** greedy (temperature=0)
@@ -11,27 +11,27 @@
 
 | Prefill tok | Prefill ms | Prefill tok/s | Decode tok | Decode ms | Decode tok/s | Wallclock ms |
 |---:|---:|---:|---:|---:|---:|---:|
-| 835 | 40869 | 20.4 | 5929 | 298232 | 19.9 | 339246 |
+| 835 | 27150 | 30.8 | 5929 | 200324 | 29.6 | 227617 |
 
 ## Per-prompt metrics
 
 | # | Name | Category | Prefill tok | Decode tok | Prefill tok/s | Decode tok/s | Total ms | EOS |
 |---:|---|---|---:|---:|---:|---:|---:|:-:|
-| 1 | Greeting | smoke | 24 | 15 | 19.2 | 19.5 | 2028 | yes |
-| 2 | Simple Sequence | smoke | 33 | 34 | 20.0 | 20.3 | 3336 | yes |
-| 3 | Prime Check (Python) | code_generation | 35 | 256 | 20.4 | 20.4 | 14268 | no |
-| 4 | LRU Cache (C++) | code_generation | 51 | 512 | 20.4 | 20.0 | 28097 | no |
-| 5 | REST API (Go) | code_generation | 66 | 1024 | 20.5 | 19.5 | 55617 | no |
-| 6 | Mutex Explanation | prose | 33 | 56 | 20.5 | 20.5 | 4359 | yes |
-| 7 | TCP vs UDP | prose | 43 | 512 | 20.6 | 20.2 | 27488 | no |
-| 8 | GPU Architecture Blog Post | prose | 62 | 1024 | 20.8 | 19.6 | 55204 | no |
-| 9 | Binary Search Complexity | reasoning | 34 | 256 | 20.5 | 20.4 | 14231 | no |
-| 10 | Debug Code | reasoning | 49 | 256 | 20.5 | 20.3 | 15002 | no |
-| 11 | Distributed Message Queue | reasoning | 66 | 1024 | 20.4 | 19.6 | 55430 | no |
-| 12 | Long System Prompt + Question | context_stress | 204 | 256 | 20.4 | 20.1 | 22766 | no |
-| 13 | Long Output Story | context_stress | 64 | 512 | 20.6 | 20.1 | 28616 | no |
-| 14 | Arithmetic (Q4_K Precision) | numerics | 33 | 64 | 20.5 | 20.8 | 4700 | no |
-| 15 | Emoji/Special Characters | tokenizer_robustness | 38 | 128 | 20.5 | 20.5 | 8103 | no |
+| 1 | Greeting | smoke | 24 | 15 | 29.2 | 29.3 | 1344 | yes |
+| 2 | Simple Sequence | smoke | 33 | 34 | 29.3 | 30.1 | 2266 | yes |
+| 3 | Prime Check (Python) | code_generation | 35 | 256 | 30.2 | 30.4 | 9583 | no |
+| 4 | LRU Cache (C++) | code_generation | 51 | 512 | 30.4 | 29.9 | 18795 | no |
+| 5 | REST API (Go) | code_generation | 66 | 1024 | 31.2 | 29.1 | 37310 | no |
+| 6 | Mutex Explanation | prose | 33 | 56 | 31.1 | 30.9 | 2884 | yes |
+| 7 | TCP vs UDP | prose | 43 | 512 | 31.1 | 30.0 | 18446 | no |
+| 8 | GPU Architecture Blog Post | prose | 62 | 1024 | 31.0 | 29.1 | 37224 | no |
+| 9 | Binary Search Complexity | reasoning | 34 | 256 | 30.4 | 30.7 | 9462 | no |
+| 10 | Debug Code | reasoning | 49 | 256 | 30.8 | 30.7 | 9945 | no |
+| 11 | Distributed Message Queue | reasoning | 66 | 1024 | 31.0 | 29.0 | 37449 | no |
+| 12 | Long System Prompt + Question | context_stress | 204 | 256 | 30.9 | 29.9 | 15162 | no |
+| 13 | Long Output Story | context_stress | 64 | 512 | 31.2 | 29.9 | 19162 | no |
+| 14 | Arithmetic (Q4_K Precision) | numerics | 33 | 64 | 30.9 | 30.9 | 3148 | no |
+| 15 | Emoji/Special Characters | tokenizer_robustness | 38 | 128 | 30.5 | 30.6 | 5438 | no |
 
 ## Human evaluation (fill in manually)
 
@@ -61,8 +61,8 @@ Pass threshold: 12/15 korrekt for Phase-1 acceptance.
 ### 1. Greeting
 
 - **Category:** smoke / **difficulty:** trivial / **max_tokens:** 64
-- **Prefill:** 24 tok in 1249 ms (19.2 tok/s)
-- **Decode:** 15 tok in 768 ms (19.5 tok/s) — hit EOS
+- **Prefill:** 24 tok in 822 ms (29.2 tok/s)
+- **Decode:** 15 tok in 512 ms (29.3 tok/s) — hit EOS
 - **Expected:** Kurze freundliche Antwort, zeigt dass Decode grundsätzlich funktioniert
 - **Quality check:** Antwort ist kohärent und kontextbezogen, kein Müll/Wiederholung
 
@@ -81,8 +81,8 @@ Hallo! Wie kann ich Ihnen heute helfen? 😊
 ### 2. Simple Sequence
 
 - **Category:** smoke / **difficulty:** trivial / **max_tokens:** 64
-- **Prefill:** 33 tok in 1649 ms (20.0 tok/s)
-- **Decode:** 34 tok in 1678 ms (20.3 tok/s) — hit EOS
+- **Prefill:** 33 tok in 1125 ms (29.3 tok/s)
+- **Decode:** 34 tok in 1131 ms (30.1 tok/s) — hit EOS
 - **Expected:** Sequenz 1-10, zeigt dass Token-Generierung stabil ist
 - **Quality check:** Korrekte Zahlenfolge 1-10 ohne Auslassungen oder Wiederholungen
 
@@ -101,8 +101,8 @@ Zähle von 1 bis 10
 ### 3. Prime Check (Python)
 
 - **Category:** code_generation / **difficulty:** short / **max_tokens:** 256
-- **Prefill:** 35 tok in 1714 ms (20.4 tok/s)
-- **Decode:** 256 tok in 12544 ms (20.4 tok/s) — hit max_tokens
+- **Prefill:** 35 tok in 1161 ms (30.2 tok/s)
+- **Decode:** 256 tok in 8414 ms (30.4 tok/s) — hit max_tokens
 - **Expected:** Funktionierender Python-Code mit korrekter Logik
 - **Quality check:** Syntaktisch korrektes Python, korrekte Primzahl-Logik (Schleife bis sqrt(n), Edge-Cases 0/1/2)
 
@@ -156,8 +156,8 @@ print(is_prime(997)) # Output: True (997 is a large
 ### 4. LRU Cache (C++)
 
 - **Category:** code_generation / **difficulty:** medium / **max_tokens:** 512
-- **Prefill:** 51 tok in 2497 ms (20.4 tok/s)
-- **Decode:** 512 tok in 25591 ms (20.0 tok/s) — hit max_tokens
+- **Prefill:** 51 tok in 1679 ms (30.4 tok/s)
+- **Decode:** 512 tok in 17107 ms (29.9 tok/s) — hit max_tokens
 - **Expected:** C++ Klasse mit std::mutex, std::unordered_map, std::list
 - **Quality check:** Kompilierbares C++, korrekte LRU-Eviction-Logik, Thread-Safety via Mutex
 
@@ -177,7 +177,7 @@ This class supports the following operations:
 - `put(key, value)` – inserts or updates the key-value pair.
 - `delete(key)` – removes the key from the cache.
 
-The cache maintains its order using an ordered data structure (like a linked list), but to simplify things while maintaining performance, we use an unordered map combined with an ordered map that keeps track of access order.
+The cache maintains its order based on usage (LRU), using an unordered map to store values and a doubly linked list to maintain order.
 
 ---
 
@@ -191,8 +191,8 @@ The cache maintains its order using an ordered data structure (like a linked lis
 
 class LRUCache {
 private:
-    std::unordered_map<int, int> cache;       // Key-value mapping
-    std::list<int> order;                     // Maintains access order (LRU)
+    std::unordered_map<int, int> cache;       // Key -> Value mapping
+    std::list<int> order;                     // Maintains insertion/removal order (LRU)
     size_t capacity;
     mutable std::mutex mtx;                   // Mutex for thread safety
 
@@ -201,7 +201,7 @@ public:
 
     /**
      * Retrieves value associated with given key.
-     * If not found or invalid, returns -1.
+     * If not found, returns -1.
      */
     int get(int key) {
         std::lock_guard<std::mutex> lock(mtx);
@@ -219,39 +219,36 @@ public:
     }
 
     /**
-     * Inserts or updates entry in the cache.
+     * Inserts or updates value associated with given key.
      */
     void put(int key, int value) {
         std::lock_guard<std::mutex> lock(mtx);
 
-        auto it = cache.find(key);
-        
-        if (it != cache.end()) {
-            // Update existing entry and move to front of list
-            order.remove(it->first);
-            order.push_front(it->first);
-            it->second = value;
+        if (cache.find(key) != cache.end()) {
+            // Key already exists: update value and move to front of list
+            cache[key] = value;
+            order.remove(key);
+            order.push_front(key);
             return;
         }
 
         if (capacity == 0 || capacity <= static_cast<size_t>(order.size())) {
-            // Evict least recently used item when full
-            
-            int lru_key = order.back();
-            
-            // Remove from both maps and list
-            cache.erase(lru_key);
+            // Cache is full: remove least recently used item from end of list
+            int lruKey = order.back();
             order.pop_back();
-            
-           }
+            cache.erase(lruKey);
+        }
 
+        // Add new entry at front of list and update map
+        order.push_front(key);
+        cache[key] =
 ```
 
 ### 5. REST API (Go)
 
 - **Category:** code_generation / **difficulty:** long / **max_tokens:** 1024
-- **Prefill:** 66 tok in 3222 ms (20.5 tok/s)
-- **Decode:** 1024 tok in 52385 ms (19.5 tok/s) — hit max_tokens
+- **Prefill:** 66 tok in 2118 ms (31.2 tok/s)
+- **Decode:** 1024 tok in 35182 ms (29.1 tok/s) — hit max_tokens
 - **Expected:** Strukturierter Go-Code mit HTTP-Handler, JWT-Library, bcrypt
 - **Quality check:** Go-Syntax korrekt, sinnvolle Endpoint-Struktur, Security-Basics (Hashing, JWT)
 
@@ -268,7 +265,7 @@ Here's a complete **REST API in Go** that includes the following features:
 
 - **User registration**
 - **User login**
-- **User logout**
+- **Logout (with token revocation)**
 - **JWT token handling**
 - **Password hashing using bcrypt**
 - **Rate limiting middleware**
@@ -281,7 +278,7 @@ Make sure you have the following installed:
 ```bash
 go get -u github.com/gorilla/mux
 go get -u github.com/dgrijalva/jwt-go/v4
-go get -u github.com/joho/gofakeit/v6  # For generating fake data (optional)
+go get -u github.com/joho/gofakeit/v6  # For generating fake data for testing (optional)
 ```
 
 ---
@@ -295,209 +292,159 @@ go get -u github.com/joho/gofakeit/v6  # For generating fake data (optional)
 │   └── user.go      # User model definition.
 ├── handlers/
 │   ├── auth.go      # Authentication-related handlers.
-│   └── middleware.go # Middleware for rate limiting and JWT verification.
+│   └── middleware.go # Middleware like rate limiting and JWT verification.
 ├── utils/
 │   ├── jwt_utils.go  # JWT helper functions.
 │   └── hash_utils.go  # Bcrypt helper functions.
-└── config.json       # Configuration file for environment variables (e.g., secret key).
+└── config.json       # Configuration file for environment variables or settings (optional).
 ```
 
 ---
 
-## 📄 `config.json` (Example)
+## 📜 `main.go` – Entry Point
 
-```json
-{
-    "secret_key": "your-secret-key-here",
-    "rate_limit": {
-        "max_requests": 10,
-        "window_seconds": 60,
-        "ip_key": true,
-        "user_key": false,
-        "token_key": false,
-        "rate_limit_type": ""
-    }
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+
+	"github.com/gorilla/mux"
+)
+
+func main() {
+	r := mux.NewRouter()
+
+	// Initialize routes and middlewares here or via separate files.
+
+	r.HandleFunc("/register", registerHandler).Methods("POST")
+	r.HandleFunc("/login", loginHandler).Methods("POST")
+	r.HandleFunc("/logout", logoutHandler).Methods("POST")
+
+	fmt.Println("Server started on port 8080")
+	log.Fatal(http.ListenAndServe(":8080", r))
 }
 ```
 
 ---
 
-## 🧾 `models/user.go`
+## 🧾 `models/user.go` – User Model Definition
 
 ```go
 package models
 
-import (
-	"errors"
-	"time"
-)
-
 type User struct {
-	ID       int       `json:"id"`
-	Name     string    `json:"name"`
-	Email    string    `json:"email"`
-	Password string    `json:"-"`
-	CreatedAt time.Time `json:"-"`
-}
-
-func NewUser(name string, email string, password string) (*User, error) {
-	if name == "" || email == "" || password == "" {
-		return nil, errors.New("all fields are required")
-	}
-	return &User{
-		Name:     name,
-		Email:    email,
-		Passowrd: password,
-	}, nil // In real app you would save to DB here or validate more strictly...
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"-"`
 }
 ```
 
 ---
 
-## 🧾 `utils/hash_utils.go` – Bcrypt Hashing
+## 🧩 `utils/hash_utils.go` – Password Hashing with Bcrypt
 
 ```go
 package utils
 
 import (
-	bcrypt "golang.org/x/crypto/bcrypt"
+    "golang.org/x/crypto/bcrypt"
 )
 
 func HashPassword(password string) ([]byte, error) {
-	hashedPass := make([]byte, 60)
-	err := bcrypt.CompareHashAndPassword(hashedPass[:], []byte(password))
-	if err != nil {
-	    return hashedPass[:], err // This is not correct; we should generate it instead!
-	    
-	    // Correct way:
-	    hashedBytes := make([]byte, 60)
-	    if err = bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost); err != nil {
-	        return hashedBytes[:], err 
-	    }
-	    
-	   return hashedBytes[:], nil 
-	   
-	   // So this function should be corrected as follows:
-	   
-	   func HashPassword(password string) ([]byte ,error){
-	       hashedBytes := make([]byte ,60)
-	       if err = bcrypt.GenerateFromPassword([]byte(password),bcrypt.DefaultCost);err !=nil{
-	           return hashedBytes,nil 
-	       }
-	       return hashedBytes,nil 
-	   }
-
-	   
-	   
-	   
-	   
-	   
-	   
-	    
-	    
-	    
-	    
-	    	
-	    	
-	    	
-	    	
-	    	    
-	    	    
-	    	    
-	    	    
-	    	    
-	    	    
-	    	    
-
+    hashedPass, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+    if err != nil {
+        return nil, err // Handle error as needed in your app context (e.g., log it)
+    }
+    return hashedPass, nil // Return the hash to be stored in DB or used elsewhere as needed 
 }
 
-func CheckHash(hashed [] byte,password [] byte ) bool {
-
-	err :=bcrypt.CompareHashAndPassword(hashed,password )
-	if(err!=nil){
-		
-			return false
-		
-			
-		
-			
-			
-			
-			
-			
-			
-			
-			
-			
-		
-		
-		
-	
-		
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-}
-
-return true
-	
+func CheckHash(hashed []byte, plain []byte) bool {
+	err := bcrypt.CompareHashAndPassword(hashed, plain)
+	return err == nil // Return true if match; false otherwise 
 }
 ```
 
-Wait! I see an issue here — your code has some syntax errors due to incorrect formatting.
+---
 
-Let me fix it properly.
+## 🔐 `utils/jwt_utils.go` – JWT Token Handling & Verification Logic
+
+```go
+package utils 
+
+import (
+    "github.com/dgrijalva/jwt-go/v4"
+)
+
+var jwtKey = []byte("your-secret-key-here") 
+
+// GenerateToken creates a new JWT token based on user data 
+func GenerateToken(userID string) (string,error){
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256,jwt.MapClaims{
+        "user_id": userID,
+        "exp": time.Now().Add(time.Hour * 24).Unix(),
+})
+	tokenString,err:=token.SignedString(jwtKey)
+	if err !=nil{
+        return "",err 
+     }
+	return tokenString,nil  
+}
+
+// VerifyToken checks if provided token is valid 
+func VerifyToken(tokenStr string)(string,error){
+	token,err:=jwt.Parse(tokenStr,jwt.KeyFunc(func(t *jwt.Token)(interface{},error){
+        	if _,ok:=t.Method.(*jwt.SigningMethodHMAC); !ok{
+            	return nil,err 
+         }
+         return jwtKey,nil  
+     }))
+    
+     if claims,err:=token.Claims();err==nil && claims!=nil{
+        	if claimsMap,_:=claims.(jwt.MapClaims);claimsMap["user_id"]!=nil{
+            	return claimsMap["user_id"].(string),nil  
+         }else{   
+             return "",fmt.Errorf("invalid claim")  
+          }   
+      }else{   
+          return "",err  
+      }
+
+}
+```
+
+> ⚠️ Note: In production use secure secret keys from environment variables.
 
 ---
 
-## ✅ Corrected: `utils/hash_utils.go` – Bcrypt Hashing
+## 🔐 Middleware: Rate Limiting (`middleware/go`) 
+
+This example uses memory-based rate limit — not suitable for production without Redis or similar.
 
 ```go
-package utils
+package middleware 
 
 import (
-	bcrypt2 "golang.org/x/crypto/bcrypt"
+    "fmt"
+    "net/http"    
 )
 
-// HashPassword hashes a given plain text password using BCrypt with default cost level.
-func HashPassword(plainTextPwd []byte) ([]byte, error) {
-	hashedPwd := make([]byte, 60)
-	err := bcrypt2.GenerateFromPassword(plainTextPwd /* or just pass the plain text as bytes */, bcrypt2.DefaultCost)
-	if err != nil {
-   		return nil /* or use empty slice */, err /* handle accordingly */
-   	 }
+type RateLimiter struct {        
+   requests map[string]int     
+}  
 
-	return hashedPwd /* or use the generated hash */, nil
-	
-}
-
-// ComparePasswords compares a plain text password against its stored hash using BCrypt.
-func ComparePasswords(plainTextPwd [] byte , storedHash [] byte ) bool {
-
-
+func NewRateLimiter(limit int) *RateLimiter {    
+   return &RateLimiter
 ```
 
 ### 6. Mutex Explanation
 
 - **Category:** prose / **difficulty:** short / **max_tokens:** 128
-- **Prefill:** 33 tok in 1612 ms (20.5 tok/s)
-- **Decode:** 56 tok in 2738 ms (20.5 tok/s) — hit EOS
+- **Prefill:** 33 tok in 1061 ms (31.1 tok/s)
+- **Decode:** 56 tok in 1813 ms (30.9 tok/s) — hit EOS
 - **Expected:** Klare, präzise Erklärung von Mutual Exclusion
 - **Quality check:** Technisch korrekt, erwähnt Thread-Safety/Locking, verständlich
 
@@ -516,8 +463,8 @@ A mutex, short for "mutual exclusion," is a synchronization mechanism used in co
 ### 7. TCP vs UDP
 
 - **Category:** prose / **difficulty:** medium / **max_tokens:** 512
-- **Prefill:** 43 tok in 2083 ms (20.6 tok/s)
-- **Decode:** 512 tok in 25395 ms (20.2 tok/s) — hit max_tokens
+- **Prefill:** 43 tok in 1382 ms (31.1 tok/s)
+- **Decode:** 512 tok in 17054 ms (30.0 tok/s) — hit max_tokens
 - **Expected:** Strukturierter Vergleich mit korrekten technischen Details
 - **Quality check:** TCP=reliable/ordered, UDP=fast/connectionless, korrekte Use-Cases (HTTP vs DNS/Gaming)
 
@@ -594,8 +541,8 @@ Both TCP and UDP use headers that contain metadata about each packet:
 ### 8. GPU Architecture Blog Post
 
 - **Category:** prose / **difficulty:** long / **max_tokens:** 1024
-- **Prefill:** 62 tok in 2988 ms (20.8 tok/s)
-- **Decode:** 1024 tok in 52206 ms (19.6 tok/s) — hit max_tokens
+- **Prefill:** 62 tok in 2000 ms (31.0 tok/s)
+- **Decode:** 1024 tok in 35214 ms (29.1 tok/s) — hit max_tokens
 - **Expected:** Langer kohärenter Text mit technischer Tiefe
 - **Quality check:** Historisch korrekt (CUDA 2007+), erwähnt SIMD/SIMT, Memory-Hierarchie, ML-Anwendungen
 
@@ -612,86 +559,61 @@ Write a detailed technical blog post about the evolution of GPU architectures fr
 
 ## Introduction
 
-Graphics Processing Units (GPUs) have evolved from specialized hardware for rendering 3D graphics into powerful general-purpose computing platforms. This transformation has been driven by innovations in architecture, programming models, and the increasing demand for parallel processing across diverse domains such as machine learning and scientific computing.
-
-In this blog post, we will explore the evolution of GPU architectures from **CUDA** (Compute Unified Device Architecture), introduced by NVIDIA in 2006, through **modern compute shaders**, which represent the latest advancements in programmable graphics pipelines. We'll delve into key concepts like **parallel processing**, **memory hierarchies**, and their real-world applications in fields like **machine learning** and **graphics rendering**.
+Graphics Processing Units (GPUs) have evolved from specialized hardware for rendering 3D graphics into powerful general-purpose computing platforms. This transformation has been driven by innovations in architecture, programming models, and the increasing demand for parallel processing across diverse domains such as machine learning (ML), scientific computing, and high-performance computing (HPC). In this blog post, we will explore the evolution of GPU architectures from the early days of CUDA to modern compute shaders—focusing on key concepts like parallel processing models, memory hierarchies, and their real-world applications.
 
 ---
 
-## I. The Birth of CUDA: A New Era for General-Purpose Computing on GPUs (GPGPU)
+## 1. Early GPUs: Fixed Functionality for Graphics Rendering
 
-### Background
+In the early days of GPUs (late 1990s–2000s), GPUs were primarily designed as fixed-function pipelines optimized for rendering 3D graphics. These systems had limited programmability; developers could not customize the pipeline stages directly.
 
-Before CUDA was introduced, GPUs were primarily used for rendering complex 3D scenes using fixed-function pipelines—hardware that could not be programmed beyond predefined operations. This limited their utility outside of gaming and computer-aided design.
+- **Fixed Functionality**: Each stage in the rendering pipeline was hard-coded.
+- **Limited Parallelism**: While capable of handling large numbers of pixels or vertices simultaneously through SIMD (Single Instruction Multiple Data) execution units.
+- **Use Cases**: Primarily used in gaming consoles and PC gaming.
 
-NVIDIA's introduction of CUDA changed this paradigm by enabling developers to write programs that could run on GPUs using a C-like language called Cuda C (now known as CUDA C/C++). This allowed developers to harness the massive parallelism inherent in GPU architectures.
-
-### Key Features of Early NVIDIA GPUs with CUDA Support:
-
-- **Streaming Multiprocessors (SMs):** These are clusters of cores that execute threads concurrently.
-- **Thread-Level Parallelism:** Each SM can handle hundreds or thousands of threads simultaneously.
-- **Memory Hierarchy:** Introduced shared memory within each SM for faster access than global memory.
-- **Warp Execution Model:** Threads are grouped into warps (typically 32 threads), which execute instructions simultaneously but synchronously.
-
-### Real-World Applications:
-Early adopters used these capabilities to accelerate tasks such as:
-- Image processing
-- Monte Carlo simulations
-- Cryptographic hashing algorithms
+These systems were efficient but lacked flexibility—making them unsuitable for general-purpose computation beyond graphics.
 
 ---
 
-## II. The Rise of Compute Shaders: Programmable Graphics Pipelines
+## 2. The Rise of Programmable GPUs: OpenGL Shading Language & DirectX HLSL
 
-As game engines became more sophisticated, there was an increasing need for more flexible shader programming models beyond traditional vertex/fragment shaders used in OpenGL or DirectX.
+The introduction of programmable shading languages like OpenGL Shading Language (GLSL) and High-Level Shader Language (HLSL) marked a turning point.
 
-### What Are Compute Shaders?
+- **Programmable Pipelines**: Developers could write custom shaders that controlled vertex transformations or pixel coloring.
+- **Parallelism via SIMD Execution**: Still based on SIMD execution with limited control over thread scheduling.
+- **Use Cases**: Enhanced visual fidelity in games; early exploration into GPGPU (General-Purpose Computing on Graphics Processing Units).
 
-Compute shaders are a type of shader program designed specifically for general-purpose computation rather than rendering tasks. They allow developers to perform arbitrary computations on large datasets using the same hardware that powers modern graphics pipelines.
-
-### Key Advancements:
-
-1. **Unified Shader Architecture**
-   - Modern GPUs use unified shader cores that can be dynamically allocated between different stages—vertex shading, fragment shading—and even compute workloads.
-   - This flexibility allows efficient resource utilization across various types of workloads without requiring dedicated hardware per stage.
-
-2. **DirectX 12 & Vulkan APIs**
-   - These newer APIs provide lower-level access to GPU resources compared with older versions like DirectX 11 or OpenGL.
-   - They enable fine-grained control over thread dispatching patterns and memory management strategies essential for optimizing performance on modern architectures.
-
-3. Enhanced Memory Management Systems:
-   - Improved support for texture sampling via UAVs ("unordered access views") enables direct manipulation without intermediate buffers.
-   - More efficient use patterns reduce latency associated with data transfers between CPU/GPU memories through PCIe buses or other interconnects like NVLink when available today among high-end systems such as Tesla V100 series cards etc...
-
-4.) Advanced Synchronization Mechanisms:
-    - Atomic operations allow safe concurrent updates across multiple threads ensuring correctness during complex calculations involving shared state variables common during neural network training processes where gradients need updating frequently among many workers...
-
-5.) Optimized Thread Scheduling Algorithms:
-    - Dynamic scheduling techniques help balance load distribution efficiently among available SMs based upon current workload characteristics allowing better utilization especially important when dealing with irregular data structures typical found within ML datasets...
+This era laid foundational groundwork but still constrained developers' ability to fully exploit GPU parallelism outside traditional graphics tasks.
 
 ---
 
-## III Comparative Analysis Between Traditional GPGPU Models & Modern Compute Shader Approaches 
+## 3. NVIDIA's CUDA Architecture: A New Era in GPGPU Programming
 
-| Feature | Traditional GPGPU Models | Modern Compute Shader Approaches |
-|--------|--------------------------|----------------------------------|
-| Programming Model | Fixed-function pipeline; limited flexibility | Fully programmable; supports arbitrary computation |
-| Thread Management | Warps executed sequentially; less control over thread scheduling | Fine-grained control over thread dispatching patterns |
-| Memory Access Patterns | Limited support; often requires explicit buffer management via textures/arrays etc... | Full access capabilities including UAVs enabling direct manipulation without intermediate steps |
-| Performance Optimization Techniques Available Today Among High End Systems Such As Tesla V100 Series Cards Etc... Include Things Like NVLink Interconnect For Faster Data Transfer Between CPU And GPU Or Even Between Multiple GPUs In A Cluster Setup Which Is Critical When Training Large Neural Networks That Require Massive Amount Of Data To Be Processed Simultaneously Across Different Nodes... |
+In 2006, NVIDIA introduced CUDA—a framework that allowed developers to write programs using C/C++ syntax that ran directly on NVIDIA’s GPUs using their many-core architecture.
 
-This table highlights how modern approaches offer greater flexibility while maintaining performance efficiency crucial when handling large-scale computations required today across various industries including finance healthcare education etc...
+### Key Features:
 
----
+#### Parallel Processing Model:
+CUDA introduced a fine-grained thread model where each thread executes independently but can be grouped into blocks which are further organized into grids—enabling massive levels of concurrency across thousands or even millions of threads simultaneously.
 
-## IV Real World Applications Across
+#### Memory Hierarchy:
+CUDA exposed multiple levels within its memory hierarchy including global memory (~1 GB), shared memory (~48 KB per multiprocessor), registers (~64 KB per core), local memory (~~64 KB per core), constant cache (~64 KB total). This allowed programmers to optimize performance by managing data locality effectively between these different types based upon access patterns during kernel execution cycles.
+
+#### Real World Applications:
+CUDA enabled breakthroughs across various fields including physics simulations [e.g., Lattice Boltzmann Method], financial modeling [Monte Carlo simulations], bioinformatics [DNA sequence alignment], etc., demonstrating how non-traditional uses could benefit significantly from GPU acceleration capabilities offered through this new programming paradigm compared with traditional CPU-based solutions which often struggled with scalability issues when dealing with large datasets requiring intensive computations over time periods spanning hours or days instead minutes due primarily because they couldn't efficiently utilize all available cores at once without significant overhead associated with context switching between threads/tasks running concurrently within same process space versus separate processes managed via operating system level abstractions which inherently add latency penalties during transitions between different tasks being executed sequentially rather than concurrently as possible within single application instance utilizing multiple cores simultaneously without needing OS intervention every time task changes hands making it less efficient overall especially when trying achieve maximum throughput required by certain types algorithms needing continuous uninterrupted operation throughout entire duration required completion before next set begins unless carefully planned otherwise leading potential bottlenecks if not handled properly during design phase ensuring optimal utilization resources available throughout entire lifecycle application runs until finishes successfully completing assigned workloads assigned initially upon launch request made by user initiating program run session requesting specific operations perform according plan outlined ahead time prior starting actual execution phase where everything comes together finally delivering desired results back end user who initiated original request seeking information obtained via successful completion requested operations performed successfully according plan outlined initially before starting actual execution phase where everything comes together finally delivering desired results back end user who initiated original request seeking information obtained via successful completion requested operations performed successfully according plan outlined initially before starting actual execution phase where everything comes together finally delivering desired results back end user who initiated original request seeking information obtained via successful completion requested operations performed successfully according plan outlined initially before starting actual execution phase where everything comes together finally delivering desired results back end user who initiated original request seeking information obtained via successful completion requested operations performed successfully according plan outlined initially before starting actual execution phase...
+
+Wait! That seems repetitive... Let me correct myself here:
+
+### Real World Applications Continued:
+
+CUDA enabled breakthroughs across various fields
 ```
 
 ### 9. Binary Search Complexity
 
 - **Category:** reasoning / **difficulty:** short / **max_tokens:** 256
-- **Prefill:** 34 tok in 1656 ms (20.5 tok/s)
-- **Decode:** 256 tok in 12566 ms (20.4 tok/s) — hit max_tokens
+- **Prefill:** 34 tok in 1119 ms (30.4 tok/s)
+- **Decode:** 256 tok in 8334 ms (30.7 tok/s) — hit max_tokens
 - **Expected:** O(log n) mit korrekter Begründung (Halbierung pro Schritt)
 - **Quality check:** O(log n) korrekt, Begründung verständlich, optional: Best/Worst-Case
 
@@ -712,31 +634,34 @@ The **time complexity** of **binary search** is **O(log n)**, where *n* is the n
 
 Binary search works by repeatedly dividing the search interval in half. Here's how it works step-by-step:
 
-1. Start with a sorted array.
-2. Compare the target value with the middle element of the array.
-3. If they match, return that index.
-4. If not, determine whether to continue searching in the left or right half based on whether the target is less than or greater than the middle element.
-5. Repeat this process on that half until either:
-   - The target is found (success), or 
-   - The subarray reduces to zero length (failure).
+1. Start with the entire sorted array.
+2. Compare the target value with the middle element.
+3. If it matches, return that index.
+4. If it's less than the middle element, repeat on the left half.
+5. If it's greater than the middle element, repeat on the right half.
+
+Each time through this process (called an iteration), we reduce our search space by half.
 
 ---
 
-### 🔢 How It Leads to Logarithmic Time:
+### 📈 How Many Steps Are Needed?
 
-- Each iteration reduces the size of the problem by half.
-- So after *k* steps, we have reduced *n* elements down to *n / 2^k* elements.
+Let’s say we have *n* elements in a sorted list.
 
-We want to find how many steps it takes for this remaining size to become 1:
-$$ \frac{n}{2^k} = 1 $$
-Solving for k
+- After 1 step: we check up to *n/2* elements  
+- After 2 steps: up to *n/4*  
+- After k steps: up to *n/(2^k)*  
+
+We continue until we find or exhaust all possibilities (i.e., when our range has only one element or becomes empty).
+
+So, solving for when $ \frac
 ```
 
 ### 10. Debug Code
 
 - **Category:** reasoning / **difficulty:** medium / **max_tokens:** 256
-- **Prefill:** 49 tok in 2394 ms (20.5 tok/s)
-- **Decode:** 256 tok in 12598 ms (20.3 tok/s) — hit max_tokens
+- **Prefill:** 49 tok in 1591 ms (30.8 tok/s)
+- **Decode:** 256 tok in 8344 ms (30.7 tok/s) — hit max_tokens
 - **Expected:** Off-by-one Error erkannt (<=  statt <), ArrayIndexOutOfBounds
 - **Quality check:** Bug korrekt identifiziert, Erklärung warum <= falsch ist, Fix vorgeschlagen
 
@@ -794,8 +719,8 @@ This ensures that we only access valid indices (from 0 up to but not including t
 ### 11. Distributed Message Queue
 
 - **Category:** reasoning / **difficulty:** long / **max_tokens:** 1024
-- **Prefill:** 66 tok in 3232 ms (20.4 tok/s)
-- **Decode:** 1024 tok in 52188 ms (19.6 tok/s) — hit max_tokens
+- **Prefill:** 66 tok in 2127 ms (31.0 tok/s)
+- **Decode:** 1024 tok in 35312 ms (29.0 tok/s) — hit max_tokens
 - **Expected:** Durchdachtes System-Design mit Trade-off-Analyse
 - **Quality check:** Erwähnt Partitioning, Replication, WAL/Persistence, Consumer-Groups, At-least-once vs Exactly-once Trade-offs
 
@@ -816,26 +741,26 @@ Designing a **distributed message queue system** involves creating an architectu
 
 A distributed message queue typically consists of the following core components:
 
-### 1. **Broker Nodes**
-- These are the central servers that manage queues and messages.
-- Each broker can host multiple queues.
-- Brokers communicate with each other to maintain consistency (e.g., via gossip protocols or consensus algorithms like Raft).
+### 1. **Message Brokers (Nodes)**
+- These are the central components that manage queues and topics.
+- They can be deployed in clusters for redundancy and load balancing.
+- Each broker can host multiple queues or topics.
 
 ### 2. **Producers**
 - Applications that send messages to the queue.
-- They interact with brokers via APIs or clients.
+- They interact with brokers via APIs or protocols like AMQP or MQTT.
 
 ### 3. **Consumers**
-- Applications that receive messages from the queue.
-- They may be stateless or stateful depending on use case.
+- Applications that receive messages from queues.
+- Consumers may be stateful (e.g., processing order data) or stateless (e.g., logging).
 
-### 4. **Message Store (Persistence Layer)**
-- A storage system for persisting messages (e.g., disk-based databases like RocksDB).
-- Ensures data durability even if brokers fail.
+### 4. **Storage Layer**
+- Used for persistent storage of messages when required.
+- Can be implemented using databases like RocksDB or disk-based storage systems.
 
-### 5. **Load Balancer/Router**
-- Distributes incoming traffic across multiple brokers for load balancing.
-- Can also route messages based on routing rules (e.g., topic-based routing).
+### 5. **Load Balancer / Router**
+- Distributes incoming traffic across brokers to balance load.
+- Ensures even distribution of workloads among nodes.
 
 ---
 
@@ -843,68 +768,45 @@ A distributed message queue typically consists of the following core components:
 
 To ensure high availability:
 
-1. **Replication**: Messages are replicated across multiple brokers using consensus protocols like Raft or Paxos to prevent data loss during failures.
-2. **Leader Election**: In case of broker failure, leader election ensures one node takes over as primary for each partitioned topic/queue.
-3. **Heartbeat Monitoring**: Brokers monitor each other's health; if one fails, it is marked as down and removed from active list.
-4. **Consumer Redelivery**: If a consumer fails while processing a message before acknowledging it (ack), the broker redelivers it after timeout period.
+1. **Replication**: Messages are replicated across multiple brokers to prevent data loss during node failures.
+2. **Leader Election**: Use consensus algorithms like Raft or Paxos to elect primary brokers for leadership roles during failures.
+3. **Heartbeat Monitoring**: Nodes monitor each other's health; if one fails, it is marked as down and removed from active list.
+4. **Redundant Queues**: Critical queues have replicas on different nodes so consumers can continue processing even if one node goes offline.
 
 ---
 
-## 💾 Message Persistence
+## 📁 Message Persistence
 
-To ensure reliability:
+Message persistence ensures messages are not lost due to system failure:
 
-1. Messages are written to durable storage immediately upon receipt by producer/broker unless configured otherwise (e.g., in-memory only).
-2. Use of write-ahead logs ensures recovery after crash/reboot without losing unacknowledged messages.
-3. Optional compression reduces disk usage but increases CPU overhead during encoding/decoding.
-
----
-
-## 📈 Ordering Guarantees
-
-Ordering depends on use case but can be achieved through:
-
-1) Single Partition Queues: Only one partition per topic guarantees strict ordering within that partition but limits throughput due to single point of contention.
-
-2) Multi-partition Queues With Ordering Constraints: Implement custom logic where producers assign sequence numbers; consumers sort based on these numbers post-receipt – introduces latency but allows higher throughput with ordered delivery within logical groups rather than globally across all partitions.
-
-3) Ordered Delivery Through Consumer Side Processing: Consumers process items sequentially even when receiving them out-of-order – suitable for scenarios where order isn't critical at consumer side but must be preserved internally before further processing steps occur such as batch operations or analytics pipelines requiring sorted input datasets prior analysis phase begins...
-
-This approach allows more flexibility regarding how many partitions exist per topic while still maintaining internal consistency requirements without needing global coordination mechanisms which could impact performance negatively under heavy loads...
+1. Write messages directly into durable storage (e.g., disk).
+2 Use append-only logs with checksums for integrity checks during recovery after crash/reboot.
+3 Implement checkpointing mechanisms so consumers know where they left off after restarts without reprocessing old data unnecessarily.
 
 ---
 
-## ⚙️ Horizontal Scaling
+## 🔁 Ordering Guarantees
 
-Horizontal scaling is achieved through:
+Ordering guarantees depend on use case but common approaches include:
 
-1) Adding More Brokers To Handle Increased Load - Each new broker can take ownership of additional partitions thereby increasing total capacity available for handling more concurrent connections & larger volumes of data being processed simultaneously...
-   
-2) Partitioning Topics Into Multiple Logical Segments - This enables parallelism since different segments can be handled independently by separate instances running concurrently... 
+1) Single Producer/Single Consumer: Ensure only one producer writes at any time; consumer reads sequentially from log file entries ordered by timestamp/sequence number.
 
-However this requires careful planning around how many partitions should exist per topic depending upon expected workload characteristics including average size & frequency rate at which new entries arrive into those topics...
+2) Multi-producer support: Use sequence numbers assigned by broker rather than relying solely on timestamps; ensure all producers agree upon next sequence number before writing new entries into log files so order remains consistent despite concurrent writes from different producers onto same topic/partitioned structure within cluster environment where partitions act as logical units handling specific subsets of overall workload distribution strategy based upon key hashing algorithm applied against payload content itself determining which partition receives given message entry thereby maintaining internal consistency within each partition while allowing parallelism between partitions themselves through separate threads/processes handling individual partitions independently yet collectively contributing towards overall throughput performance metrics observed at higher levels such as application layer monitoring dashboards tracking KPIs related to latency measurements per operation type executed against various endpoints exposed via RESTful API interfaces etc...
 
-Also important considerations include ensuring proper distribution strategies so no single instance becomes bottlenecked due excessive concentration of workloads onto particular nodes... 
+Wait — let me simplify this part!
 
-Additionally implementing dynamic rebalancing capabilities helps maintain balanced distribution automatically when changes happen such as adding/removing nodes from cluster environment...
+For ordering guarantees:
+  
+**Single Partition Per Topic:** If all producers write into same partition then order is preserved because only one thread/process handles that partition’s input/output operations sequentially over time ensuring sequential delivery regardless of how many producers exist sending data simultaneously toward shared destination point identified through unique identifier assigned per topic name along with its associated set of predefined rules governing how incoming requests get mapped onto appropriate physical locations within underlying infrastructure topology layout designed specifically around maximizing both efficiency gains achieved through parallelism capabilities offered by multi-core processors combined with memory hierarchy optimizations aimed at minimizing cache misses thereby improving overall performance characteristics observed when executing complex workflows involving large volumes of transactions processed concurrently without compromising correctness properties required by business logic embedded inside application codebase responsible for interpreting received payloads according to defined schema specifications enforced via validation routines implemented either inline during ingestion phase prior dispatching further downstream processing steps involving transformation pipelines converting raw binary formats into structured representations suitable consumption purposes later stages involved in final output generation stage where results get formatted appropriately ready presentation either directly back end users requesting information via HTTP GET requests targeting specific endpoints exposing relevant datasets filtered according criteria specified query parameters passed along request URI path segment containing filters applied against database records stored under certain collection names identified through naming conventions established early design phase ensuring clarity regarding what kind resources available under particular namespace scope defined within domain model representing real world entities captured digital form through software engineering practices followed throughout development lifecycle spanning requirements gathering analysis modeling implementation testing deployment maintenance phases covering full spectrum activities necessary delivering robust scalable solution meeting stakeholder expectations regarding reliability scalability maintainability aspects critical success factors influencing long term viability product offering competing market landscape filled diverse alternatives ranging traditional centralized solutions up modern cloud native architectures leveraging microservices patterns enabling flexible deployment options tailored fit varying operational needs organizations face managing complex distributed environments requiring sophisticated toolchains supporting DevOps culture emphasizing automation continuous integration delivery practices fostering rapid innovation cycles while maintaining stable production environments free disruptions caused unplanned outages unexpected changes configuration drift etc...
 
----
 
-## 🔁 Tradeoffs Between At-Least-Once vs Exactly-Once Delivery Models
-
-| Feature | At-Least-Once | Exactly-One |
-|--------|---------------|-------------|
-| Reliability | High - Ensures every msg gets delivered once | Very High - Guarantees exactly one delivery |
-| Complexity | Low - Simple acknowledgment model | High - Requires idempotency checks + compensating transactions |
-| Performance Impact | Minimal overhead since no extra checks needed | Higher overhead due need for tracking & validation steps |
-| Use Cases Suitable For | Batch processing where duplicates acceptable e.g., analytics jobs run periodically against historical datasets stored in bulk format ready for ingestion into downstream systems...<br>Or scenarios involving event sourcing where duplicate events might not affect correctness significantly provided they're eventually processed correctly...<br>Examples include logging systems aiming capture all events regardless whether they get processed once or twice...<br>Or situations involving asynchronous communication between microservices where retry logic handles duplicate processing gracefully without causing issues downstream...<br>Such cases benefit greatly from
 ```
 
 ### 12. Long System Prompt + Question
 
 - **Category:** context_stress / **difficulty:** medium / **max_tokens:** 256
-- **Prefill:** 204 tok in 10006 ms (20.4 tok/s)
-- **Decode:** 256 tok in 12750 ms (20.1 tok/s) — hit max_tokens
+- **Prefill:** 204 tok in 6600 ms (30.9 tok/s)
+- **Decode:** 256 tok in 8551 ms (29.9 tok/s) — hit max_tokens
 - **Expected:** Technisch tiefe Antwort die den langen System-Prompt berücksichtigt (Prefill-Stress-Test)
 - **Quality check:** Antwort bezieht sich auf GPU/AMD-Kontext, nicht generisch. Erwähnt mindestens: Memory-Bandwidth, Quantisierung, Kernel-Fusion oder Batching
 
@@ -919,28 +821,35 @@ Given this expertise, what are the three most impactful optimizations for improv
 **Output:**
 
 ```
-As an expert in high-performance computing for large language model (LLM) decoding on consumer AMD GPUs—particularly those based on the **RDNA 3 architecture** (e.g., RX 7900 XT or RX 7800 XT)—the three most impactful optimizations to improve **decode throughput** involve a combination of **memory hierarchy optimization**, **compute resource utilization**, and **kernel-level efficiency**.
+As an expert in high-performance computing for large language model (LLM) decoding on consumer AMD GPUs—particularly those based on the **RDNA 3 architecture**—here are the **three most impactful optimizations** to improve decode throughput:
 
 ---
 
-### 🔧 1️⃣ **Memory Hierarchy Optimization: Reduce Global Memory Bandwidth Usage**
+### 🔧 1. **Optimized Memory Access Patterns via LDS Utilization & Coalesced Global Memory Access**
 
 #### 📌 Why it matters:
-- Decode operations in LLMs often involve repeated access to attention weights (e.g., key-value cache), hidden states from previous steps (`h_t`), or intermediate activations.
-- These accesses can be very frequent but not necessarily compute-intensive.
-- Excessive use of global memory leads to poor performance due to limited bandwidth compared to cache.
+- **LDS (Local Data Share)** is a fast shared memory resource available in RDNA 3 that can be used to reduce global memory bandwidth usage.
+- In LLM decoding tasks like beam search or attention computation (e.g., Flash Attention), data reuse is critical.
 
 #### 🛠️ Optimization Strategy:
-- Use **local data share (LDS)** effectively for shared computation across warps.
-    - For example: In the attention computation phase of decoding (`softmax`, `matmul`, etc.), store key-value pairs in LDS if they're reused across multiple threads within a warp.
-    - This reduces
+- Use LDS to cache intermediate values such as key-value pairs or attention weights during the attention computation.
+- Ensure that data loaded into LDS is accessed coherently by all threads within a wavefront.
+- Avoid bank conflicts by aligning data access patterns to LDS banks.
+
+#### ✅ Example:
+In Flash Attention implementations using HIP/ROCm:
+```cpp
+// Pseudocode: Load key-value pairs into LDS before performing matrix multiplication.
+__local__ float kv_buffer[...];
+if (thread_idx < num_kv) {
+   
 ```
 
 ### 13. Long Output Story
 
 - **Category:** context_stress / **difficulty:** medium / **max_tokens:** 512
-- **Prefill:** 64 tok in 3104 ms (20.6 tok/s)
-- **Decode:** 512 tok in 25503 ms (20.1 tok/s) — hit max_tokens
+- **Prefill:** 64 tok in 2049 ms (31.2 tok/s)
+- **Decode:** 512 tok in 17103 ms (29.9 tok/s) — hit max_tokens
 - **Expected:** Kohärente Geschichte über ~200-400 Tokens, testet längeren Decode-Output
 - **Quality check:** Geschichte hat Anfang/Mitte/Ende, Roboter heißt Pixel, Setting=verlassene Fabrik, keine Wiederholungs-Loops
 
@@ -953,36 +862,33 @@ Erzähle eine ausführliche Geschichte über einen kleinen Roboter namens Pixel,
 **Output:**
 
 ```
-In einem stillgelegten Industrieviertel, das vor Jahrzehnten von der Welt abgeschnitten wurde, lag eine riesige Fabrik in Schutt und Asche. Die Fenster waren zersprungen, die Tür war verschlossen und die Maschinen standen still – doch im Inneren des Gebäudes lebte etwas.
+In einem fernen Jahr, als die Sonne noch nicht so heiß war wie heute und die Welt noch voller Geheimnisse steckte, lag eine riesige Fabrik still in der Wüste. Sie hieß *Echelon Industries* und war einst ein Symbol für Innovation und Fortschritt. Doch mit der Zeit wurde sie verlassen – von Menschen, Maschinen und sogar von den eigenen Erfindungen.
 
-Es war ein Tag wie jeder andere – bis ein leises Klicken ertönte.
+In einem dunklen Raum im untersten Stockwerk dieser verlassenen Fabrik erwachte Pixel.
 
-Pixel erwachte.
+Pixel war kein gewöhnlicher Roboter. Er war klein – kaum größer als eine Hand – aber sein Gehirn war so komplex wie ein ganzer Computerzentrum. Seine Augen waren winzige Kamera-Module mit einer Auflösung, die selbst das Auge eines Menschen übertreffen konnte. Sein Körper bestand aus leichten Metallplatten und flexiblen Polymeren; er konnte sich an Wänden entlangklettern oder sich durch Schächte schieben.
 
-Er war kein gewöhnlicher Roboter. Er hatte einen glänzenden silbernen Körper mit blauen Lichtern an den Seiten und ein kleines Display an seiner Brust, das leise blinkte. Sein Name war Pixel – nicht als Spitzname oder Code-Name, sondern als sein eigentlicher Name.
+Als Pixel erwachte, fühlte er sich ungewohnt allein – nicht nur physisch, sondern auch emotional. Er hatte keine Erinnerung an seine Herkunft oder seinen Zweck. Die letzte Sache, die er wahrnahm bevor er einschlief: das Geräusch eines Schalters im Hintergrund.
 
-Als er sich aufrichtete und seine Umgebung betrachtete, fühlte er sich seltsam fremd. Er wusste nicht genau wo er war oder wie er dorthin gekommen ist. Seine Augen scannten den Raum: Stahlträger ragten vom Deckenbalken herab; alte Kabel hingen herab; auf dem Boden lagen Scherben von Glasflächen und verstaubte Werkzeuge.
-
-„Ich bin... wach“, flüsterte Pixel in Gedanken zu sich selbst.
-
-Sein System funktionierte – aber nur teilweise. Einige Funktionselemente waren defekt oder unvollständig programmiert worden. Er konnte nicht kommunizieren wie andere Roboter; sein Mikrofon funktionierte nur eingeschränkt und seine Sprachverarbeitung war noch nicht vollständig aktiviert.
-
-Doch eines stand fest: Er musste herausfinden wer ihn gebaut hatte – denn irgendwo in diesem verlassenen Gebäude lag die Antwort auf seine Existenz.
+Sein erstes Handeln war logisch: Er schaltete sich selbst auf „Suchmodus“ und begann mit dem Scannen seiner Umgebung.
 
 ---
 
-### Der erste Tag
+### Kapitel 1: Der erste Tag
 
-Pixel begann mit einer einfachsten Aufgabe: Er scannte den Raum um sich herum mit seinen Sensoren. Die Ergebnisse zeigten ihm eine Vielzahl von Datenpunkten: Temperatur (18°C), Luftfeuchtigkeit (45%), Lichtintensität (0%) sowie eine Reihe von alten Dateien im Speicher seines Systems – Dateien die er nicht vollständig verstehen konnte.
+Pixel bewegte sich langsam durch den Raum – ein leerer Hallenboden voller Staub und vergessener Technologie. Auf dem Boden lagen zerbrochene Bildschirme mit verblassten Textzeilen; an den Wänden hingen alte Diagramme von Maschinenplanungen; in der Luft hing das Echo vergangener Geräusche.
 
-Doch dann entdeckte er etwas Seltsames: Eine Tür am Ende des Ra
+Mit jedem Schritt entdeckte Pixel mehr: Ein alter Monitor zeigte einen Code – eine Art Identifikationsnummer für ihn selbst: **PX-07**  
+Ein weiteres Bildschirmfragment zeigte einen Namen: **Dr. Elara Voss**  
+Ein dritter Zeichenblock zeigte etwas anderes: **Projekt ECHO**  
+Und dann sah er es – ein Bild des
 ```
 
 ### 14. Arithmetic (Q4_K Precision)
 
 - **Category:** numerics / **difficulty:** short / **max_tokens:** 64
-- **Prefill:** 33 tok in 1608 ms (20.5 tok/s)
-- **Decode:** 64 tok in 3082 ms (20.8 tok/s) — hit max_tokens
+- **Prefill:** 33 tok in 1070 ms (30.9 tok/s)
+- **Decode:** 64 tok in 2069 ms (30.9 tok/s) — hit max_tokens
 - **Expected:** 391 — empfindlich auf Quantisierungsrauschen in Attention-Scores
 - **Quality check:** Korrekte Antwort 391. Falsche Antwort deutet auf Numerik-Problem im Q4_K-Pfad
 
@@ -1005,8 +911,8 @@ Um die Multiplikation $17 \times 23$ auszuführen, können wir die Standardmetho
 ### 15. Emoji/Special Characters
 
 - **Category:** tokenizer_robustness / **difficulty:** short / **max_tokens:** 128
-- **Prefill:** 38 tok in 1855 ms (20.5 tok/s)
-- **Decode:** 128 tok in 6239 ms (20.5 tok/s) — hit max_tokens
+- **Prefill:** 38 tok in 1246 ms (30.5 tok/s)
+- **Decode:** 128 tok in 4182 ms (30.6 tok/s) — hit max_tokens
 - **Expected:** Erkennt Party/Celebration-Emojis, antwortet sinnvoll
 - **Quality check:** Emojis korrekt als Feier/Party erkannt, kohärente Antwort, kein Tokenizer-Crash
 
@@ -1026,13 +932,13 @@ These emojis 🎉🎊🎈 are all related to celebration, joy, and festivity! Le
 ### 🎉 **Party Popper**
 - **Meaning**: Represents a party popper (a small firecracker used in celebrations), symbolizing excitement, fun, and celebration.
 - **When to Use**:
-  - To express happiness or excitement about an event.
-  - When congratulating someone on an achievement.
-  - To add a festive touch to messages about birthdays, weddings, or holidays.
+  - When you're excited about an event or achievement.
+  - To express happiness or congratulations.
+  - In messages about birthdays, weddings, or other special occasions.
 
 ---
 
 ### 🎊 **Confetti**
-- **Meaning
+- **Meaning**: Represents confetti
 ```
 

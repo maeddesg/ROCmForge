@@ -49,6 +49,7 @@ use super::super::ir::formats::{q4_0, q4_k, q6_k, q8_0};
 use super::buffer_plan::{BufferPlan, KvCacheLayout};
 use super::nodes::{BufferId, GraphNode, WeightRef};
 use super::ComputationGraph;
+use super::super::runtime::{KernelId, OpType, Runtime, ShapeKey, VariantId};
 
 /// Executor state: owns the graph, a reference to the loaded model
 /// (weights + arena), one device buffer per BufferId, one FP32 K and V
@@ -76,6 +77,14 @@ pub struct GraphExecutor<'m> {
     stream: HipStream,
     trace: bool,
     nan_guard: bool,
+
+    /// Optional Self-Tuning Runtime. When present, GEMV dispatches
+    /// route through `runtime.select_variant()`, run the chosen
+    /// kernel, sync the stream, and feed the elapsed time back into
+    /// the Bandit. When absent (default), dispatches go straight to
+    /// the fixed `_standard` kernel per quant format — byte-identical
+    /// to the pre-1.12 path.
+    runtime: Option<Runtime>,
 }
 
 impl<'m> GraphExecutor<'m> {
@@ -154,6 +163,7 @@ impl<'m> GraphExecutor<'m> {
                     stream,
                     trace,
                     nan_guard,
+                    runtime: None,
                 });
             }
             other => {
@@ -226,7 +236,37 @@ impl<'m> GraphExecutor<'m> {
             stream,
             trace,
             nan_guard,
+            runtime: None,
         })
+    }
+
+    /// Attach a Self-Tuning Runtime. The executor then routes all
+    /// GEMV dispatches through the Bandit and feeds back timings.
+    /// Pre-registers every unique GEMV shape the graph will dispatch
+    /// so the Bandit knows the candidate set before the first token.
+    pub fn attach_runtime(&mut self, mut runtime: Runtime) {
+        for node in &self.graph.nodes {
+            if let GraphNode::Gemm {
+                weight, out_dim, in_dim, ..
+            } = node
+            {
+                runtime
+                    .registry
+                    .register_gemv_shape(weight.format, *out_dim as u32, *in_dim as u32);
+            }
+        }
+        // Rebuild the Bandit map so the shapes we just registered get
+        // fresh ShapeBandits where applicable.
+        let rebuilt = Runtime::new(runtime.registry);
+        self.runtime = Some(rebuilt);
+    }
+
+    pub fn runtime(&self) -> Option<&Runtime> {
+        self.runtime.as_ref()
+    }
+
+    pub fn runtime_mut(&mut self) -> Option<&mut Runtime> {
+        self.runtime.as_mut()
     }
 
     /// Number of tokens currently residing in the KV cache.
@@ -513,6 +553,17 @@ impl<'m> GraphExecutor<'m> {
         out_dim: usize,
         in_dim: usize,
     ) -> HipResult<()> {
+        // Path 1 — Bandit attached: ask which kernel to launch,
+        // time the launch + sync, and feed the time back. The Bandit
+        // uses wall-clock around the synchronize() call; Phase-2
+        // replaces this with HIP-event timing batched at token end
+        // so the extra sync goes away.
+        if self.runtime.is_some() {
+            return self.dispatch_gemv_tuned(weight, input, output, out_dim, in_dim);
+        }
+
+        // Path 2 — no Bandit: straight to the fixed `_standard`
+        // kernel for this quant format (pre-1.12 behaviour).
         let w_ptr = self.weight_ptr(weight);
         let in_ptr = self.buf_ptr(input);
         let out_ptr = self.buf_mut_ptr(output);
@@ -566,6 +617,106 @@ impl<'m> GraphExecutor<'m> {
             }
         };
         check(rc, "gemv")?;
+        Ok(())
+    }
+
+    /// Bandit-driven GEMV dispatch. Separate from `dispatch_gemv`
+    /// so the fixed-kernel path stays untouched when no Runtime is
+    /// attached. Caller guarantees `self.runtime.is_some()`.
+    fn dispatch_gemv_tuned(
+        &mut self,
+        weight: &WeightRef,
+        input: BufferId,
+        output: BufferId,
+        out_dim: usize,
+        in_dim: usize,
+    ) -> HipResult<()> {
+        let shape = ShapeKey {
+            op_type: OpType::Gemv,
+            format: weight.format,
+            n: out_dim as u32,
+            k: in_dim as u32,
+        };
+        let runtime = self
+            .runtime
+            .as_ref()
+            .expect("dispatch_gemv_tuned requires an attached runtime");
+        let variant_id = runtime.select_variant(&shape).ok_or_else(|| HipError {
+            code: -1,
+            message: format!("no variant registered for {shape:?}"),
+            context: "dispatch_gemv_tuned".into(),
+        })?;
+        let kernel = runtime.kernel_for(&shape, variant_id).ok_or_else(|| HipError {
+            code: -1,
+            message: format!("variant {variant_id:?} has no kernel for {shape:?}"),
+            context: "dispatch_gemv_tuned".into(),
+        })?;
+
+        let w_ptr = self.weight_ptr(weight);
+        let in_ptr = self.buf_ptr(input);
+        let out_ptr = self.buf_mut_ptr(output);
+        let stream = self.stream.raw();
+
+        let start = std::time::Instant::now();
+        let rc = unsafe {
+            match kernel {
+                KernelId::GemvQ40Standard => rocmforge_launch_gemv_q4_0_standard(
+                    w_ptr as *const u8,
+                    in_ptr as *const f32,
+                    out_ptr as *mut f32,
+                    in_dim as i32,
+                    out_dim as i32,
+                    stream,
+                ),
+                KernelId::GemvQ4KStandard => rocmforge_launch_gemv_q4_k_standard(
+                    w_ptr as *const u8,
+                    in_ptr as *const f32,
+                    out_ptr as *mut f32,
+                    in_dim as i32,
+                    out_dim as i32,
+                    stream,
+                ),
+                KernelId::GemvQ4KQ8Inline => rocmforge_launch_gemv_q4_k_q8_inline(
+                    w_ptr as *const u8,
+                    in_ptr as *const f32,
+                    out_ptr as *mut f32,
+                    in_dim as i32,
+                    out_dim as i32,
+                    stream,
+                ),
+                KernelId::GemvQ6KStandard => rocmforge_launch_gemv_q6_k_standard(
+                    w_ptr as *const u8,
+                    in_ptr as *const f32,
+                    out_ptr as *mut f32,
+                    in_dim as i32,
+                    out_dim as i32,
+                    stream,
+                ),
+                KernelId::GemvQ80Standard => rocmforge_launch_gemv_q8_0_standard(
+                    w_ptr as *const u8,
+                    in_ptr as *const f32,
+                    out_ptr as *mut f32,
+                    in_dim as i32,
+                    out_dim as i32,
+                    stream,
+                ),
+                other => {
+                    return Err(HipError {
+                        code: -1,
+                        message: format!("kernel {other:?} not a GEMV kernel"),
+                        context: "dispatch_gemv_tuned".into(),
+                    });
+                }
+            }
+        };
+        check(rc, "gemv_tuned_launch")?;
+        // Sync so the elapsed time reflects actual GPU work; Phase 2
+        // replaces this with HIP events batched at token end.
+        self.stream.synchronize()?;
+        let time_us = start.elapsed().as_nanos() as f64 / 1000.0;
+        if let Some(runtime) = self.runtime.as_mut() {
+            runtime.record(&shape, variant_id, time_us);
+        }
         Ok(())
     }
 
