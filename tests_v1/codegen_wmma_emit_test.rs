@@ -1,43 +1,49 @@
-//! Regeneration + drift-check for the WMMA GEMM kernel file. Mirrors
-//! `codegen_emit_test.rs` for the parity kernels.
+//! Regeneration + drift-check for every Phase-1 WMMA kernel file.
 //!
-//! Set `ROCMFORGE_REGEN_KERNELS=1` and run `test_wmma_regenerate_on_demand`
-//! to refresh `hip_kernels_v1/wmma/wmma_gemm_q4_0_fp16.hip`.
-//! `test_wmma_matches_committed` always runs and fails if the committed
-//! file drifts from codegen output.
+//! Each supported `(format, precision)` pair is emitted to its own
+//! `.hip` under `hip_kernels_v1/wmma/`; CMake links them as independent
+//! static libraries. Set `ROCMFORGE_REGEN_KERNELS=1` to refresh the
+//! committed files; the always-on drift check fails if any of them
+//! diverges from the current codegen output.
 
 #![cfg(feature = "v1")]
 
-use rocmforge::v1::ir::codegen_gpu::emit_all_wmma_kernels;
+use rocmforge::v1::ir::codegen_gpu::emit_all_wmma_files;
 
-const COMMITTED_PATH: &str = "hip_kernels_v1/wmma/wmma_gemm_q4_0_fp16.hip";
+const OUT_ROOT: &str = "hip_kernels_v1";
 
 #[test]
 fn test_wmma_regenerate_on_demand() {
     if std::env::var("ROCMFORGE_REGEN_KERNELS").ok().as_deref() != Some("1") {
         return;
     }
-    let src = emit_all_wmma_kernels();
-    std::fs::create_dir_all("hip_kernels_v1/wmma").expect("mkdir wmma");
-    std::fs::write(COMMITTED_PATH, &src).expect("write generated WMMA kernel");
-    println!("Regenerated {COMMITTED_PATH} ({} bytes)", src.len());
+    for (rel_path, src) in emit_all_wmma_files() {
+        let full = std::path::Path::new(OUT_ROOT).join(rel_path);
+        if let Some(parent) = full.parent() {
+            std::fs::create_dir_all(parent).expect("mkdir parent");
+        }
+        std::fs::write(&full, &src).expect("write generated WMMA kernel");
+        println!("Regenerated {} ({} bytes)", full.display(), src.len());
+    }
 }
 
 #[test]
 fn test_wmma_matches_committed() {
-    let expected = emit_all_wmma_kernels();
-    let actual = match std::fs::read_to_string(COMMITTED_PATH) {
-        Ok(s) => s,
-        Err(_) => {
-            panic!(
-                "{COMMITTED_PATH} missing — run `ROCMFORGE_REGEN_KERNELS=1 cargo test \
-                 --features v1 --test v1_codegen_wmma_emit_test test_wmma_regenerate_on_demand`"
-            );
-        }
-    };
-    assert_eq!(
-        actual, expected,
-        "committed {COMMITTED_PATH} drifted from codegen output — regenerate with \
-         ROCMFORGE_REGEN_KERNELS=1"
-    );
+    for (rel_path, expected) in emit_all_wmma_files() {
+        let full = std::path::Path::new(OUT_ROOT).join(rel_path);
+        let actual = match std::fs::read_to_string(&full) {
+            Ok(s) => s,
+            Err(_) => panic!(
+                "{} missing — run `ROCMFORGE_REGEN_KERNELS=1 cargo test \
+                 --features v1 --test v1_codegen_wmma_emit_test test_wmma_regenerate_on_demand`",
+                full.display()
+            ),
+        };
+        assert_eq!(
+            actual,
+            expected,
+            "{} drifted from codegen output — regenerate with ROCMFORGE_REGEN_KERNELS=1",
+            full.display()
+        );
+    }
 }

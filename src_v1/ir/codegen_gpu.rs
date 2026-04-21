@@ -387,7 +387,10 @@ extern "C" hipError_t rocmforge_launch_dequant_q6_k_parity(
 pub fn emit_wmma_gemm_kernel(format: &QuantFormat, precision: Precision) -> String {
     match (format.id, precision) {
         (2, Precision::Fp16) => emit_q4_0_wmma_fp16(),
-        other => format!("// TODO(Phase 1.7 Block B/C): wmma kernel for {:?}\n", other),
+        (8, Precision::Fp16) => emit_q8_0_wmma_fp16(),
+        (12, Precision::Fp16) => emit_q4_k_wmma_fp16(),
+        (14, Precision::Fp16) => emit_q6_k_wmma_fp16(),
+        other => format!("// TODO(Phase 1.7 Block C FP8): wmma kernel for {:?}\n", other),
     }
 }
 
@@ -585,10 +588,573 @@ extern "C" hipError_t rocmforge_launch_wmma_gemm_q4_0_fp16(
     s
 }
 
-/// Emit the aggregate WMMA compilation unit (all Phase-1-supported
-/// `(format, precision)` combos). Phase 1 Block A: just Q4_0 FP16.
+/// Emit every Phase-1-supported WMMA kernel as a `(filename, source)`
+/// list. The build system writes each entry to its own `.hip` file so
+/// CMake can build them as independent static libraries.
+pub fn emit_all_wmma_files() -> Vec<(&'static str, String)> {
+    vec![
+        ("wmma/wmma_gemm_q4_0_fp16.hip", emit_q4_0_wmma_fp16()),
+        ("wmma/wmma_gemm_q4_k_fp16.hip", emit_q4_k_wmma_fp16()),
+        ("wmma/wmma_gemm_q6_k_fp16.hip", emit_q6_k_wmma_fp16()),
+        ("wmma/wmma_gemm_q8_0_fp16.hip", emit_q8_0_wmma_fp16()),
+    ]
+}
+
+/// Concatenated view of all WMMA kernels, retained for inspection and
+/// backwards-compatibility of the existing drift test. Use
+/// [`emit_all_wmma_files`] when one file per kernel is needed.
 pub fn emit_all_wmma_kernels() -> String {
     let mut s = String::new();
-    s.push_str(&emit_q4_0_wmma_fp16());
+    for (_, src) in emit_all_wmma_files() {
+        s.push_str(&src);
+    }
+    s
+}
+
+// Q4_K FP16 WMMA — 1:1 port of hip_kernels/wmma/wmma_gemm_q4_k.hip.
+// Same tile geometry as Q4_0; only the dequant block differs. Pair-
+// interleaved sub-block layout (sub_idx paired with sub_idx^1) and
+// get_scale_min_k4 6-bit unpack without any /64.
+fn emit_q4_k_wmma_fp16() -> String {
+    let mut s = String::from(WMMA_FILE_HEADER);
+    s.push_str(r#"// Q4_K FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q4_K.
+// Layout copied verbatim from hip_kernels/wmma/wmma_gemm_q4_k.hip.
+
+#define TILE_M             64
+#define TILE_N             64
+#define TILE_K             16
+#define K_CHUNK            32
+#define WARPS_PER_BLOCK    4
+#define THREADS_PER_BLOCK  (WARPS_PER_BLOCK * 32)
+#define COL_BLOCKS         4
+#define Q4_K_BLOCK_BYTES       144
+#define Q4_K_ELEMS_PER_BLOCK   256
+
+__global__ void rf_v1_wmma_gemm_q4_k_fp16_kernel(
+    const float*   __restrict__ A,
+    const uint8_t* __restrict__ W,
+    float*         __restrict__ D,
+    int M, int N, int K)
+{
+    rf_v1_wmma_set_ieee_denormal_mode();
+
+    const int tile_m = blockIdx.y * TILE_M;
+    const int tile_n = blockIdx.x * TILE_N;
+
+    const int tid     = threadIdx.x;
+    const int wave_id = tid >> 5;
+    const int lane    = tid & 31;
+
+    __shared__ __half lds_a[TILE_M * K_CHUNK];
+    __shared__ __half lds_b[K_CHUNK * TILE_N];
+
+    float8 acc[COL_BLOCKS];
+    #pragma unroll
+    for (int b = 0; b < COL_BLOCKS; ++b) {
+        acc[b] = {0, 0, 0, 0, 0, 0, 0, 0};
+    }
+
+    const int a_row_in_tile = wave_id * 16 + (lane & 15);
+    const int a_k_set       = (lane >> 4) * 4;
+    const int col_in_lane   = lane & 15;
+    const int b_k_set       = (lane >> 4) * 4;
+
+    const int super_blocks_per_row = K / Q4_K_ELEMS_PER_BLOCK;
+    const int num_k_chunks         = K / K_CHUNK;
+
+    for (int kc = 0; kc < num_k_chunks; ++kc) {
+        const int k_start_abs = kc * K_CHUNK;
+
+        #pragma unroll
+        for (int i = 0; i < 16; ++i) {
+            const int flat        = tid * 16 + i;
+            const int row_in_tile = flat / K_CHUNK;
+            const int k_in_tile   = flat & (K_CHUNK - 1);
+            const float v = A[(tile_m + row_in_tile) * K + k_start_abs + k_in_tile];
+            lds_a[flat] = __float2half(v);
+        }
+
+        // ===== Dequant block (Q4_K pair-interleaved) =====
+        {
+            const int col  = tid >> 1;
+            const int half = tid & 1;
+
+            const int super_block_idx = kc >> 3;
+            const int sub_idx         = kc & 7;
+
+            const size_t sb_ofs =
+                (size_t)(tile_n + col) * (size_t)super_blocks_per_row * Q4_K_BLOCK_BYTES
+                + (size_t)super_block_idx * Q4_K_BLOCK_BYTES;
+            const uint8_t* sb_ptr = W + sb_ofs;
+
+            __half d_h, dmin_h;
+            std::memcpy(&d_h,    sb_ptr + 0, sizeof(__half));
+            std::memcpy(&dmin_h, sb_ptr + 2, sizeof(__half));
+            const float d_f    = __half2float(d_h);
+            const float dmin_f = __half2float(dmin_h);
+
+            const uint8_t* scales = sb_ptr + 4;
+            int scale_j, min_j;
+            if (sub_idx < 4) {
+                scale_j = scales[sub_idx]     & 0x3F;
+                min_j   = scales[sub_idx + 4] & 0x3F;
+            } else {
+                scale_j = (scales[sub_idx + 4] & 0x0F) | ((scales[sub_idx - 4] >> 6) << 4);
+                min_j   = (scales[sub_idx + 4] >> 4)   | ((scales[sub_idx]     >> 6) << 4);
+            }
+            const float d_scale = d_f    * (float)scale_j;
+            const float d_mn    = dmin_f * (float)min_j;
+
+            const int pair_base = (sub_idx >> 1) * 32;
+            const bool is_upper = (sub_idx & 1) != 0;
+            const uint8_t* qs_base = sb_ptr + 16 + pair_base + half * 16;
+
+            #pragma unroll
+            for (int i = 0; i < 16; ++i) {
+                const uint8_t byte = qs_base[i];
+                const int nib = is_upper ? (byte >> 4) : (byte & 0x0F);
+                const int k   = half * 16 + i;
+                lds_b[k * TILE_N + col] = __float2half(d_scale * (float)nib - d_mn);
+            }
+        }
+        // ===================================================================
+
+        __syncthreads();
+
+        #pragma unroll
+        for (int k_sub = 0; k_sub < K_CHUNK; k_sub += TILE_K) {
+            half8 a_reg;
+            {
+                const int base = a_row_in_tile * K_CHUNK + k_sub;
+                a_reg[0] = lds_a[base + a_k_set + 0];
+                a_reg[1] = lds_a[base + a_k_set + 1];
+                a_reg[2] = lds_a[base + a_k_set + 2];
+                a_reg[3] = lds_a[base + a_k_set + 3];
+                a_reg[4] = lds_a[base + a_k_set + 8];
+                a_reg[5] = lds_a[base + a_k_set + 9];
+                a_reg[6] = lds_a[base + a_k_set + 10];
+                a_reg[7] = lds_a[base + a_k_set + 11];
+            }
+
+            #pragma unroll
+            for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+                const int b_col_in_tile = cb * 16 + col_in_lane;
+
+                half8 b_reg;
+                b_reg[0] = lds_b[(k_sub + b_k_set + 0)  * TILE_N + b_col_in_tile];
+                b_reg[1] = lds_b[(k_sub + b_k_set + 1)  * TILE_N + b_col_in_tile];
+                b_reg[2] = lds_b[(k_sub + b_k_set + 2)  * TILE_N + b_col_in_tile];
+                b_reg[3] = lds_b[(k_sub + b_k_set + 3)  * TILE_N + b_col_in_tile];
+                b_reg[4] = lds_b[(k_sub + b_k_set + 8)  * TILE_N + b_col_in_tile];
+                b_reg[5] = lds_b[(k_sub + b_k_set + 9)  * TILE_N + b_col_in_tile];
+                b_reg[6] = lds_b[(k_sub + b_k_set + 10) * TILE_N + b_col_in_tile];
+                b_reg[7] = lds_b[(k_sub + b_k_set + 11) * TILE_N + b_col_in_tile];
+
+                acc[cb] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(
+                    a_reg, b_reg, acc[cb]);
+            }
+        }
+
+        __syncthreads();
+    }
+
+    const int out_col_in_lane  = lane & 15;
+    const int out_row_start    = (lane >> 4) * 8;
+    const int wave_row_in_tile = wave_id * 16;
+
+    #pragma unroll
+    for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+        const int out_col_in_tile = cb * 16 + out_col_in_lane;
+        const int global_col      = tile_n + out_col_in_tile;
+
+        #pragma unroll
+        for (int v = 0; v < 8; ++v) {
+            const int out_row_in_tile = wave_row_in_tile + out_row_start + v;
+            const int global_row      = tile_m + out_row_in_tile;
+            D[global_row * N + global_col] = acc[cb][v];
+        }
+    }
+}
+
+extern "C" hipError_t rocmforge_launch_wmma_gemm_q4_k_fp16(
+    const float*   input,
+    const uint8_t* weights,
+    float*         output,
+    int M, int N, int K,
+    hipStream_t stream)
+{
+    if (M <= 0 || N <= 0 || K <= 0)                  return hipErrorInvalidValue;
+    if ((M % TILE_M) != 0)                           return hipErrorInvalidValue;
+    if ((N % TILE_N) != 0)                           return hipErrorInvalidValue;
+    if ((K % Q4_K_ELEMS_PER_BLOCK) != 0)             return hipErrorInvalidValue;
+
+    dim3 grid(N / TILE_N, M / TILE_M, 1);
+    dim3 block(THREADS_PER_BLOCK, 1, 1);
+
+    rf_v1_wmma_gemm_q4_k_fp16_kernel<<<grid, block, 0, stream>>>(
+        input, weights, output, M, N, K);
+    return hipGetLastError();
+}
+"#);
+    s
+}
+
+// Q6_K FP16 WMMA — 1:1 port of hip_kernels/wmma/wmma_gemm_q6_k.hip.
+// 210-byte super-block with d at offset 208, int8 scales @ 192, llama.cpp
+// qh layout (4 elements per qh byte at strides of 32 within each half).
+fn emit_q6_k_wmma_fp16() -> String {
+    let mut s = String::from(WMMA_FILE_HEADER);
+    s.push_str(r#"// Q6_K FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q6_K.
+// Layout copied verbatim from hip_kernels/wmma/wmma_gemm_q6_k.hip.
+
+#define TILE_M             64
+#define TILE_N             64
+#define TILE_K             16
+#define K_CHUNK            32
+#define WARPS_PER_BLOCK    4
+#define THREADS_PER_BLOCK  (WARPS_PER_BLOCK * 32)
+#define COL_BLOCKS         4
+#define Q6_K_BLOCK_BYTES       210
+#define Q6_K_ELEMS_PER_BLOCK   256
+
+__global__ void rf_v1_wmma_gemm_q6_k_fp16_kernel(
+    const float*   __restrict__ A,
+    const uint8_t* __restrict__ W,
+    float*         __restrict__ D,
+    int M, int N, int K)
+{
+    rf_v1_wmma_set_ieee_denormal_mode();
+
+    const int tile_m = blockIdx.y * TILE_M;
+    const int tile_n = blockIdx.x * TILE_N;
+
+    const int tid     = threadIdx.x;
+    const int wave_id = tid >> 5;
+    const int lane    = tid & 31;
+
+    __shared__ __half lds_a[TILE_M * K_CHUNK];
+    __shared__ __half lds_b[K_CHUNK * TILE_N];
+
+    float8 acc[COL_BLOCKS];
+    #pragma unroll
+    for (int b = 0; b < COL_BLOCKS; ++b) {
+        acc[b] = {0, 0, 0, 0, 0, 0, 0, 0};
+    }
+
+    const int a_row_in_tile = wave_id * 16 + (lane & 15);
+    const int a_k_set       = (lane >> 4) * 4;
+    const int col_in_lane   = lane & 15;
+    const int b_k_set       = (lane >> 4) * 4;
+
+    const int super_blocks_per_row = K / Q6_K_ELEMS_PER_BLOCK;
+    const int num_k_chunks         = K / K_CHUNK;
+
+    for (int kc = 0; kc < num_k_chunks; ++kc) {
+        const int k_start_abs = kc * K_CHUNK;
+
+        #pragma unroll
+        for (int i = 0; i < 16; ++i) {
+            const int flat        = tid * 16 + i;
+            const int row_in_tile = flat / K_CHUNK;
+            const int k_in_tile   = flat & (K_CHUNK - 1);
+            const float v = A[(tile_m + row_in_tile) * K + k_start_abs + k_in_tile];
+            lds_a[flat] = __float2half(v);
+        }
+
+        // ===== Dequant block (Q6_K llama.cpp layout) =====
+        {
+            const int col  = tid >> 1;
+            const int half = tid & 1;
+
+            const int super_block_idx = kc >> 3;
+            const int chunk_in_sb     = kc & 7;
+
+            const size_t sb_ofs =
+                (size_t)(tile_n + col) * (size_t)super_blocks_per_row * Q6_K_BLOCK_BYTES
+                + (size_t)super_block_idx * Q6_K_BLOCK_BYTES;
+            const uint8_t* sb_ptr = W + sb_ofs;
+
+            __half d_h;
+            std::memcpy(&d_h, sb_ptr + 208, sizeof(__half));
+            const float d_f = __half2float(d_h);
+
+            const int chunk_base = chunk_in_sb * 32 + half * 16;
+            const int sub_idx    = chunk_base >> 4;
+            const int n_half     = chunk_base >> 7;
+            const int e_half     = chunk_base & 127;
+            const int which_q    = e_half >> 5;
+            const int l_base     = e_half & 31;
+            const bool is_high_nib = (which_q >= 2);
+            const int qh_shift   = 2 * which_q;
+
+            const int8_t* scales = reinterpret_cast<const int8_t*>(sb_ptr + 192);
+            const float d_scale = d_f * (float)scales[sub_idx];
+
+            const uint8_t* ql_base = sb_ptr
+                + (size_t)n_half * 64
+                + (size_t)((which_q & 1) * 32)
+                + (size_t)l_base;
+            const uint8_t* qh_base = sb_ptr
+                + 128
+                + (size_t)n_half * 32
+                + (size_t)l_base;
+
+            #pragma unroll
+            for (int i = 0; i < 16; ++i) {
+                const uint8_t ql_byte = ql_base[i];
+                const uint8_t qh_byte = qh_base[i];
+                const int ql_nib  = is_high_nib ? (ql_byte >> 4) : (ql_byte & 0x0F);
+                const int qh_bits = (qh_byte >> qh_shift) & 0x3;
+                const int q6 = ql_nib | (qh_bits << 4);
+                const int signed_q = q6 - 32;
+                const int k = half * 16 + i;
+                lds_b[k * TILE_N + col] = __float2half(d_scale * (float)signed_q);
+            }
+        }
+        // ===================================================================
+
+        __syncthreads();
+
+        #pragma unroll
+        for (int k_sub = 0; k_sub < K_CHUNK; k_sub += TILE_K) {
+            half8 a_reg;
+            {
+                const int base = a_row_in_tile * K_CHUNK + k_sub;
+                a_reg[0] = lds_a[base + a_k_set + 0];
+                a_reg[1] = lds_a[base + a_k_set + 1];
+                a_reg[2] = lds_a[base + a_k_set + 2];
+                a_reg[3] = lds_a[base + a_k_set + 3];
+                a_reg[4] = lds_a[base + a_k_set + 8];
+                a_reg[5] = lds_a[base + a_k_set + 9];
+                a_reg[6] = lds_a[base + a_k_set + 10];
+                a_reg[7] = lds_a[base + a_k_set + 11];
+            }
+
+            #pragma unroll
+            for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+                const int b_col_in_tile = cb * 16 + col_in_lane;
+
+                half8 b_reg;
+                b_reg[0] = lds_b[(k_sub + b_k_set + 0)  * TILE_N + b_col_in_tile];
+                b_reg[1] = lds_b[(k_sub + b_k_set + 1)  * TILE_N + b_col_in_tile];
+                b_reg[2] = lds_b[(k_sub + b_k_set + 2)  * TILE_N + b_col_in_tile];
+                b_reg[3] = lds_b[(k_sub + b_k_set + 3)  * TILE_N + b_col_in_tile];
+                b_reg[4] = lds_b[(k_sub + b_k_set + 8)  * TILE_N + b_col_in_tile];
+                b_reg[5] = lds_b[(k_sub + b_k_set + 9)  * TILE_N + b_col_in_tile];
+                b_reg[6] = lds_b[(k_sub + b_k_set + 10) * TILE_N + b_col_in_tile];
+                b_reg[7] = lds_b[(k_sub + b_k_set + 11) * TILE_N + b_col_in_tile];
+
+                acc[cb] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(
+                    a_reg, b_reg, acc[cb]);
+            }
+        }
+
+        __syncthreads();
+    }
+
+    const int out_col_in_lane  = lane & 15;
+    const int out_row_start    = (lane >> 4) * 8;
+    const int wave_row_in_tile = wave_id * 16;
+
+    #pragma unroll
+    for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+        const int out_col_in_tile = cb * 16 + out_col_in_lane;
+        const int global_col      = tile_n + out_col_in_tile;
+
+        #pragma unroll
+        for (int v = 0; v < 8; ++v) {
+            const int out_row_in_tile = wave_row_in_tile + out_row_start + v;
+            const int global_row      = tile_m + out_row_in_tile;
+            D[global_row * N + global_col] = acc[cb][v];
+        }
+    }
+}
+
+extern "C" hipError_t rocmforge_launch_wmma_gemm_q6_k_fp16(
+    const float*   input,
+    const uint8_t* weights,
+    float*         output,
+    int M, int N, int K,
+    hipStream_t stream)
+{
+    if (M <= 0 || N <= 0 || K <= 0)                  return hipErrorInvalidValue;
+    if ((M % TILE_M) != 0)                           return hipErrorInvalidValue;
+    if ((N % TILE_N) != 0)                           return hipErrorInvalidValue;
+    if ((K % Q6_K_ELEMS_PER_BLOCK) != 0)             return hipErrorInvalidValue;
+
+    dim3 grid(N / TILE_N, M / TILE_M, 1);
+    dim3 block(THREADS_PER_BLOCK, 1, 1);
+
+    rf_v1_wmma_gemm_q6_k_fp16_kernel<<<grid, block, 0, stream>>>(
+        input, weights, output, M, N, K);
+    return hipGetLastError();
+}
+"#);
+    s
+}
+
+// Q8_0 FP16 WMMA — v0.x has no Q8_0 weight WMMA (Q8_0 is only used for
+// activations in the Q8-Inline GEMV path). New kernel using the Q4_0
+// tile geometry; dequant is trivial (signed int8 × FP16 scale).
+fn emit_q8_0_wmma_fp16() -> String {
+    let mut s = String::from(WMMA_FILE_HEADER);
+    s.push_str(r#"// Q8_0 FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q8_0.
+// No v0.x reference; tile geometry follows Q4_0. Q8_0 block is 34 B for
+// 32 elements: FP16 d @ 0, signed int8 qs[32] @ 2.
+
+#define TILE_M             64
+#define TILE_N             64
+#define TILE_K             16
+#define K_CHUNK            32
+#define WARPS_PER_BLOCK    4
+#define THREADS_PER_BLOCK  (WARPS_PER_BLOCK * 32)
+#define COL_BLOCKS         4
+#define Q8_0_BLOCK_BYTES   34
+
+__global__ void rf_v1_wmma_gemm_q8_0_fp16_kernel(
+    const float*   __restrict__ A,
+    const uint8_t* __restrict__ W,
+    float*         __restrict__ D,
+    int M, int N, int K)
+{
+    rf_v1_wmma_set_ieee_denormal_mode();
+
+    const int tile_m = blockIdx.y * TILE_M;
+    const int tile_n = blockIdx.x * TILE_N;
+
+    const int tid     = threadIdx.x;
+    const int wave_id = tid >> 5;
+    const int lane    = tid & 31;
+
+    __shared__ __half lds_a[TILE_M * K_CHUNK];
+    __shared__ __half lds_b[K_CHUNK * TILE_N];
+
+    float8 acc[COL_BLOCKS];
+    #pragma unroll
+    for (int b = 0; b < COL_BLOCKS; ++b) {
+        acc[b] = {0, 0, 0, 0, 0, 0, 0, 0};
+    }
+
+    const int a_row_in_tile = wave_id * 16 + (lane & 15);
+    const int a_k_set       = (lane >> 4) * 4;
+    const int col_in_lane   = lane & 15;
+    const int b_k_set       = (lane >> 4) * 4;
+
+    const int blocks_per_row = K / 32;
+    const int num_k_chunks   = K / K_CHUNK;
+
+    for (int kc = 0; kc < num_k_chunks; ++kc) {
+        const int k_start_abs = kc * K_CHUNK;
+
+        #pragma unroll
+        for (int i = 0; i < 16; ++i) {
+            const int flat        = tid * 16 + i;
+            const int row_in_tile = flat / K_CHUNK;
+            const int k_in_tile   = flat & (K_CHUNK - 1);
+            const float v = A[(tile_m + row_in_tile) * K + k_start_abs + k_in_tile];
+            lds_a[flat] = __float2half(v);
+        }
+
+        // ===== Dequant block (Q8_0 — signed int8) =====
+        {
+            const int col  = tid >> 1;
+            const int half = tid & 1;
+
+            const size_t block_ofs =
+                (size_t)(tile_n + col) * (size_t)blocks_per_row * Q8_0_BLOCK_BYTES +
+                (size_t)kc * Q8_0_BLOCK_BYTES;
+            const uint8_t* block_ptr = W + block_ofs;
+
+            __half scale_h;
+            std::memcpy(&scale_h, block_ptr, sizeof(__half));
+            const float scale_f = __half2float(scale_h);
+
+            const int qs_ofs = 2 + half * 16;
+            #pragma unroll
+            for (int i = 0; i < 16; ++i) {
+                const int8_t q8 = (int8_t)block_ptr[qs_ofs + i];
+                const int k = half * 16 + i;
+                lds_b[k * TILE_N + col] = __float2half((float)q8 * scale_f);
+            }
+        }
+        // ===================================================================
+
+        __syncthreads();
+
+        #pragma unroll
+        for (int k_sub = 0; k_sub < K_CHUNK; k_sub += TILE_K) {
+            half8 a_reg;
+            {
+                const int base = a_row_in_tile * K_CHUNK + k_sub;
+                a_reg[0] = lds_a[base + a_k_set + 0];
+                a_reg[1] = lds_a[base + a_k_set + 1];
+                a_reg[2] = lds_a[base + a_k_set + 2];
+                a_reg[3] = lds_a[base + a_k_set + 3];
+                a_reg[4] = lds_a[base + a_k_set + 8];
+                a_reg[5] = lds_a[base + a_k_set + 9];
+                a_reg[6] = lds_a[base + a_k_set + 10];
+                a_reg[7] = lds_a[base + a_k_set + 11];
+            }
+
+            #pragma unroll
+            for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+                const int b_col_in_tile = cb * 16 + col_in_lane;
+
+                half8 b_reg;
+                b_reg[0] = lds_b[(k_sub + b_k_set + 0)  * TILE_N + b_col_in_tile];
+                b_reg[1] = lds_b[(k_sub + b_k_set + 1)  * TILE_N + b_col_in_tile];
+                b_reg[2] = lds_b[(k_sub + b_k_set + 2)  * TILE_N + b_col_in_tile];
+                b_reg[3] = lds_b[(k_sub + b_k_set + 3)  * TILE_N + b_col_in_tile];
+                b_reg[4] = lds_b[(k_sub + b_k_set + 8)  * TILE_N + b_col_in_tile];
+                b_reg[5] = lds_b[(k_sub + b_k_set + 9)  * TILE_N + b_col_in_tile];
+                b_reg[6] = lds_b[(k_sub + b_k_set + 10) * TILE_N + b_col_in_tile];
+                b_reg[7] = lds_b[(k_sub + b_k_set + 11) * TILE_N + b_col_in_tile];
+
+                acc[cb] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12(
+                    a_reg, b_reg, acc[cb]);
+            }
+        }
+
+        __syncthreads();
+    }
+
+    const int out_col_in_lane  = lane & 15;
+    const int out_row_start    = (lane >> 4) * 8;
+    const int wave_row_in_tile = wave_id * 16;
+
+    #pragma unroll
+    for (int cb = 0; cb < COL_BLOCKS; ++cb) {
+        const int out_col_in_tile = cb * 16 + out_col_in_lane;
+        const int global_col      = tile_n + out_col_in_tile;
+
+        #pragma unroll
+        for (int v = 0; v < 8; ++v) {
+            const int out_row_in_tile = wave_row_in_tile + out_row_start + v;
+            const int global_row      = tile_m + out_row_in_tile;
+            D[global_row * N + global_col] = acc[cb][v];
+        }
+    }
+}
+
+extern "C" hipError_t rocmforge_launch_wmma_gemm_q8_0_fp16(
+    const float*   input,
+    const uint8_t* weights,
+    float*         output,
+    int M, int N, int K,
+    hipStream_t stream)
+{
+    if (M <= 0 || N <= 0 || K <= 0)   return hipErrorInvalidValue;
+    if ((M % TILE_M)  != 0)           return hipErrorInvalidValue;
+    if ((N % TILE_N)  != 0)           return hipErrorInvalidValue;
+    if ((K % K_CHUNK) != 0)           return hipErrorInvalidValue;
+
+    dim3 grid(N / TILE_N, M / TILE_M, 1);
+    dim3 block(THREADS_PER_BLOCK, 1, 1);
+
+    rf_v1_wmma_gemm_q8_0_fp16_kernel<<<grid, block, 0, stream>>>(
+        input, weights, output, M, N, K);
+    return hipGetLastError();
+}
+"#);
     s
 }

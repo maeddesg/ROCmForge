@@ -12,14 +12,54 @@ use super::hip_ffi::{hipError_t, hipStream_t};
 
 #[link(name = "v1_wmma_q4_0_fp16", kind = "static")]
 extern "C" {
-    /// Launch the Q4_0 FP16 WMMA GEMM.
-    ///
-    /// Computes `D[M × N] = A[M × K] * W[N × K]` where `A` is FP32
-    /// row-major, `W` is Q4_0 row-major (18 B per block along K), and
-    /// `D` is FP32 row-major. `M`, `N`, `K` must be multiples of
-    /// `TILE_M=64` / `TILE_N=64` / `K_CHUNK=32` respectively; otherwise
-    /// the launcher returns `hipErrorInvalidValue` without dispatching.
+    /// Launch the Q4_0 FP16 WMMA GEMM. `M`/`N`/`K` multiples of
+    /// 64/64/32; otherwise returns `hipErrorInvalidValue`.
     pub fn rocmforge_launch_wmma_gemm_q4_0_fp16(
+        input: *const f32,
+        weights: *const u8,
+        output: *mut f32,
+        M: i32,
+        N: i32,
+        K: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_wmma_q4_k_fp16", kind = "static")]
+extern "C" {
+    /// Launch the Q4_K FP16 WMMA GEMM. `M`/`N`/`K` multiples of
+    /// 64/64/256 (Q4_K elements-per-block = 256).
+    pub fn rocmforge_launch_wmma_gemm_q4_k_fp16(
+        input: *const f32,
+        weights: *const u8,
+        output: *mut f32,
+        M: i32,
+        N: i32,
+        K: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_wmma_q6_k_fp16", kind = "static")]
+extern "C" {
+    /// Launch the Q6_K FP16 WMMA GEMM. `M`/`N`/`K` multiples of
+    /// 64/64/256 (Q6_K elements-per-block = 256).
+    pub fn rocmforge_launch_wmma_gemm_q6_k_fp16(
+        input: *const f32,
+        weights: *const u8,
+        output: *mut f32,
+        M: i32,
+        N: i32,
+        K: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_wmma_q8_0_fp16", kind = "static")]
+extern "C" {
+    /// Launch the Q8_0 FP16 WMMA GEMM. `M`/`N`/`K` multiples of
+    /// 64/64/32 (Q8_0 block holds 32 elements).
+    pub fn rocmforge_launch_wmma_gemm_q8_0_fp16(
         input: *const f32,
         weights: *const u8,
         output: *mut f32,
