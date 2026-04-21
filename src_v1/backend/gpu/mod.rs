@@ -10,4 +10,5 @@ pub mod dequant_parity;
 pub mod device;
 pub mod error;
 pub mod hip_ffi;
+pub mod wmma;
 pub mod wrappers;

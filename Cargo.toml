@@ -162,6 +162,21 @@ name = "v1_parity_test"
 path = "tests_v1/parity_test.rs"
 required-features = ["v1", "gpu"]
 
+# v1.0 WMMA codegen emit / consistency test — writes the generated HIP
+# source to hip_kernels_v1/wmma/wmma_gemm_q4_0_fp16.hip when
+# ROCMFORGE_REGEN_KERNELS=1, and always checks that the committed file
+# matches the codegen output.
+[[test]]
+name = "v1_codegen_wmma_emit_test"
+path = "tests_v1/codegen_wmma_emit_test.rs"
+required-features = ["v1"]
+
+# v1.0 WMMA GEMM PoC test — Block A: Q4_0 FP16 vs CPU-FP32 and v0.x.
+[[test]]
+name = "v1_wmma_test"
+path = "tests_v1/wmma_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
