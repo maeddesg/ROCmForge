@@ -1,14 +1,24 @@
 //! `rocmforge-v1` — v1.0 inference CLI entry point.
 //!
-//! Phase 1 supports a single diagnostic command: `--list-tensors`. GPU
-//! loading is exercised via the integration-test harness in
-//! `tests_v1/gguf_test.rs`.
+//! Phase 1 commands:
+//! - `--list-tensors`: CPU-only GGUF inventory / diagnostics.
+//! - `--prompt <text>`: single-shot generation with greedy sampling.
+//! - `--inference-test`: 15-prompt validation suite, Markdown report.
+//! - `--interactive`: REPL-style conversation loop (no context carryover
+//!   between turns in Phase 1 — KV-cache is reset each turn).
 
 #[cfg(feature = "v1")]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut model: Option<String> = None;
     let mut list_tensors = false;
+    let mut prompt: Option<String> = None;
+    let mut max_tokens: usize = 256;
+    let mut inference_test = false;
+    let mut suite_path: Option<String> = None;
+    let mut output_path: Option<String> = None;
+    let mut interactive = false;
+
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -21,6 +31,43 @@ fn main() {
                 model = Some(args[i].clone());
             }
             "--list-tensors" => list_tensors = true,
+            "--prompt" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("--prompt requires text");
+                    std::process::exit(2);
+                }
+                prompt = Some(args[i].clone());
+            }
+            "--max-tokens" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("--max-tokens requires a number");
+                    std::process::exit(2);
+                }
+                max_tokens = args[i].parse().unwrap_or_else(|_| {
+                    eprintln!("--max-tokens must be a positive integer");
+                    std::process::exit(2);
+                });
+            }
+            "--inference-test" => inference_test = true,
+            "--suite" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("--suite requires a path");
+                    std::process::exit(2);
+                }
+                suite_path = Some(args[i].clone());
+            }
+            "--output" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("--output requires a path");
+                    std::process::exit(2);
+                }
+                output_path = Some(args[i].clone());
+            }
+            "--interactive" => interactive = true,
             "-h" | "--help" => {
                 print_help();
                 return;
@@ -48,17 +95,99 @@ fn main() {
         return;
     }
 
-    eprintln!("Phase 1 only supports --list-tensors; nothing else to do.");
+    #[cfg(feature = "gpu")]
+    {
+        if inference_test {
+            let suite = suite_path
+                .unwrap_or_else(|| "benches_v1/inference_test_prompts_15.json".to_string());
+            let out = output_path
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(rocmforge::v1::cli::inference_test::default_output_path);
+            if let Err(e) = rocmforge::v1::cli::inference_test::run(&path, &suite, &out) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        if let Some(p) = prompt {
+            if let Err(e) =
+                rocmforge::v1::cli::inference_test::run_single_prompt(&path, &p, max_tokens)
+            {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        if interactive {
+            if let Err(e) = run_interactive(&path, max_tokens) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        if inference_test || prompt.is_some() || interactive {
+            eprintln!(
+                "--prompt / --inference-test / --interactive require the `gpu` feature. \
+                 Build with: cargo build --release --features v1,gpu --bin rocmforge-v1"
+            );
+            std::process::exit(2);
+        }
+    }
+
+    eprintln!("No command given. Try --list-tensors, --prompt, --inference-test, or --interactive.");
     std::process::exit(2);
+}
+
+#[cfg(all(feature = "v1", feature = "gpu"))]
+fn run_interactive(model_path: &str, max_tokens: usize) -> Result<(), String> {
+    use std::io::{BufRead, Write};
+    println!("rocmforge-v1 interactive mode. Ctrl-D or empty line to exit.");
+    println!("(Phase 1: each turn is independent — KV-cache resets between turns.)\n");
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    loop {
+        print!("> ");
+        stdout.flush().ok();
+        let mut line = String::new();
+        let read = stdin.lock().read_line(&mut line).map_err(|e| e.to_string())?;
+        if read == 0 {
+            println!();
+            break;
+        }
+        let line = line.trim();
+        if line.is_empty() {
+            break;
+        }
+        if let Err(e) =
+            rocmforge::v1::cli::inference_test::run_single_prompt(model_path, line, max_tokens)
+        {
+            eprintln!("error: {e}");
+        }
+        println!();
+    }
+    Ok(())
 }
 
 #[cfg(feature = "v1")]
 fn print_help() {
     eprintln!(
-        "Usage: rocmforge-v1 --model <path.gguf> [--list-tensors]
+        "Usage: rocmforge-v1 --model <path.gguf> [command]
 
-Phase 1 commands:
-  --list-tensors  Print tensor inventory, metadata summary, quant breakdown."
+Commands:
+  --list-tensors                     GGUF tensor inventory (CPU only)
+  --prompt <text>                    Generate response for a single prompt
+  --inference-test                   Run 15-prompt validation suite
+  --interactive                      REPL loop (one-shot per turn)
+
+Options:
+  --max-tokens <N>                   Generation cap (default 256)
+  --suite <path>                     Suite JSON for --inference-test
+                                     (default: benches_v1/inference_test_prompts_15.json)
+  --output <path>                    Report file for --inference-test
+                                     (default: results/inference_test_<date>.md)"
     );
 }
 
