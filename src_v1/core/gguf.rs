@@ -349,9 +349,11 @@ fn read_array<R: Read>(r: &mut R) -> GgufResult<GgufValue> {
     // Large-count guardrail: materialise only into compact primitive
     // vecs, summarise everything else.
     const MAX_MATERIALISE: u64 = 256;
+    // String arrays are always materialised — the tokenizer vocabulary
+    // has up to ~200 000 entries and must be available in full.
     let materialise = match elem_ty {
         GgufValueType::U32 | GgufValueType::I32 | GgufValueType::F32 => true,
-        GgufValueType::String => count <= MAX_MATERIALISE,
+        GgufValueType::String => true,
         _ => count <= MAX_MATERIALISE,
     };
 

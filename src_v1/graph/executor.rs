@@ -235,6 +235,24 @@ impl<'m> GraphExecutor<'m> {
         0
     }
 
+    /// Reset the KV cache for a fresh conversation. Required between
+    /// unrelated prompts (e.g. the 15-prompt validation run) so
+    /// attention doesn't see stale context from the previous round.
+    /// Caller must also reset its own position counter to 0 — this
+    /// method just zero-fills the cache buffers.
+    pub fn reset_kv_cache(&mut self) -> HipResult<()> {
+        let per_cache_bytes =
+            self.kv_layout.num_kv_heads * self.kv_layout.head_stride * 4;
+        let zeros = vec![0u8; per_cache_bytes];
+        for buf in &mut self.k_cache {
+            buf.copy_from_host(&zeros)?;
+        }
+        for buf in &mut self.v_cache {
+            buf.copy_from_host(&zeros)?;
+        }
+        Ok(())
+    }
+
     /// Run one forward pass for a single token. Returns the full logits
     /// vector (length = vocab_size).
     pub fn execute_decode(&mut self, token_id: u32, pos: usize) -> HipResult<Vec<f32>> {
