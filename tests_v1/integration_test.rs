@@ -114,25 +114,25 @@ fn test_startup_flow_qwen3_all_pillars() {
         "qwen3: {} tok / {:.1} tok/s — {:?}",
         result.generated_tokens, result.decode_tok_s, result.output
     );
-    // Runtime convergence — the q8_inline variant should have
-    // taken over every multi-variant shape by now.
-    let converged = pipe
-        .executor
-        .runtime()
-        .expect("runtime")
-        .bandits
-        .values()
-        .any(|b| {
-            b.total_pulls > 50
-                && b.arms
-                    .iter()
-                    .max_by_key(|a| a.n_pulls)
-                    .map(|a| a.n_pulls as f64 / b.total_pulls as f64 > 0.8)
-                    .unwrap_or(false)
-        });
+    // Runtime convergence — after sync-elimination (Phase 2 step
+    // 2.0.1) the Bandit stops recording new pulls once every shape
+    // has `is_exploiting() == true`, so `total_pulls` plateaus at
+    // ~60 rather than growing with every dispatch. Convergence is
+    // still detectable via `all_exploiting()` and a >55 % winner
+    // share on at least one shape.
+    let rt = pipe.executor.runtime().expect("runtime");
     assert!(
-        converged,
-        "at least one bandit should be past exploration by token 32"
+        rt.all_exploiting(),
+        "every bandit should be in exploitation after 32 decode tokens"
+    );
+    let any_converged = rt.bandits.values().any(|b| {
+        let best = b.arms.iter().max_by_key(|a| a.n_pulls);
+        best.map(|a| a.n_pulls as f64 / b.total_pulls.max(1) as f64 > 0.55)
+            .unwrap_or(false)
+    });
+    assert!(
+        any_converged,
+        "at least one bandit should have a >55 % winner share"
     );
     // Monitor ran ≥1 check during 32 decode tokens (sample_rate=32)
     // so the log vector exists, but on a clean prompt it stays empty.

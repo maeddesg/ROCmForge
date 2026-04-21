@@ -14,11 +14,15 @@
 //!                            multi-variant shape
 
 pub mod bandit;
+#[cfg(feature = "gpu")]
+pub mod events;
 pub mod variants;
 
 use std::collections::HashMap;
 
 pub use bandit::{BanditArm, ShapeBandit};
+#[cfg(feature = "gpu")]
+pub use events::{EventPair, EventPool, PendingMeasurement};
 pub use variants::{KernelId, KernelVariant, OpType, ShapeKey, VariantId, VariantRegistry};
 
 pub struct Runtime {
@@ -68,6 +72,16 @@ impl Runtime {
         if let Some(bandit) = self.bandits.get_mut(shape) {
             bandit.record(variant_id, time_us);
         }
+    }
+
+    /// True when every multi-variant shape has finished exploration
+    /// (each arm ≥ 5 pulls and ≥ 50 total pulls per Bandit). In this
+    /// state the executor skips `hipEventRecord` entirely — the
+    /// Bandit has enough data to keep picking winners without new
+    /// measurements. If the registry has no multi-variant shapes,
+    /// returns `true` trivially.
+    pub fn all_exploiting(&self) -> bool {
+        self.bandits.values().all(|b| b.is_exploiting())
     }
 
     /// Force a specific variant — used by A/B tests that want to

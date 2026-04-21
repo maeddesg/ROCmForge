@@ -122,6 +122,7 @@ impl HipStream {
     }
 
     pub fn synchronize(&self) -> HipResult<()> {
+        SYNC_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         hip_check!(
             hipStreamSynchronize(self.stream),
             "HipStream::synchronize"
@@ -143,6 +144,24 @@ impl Drop for HipStream {
             tracing::warn!(code = rc, "hipStreamDestroy failed in HipStream::drop");
         }
     }
+}
+
+/// Process-wide counter of `hipStreamSynchronize` calls issued via
+/// [`HipStream::synchronize`]. Used by the Phase-2 P0-gate check
+/// (see `ga_tuning_spec.md §8.1`): if the rate is > 200 per 100
+/// decode tokens, GA runs refuse to start because the Bandit's
+/// per-kernel sync is corrupting fitness measurements.
+///
+/// Zero-cost in the normal path — a single relaxed atomic add.
+static SYNC_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+pub fn sync_count() -> u64 {
+    SYNC_COUNTER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn reset_sync_count() {
+    SYNC_COUNTER.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
 // --- HipEvent: timing -------------------------------------------------------

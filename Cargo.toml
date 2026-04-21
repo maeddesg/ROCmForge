@@ -250,6 +250,14 @@ name = "v1_integration_test"
 path = "tests_v1/integration_test.rs"
 required-features = ["v1", "gpu"]
 
+# v1.0 Phase-2 Schritt 2.0.1 — Bandit sync-elimination P0 gate.
+# Confirms hipStreamSynchronize < 200 per 100 decode tokens and
+# the bandit still converges on q8_inline with HIP-event timing.
+[[test]]
+name = "v1_sync_elimination_test"
+path = "tests_v1/sync_elimination_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

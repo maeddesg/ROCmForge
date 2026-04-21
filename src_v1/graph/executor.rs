@@ -85,6 +85,15 @@ pub struct GraphExecutor<'m> {
     /// the fixed `_standard` kernel per quant format — byte-identical
     /// to the pre-1.12 path.
     runtime: Option<Runtime>,
+
+    /// Event pool paired with `runtime`. During Bandit-exploration
+    /// (Phase-2 §8.1), each tuned GEMV records `(start, stop)` events
+    /// on the stream instead of calling `stream.synchronize()`. The
+    /// pool is drained once at token end — one sync per token rather
+    /// than one per kernel (Arch-Doc §3.7 Zero-Sync Pipeline). After
+    /// Bandit-convergence (`runtime.all_exploiting() == true`) we
+    /// skip event recording entirely.
+    event_pool: Option<super::super::runtime::EventPool>,
 }
 
 impl<'m> GraphExecutor<'m> {
@@ -164,6 +173,7 @@ impl<'m> GraphExecutor<'m> {
                     trace,
                     nan_guard,
                     runtime: None,
+                    event_pool: None,
                 });
             }
             other => {
@@ -237,6 +247,7 @@ impl<'m> GraphExecutor<'m> {
             trace,
             nan_guard,
             runtime: None,
+            event_pool: None,
         })
     }
 
@@ -259,6 +270,18 @@ impl<'m> GraphExecutor<'m> {
         // fresh ShapeBandits where applicable.
         let rebuilt = Runtime::new(runtime.registry);
         self.runtime = Some(rebuilt);
+        // Allocate the event pool — capacity covers the largest
+        // per-token GEMV count we expect (Qwen3: 32 layers × ~5
+        // GEMV nodes + LM-head = ~165; round to 256 for headroom).
+        // Pool allocation failure is non-fatal; we just skip timing.
+        match super::super::runtime::EventPool::new(256) {
+            Ok(pool) => self.event_pool = Some(pool),
+            Err(e) => {
+                tracing::warn!(error = %e.message, "event pool alloc failed; \
+                    Bandit will fall back to wall-clock syncs");
+                self.event_pool = None;
+            }
+        }
     }
 
     pub fn runtime(&self) -> Option<&Runtime> {
@@ -313,8 +336,18 @@ impl<'m> GraphExecutor<'m> {
             }
         }
 
-        // Harvest logits. We always finite-check them.
+        // Zero-Sync Pipeline (Arch-Doc §3.7): this is the one
+        // explicit `hipStreamSynchronize` per token. It replaces
+        // the ~500 syncs the Phase-1 bandit issued inside
+        // `dispatch_gemv_tuned`. The sync is required because
+        // `hipMemcpy` (blocking, no stream arg) does **not**
+        // serialise against work on user-created streams — without
+        // this line, `read_buffer` could race the last GEMV writing
+        // into the logits buffer.
+        self.stream.synchronize()?;
         let logits = self.read_buffer(self.graph.logits_buffer, self.graph.config.vocab_size)?;
+        // Events are complete now — drain them into the Bandit.
+        self.flush_event_pool()?;
         for (i, v) in logits.iter().enumerate() {
             if !v.is_finite() {
                 return Err(HipError {
@@ -541,7 +574,16 @@ impl<'m> GraphExecutor<'m> {
                 check(rc, "swiglu")?;
             }
         }
-        self.stream.synchronize()?;
+        // No per-node stream sync: HIP guarantees in-order
+        // execution within a single stream, so the next node's
+        // kernel will see this one's output without a CPU sync.
+        // The only syncs per token now are: (1) logits readback in
+        // `execute_decode`, (2) monitor hidden-state reads (every
+        // sample_rate tokens), (3) the trace/NaN-guard `check_node`
+        // path below, which opts in via env var.
+        if self.nan_guard || self.trace {
+            self.stream.synchronize()?;
+        }
         Ok(())
     }
 
@@ -623,6 +665,17 @@ impl<'m> GraphExecutor<'m> {
     /// Bandit-driven GEMV dispatch. Separate from `dispatch_gemv`
     /// so the fixed-kernel path stays untouched when no Runtime is
     /// attached. Caller guarantees `self.runtime.is_some()`.
+    ///
+    /// Zero-Sync Pipeline (Arch-Doc §3.7 / Phase-2 §8.1):
+    /// * **Exploration** — record `(start, stop)` HIP events on the
+    ///   stream around the launch, push the `(shape, variant_id)`
+    ///   onto the event pool. No stream sync here. Events are drained
+    ///   once at token end (`flush_event_pool`), which brings total
+    ///   syncs from ~500 per token down to 1.
+    /// * **Exploitation** — after every Bandit shape has
+    ///   `is_exploiting() == true`, skip event recording entirely.
+    ///   The GPU pipelines kernels back-to-back with zero CPU
+    ///   involvement until the logits readback forces a sync.
     fn dispatch_gemv_tuned(
         &mut self,
         weight: &WeightRef,
@@ -652,12 +705,27 @@ impl<'m> GraphExecutor<'m> {
             context: "dispatch_gemv_tuned".into(),
         })?;
 
+        // Only record events while the Bandit is still learning the
+        // shape's optimum. After convergence the arms stop moving
+        // and new measurements add no information — skipping them
+        // lets the GPU run without any CPU-visible interruption.
+        let want_timing = !runtime.all_exploiting();
+
         let w_ptr = self.weight_ptr(weight);
         let in_ptr = self.buf_ptr(input);
         let out_ptr = self.buf_mut_ptr(output);
-        let stream = self.stream.raw();
+        let stream_raw = self.stream.raw();
 
-        let start = std::time::Instant::now();
+        let pair_idx = if want_timing {
+            if let Some(pool) = self.event_pool.as_mut() {
+                pool.record_start(&self.stream, shape, variant_id)?
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let rc = unsafe {
             match kernel {
                 KernelId::GemvQ40Standard => rocmforge_launch_gemv_q4_0_standard(
@@ -666,7 +734,7 @@ impl<'m> GraphExecutor<'m> {
                     out_ptr as *mut f32,
                     in_dim as i32,
                     out_dim as i32,
-                    stream,
+                    stream_raw,
                 ),
                 KernelId::GemvQ4KStandard => rocmforge_launch_gemv_q4_k_standard(
                     w_ptr as *const u8,
@@ -674,7 +742,7 @@ impl<'m> GraphExecutor<'m> {
                     out_ptr as *mut f32,
                     in_dim as i32,
                     out_dim as i32,
-                    stream,
+                    stream_raw,
                 ),
                 KernelId::GemvQ4KQ8Inline => rocmforge_launch_gemv_q4_k_q8_inline(
                     w_ptr as *const u8,
@@ -682,7 +750,7 @@ impl<'m> GraphExecutor<'m> {
                     out_ptr as *mut f32,
                     in_dim as i32,
                     out_dim as i32,
-                    stream,
+                    stream_raw,
                 ),
                 KernelId::GemvQ6KStandard => rocmforge_launch_gemv_q6_k_standard(
                     w_ptr as *const u8,
@@ -690,7 +758,7 @@ impl<'m> GraphExecutor<'m> {
                     out_ptr as *mut f32,
                     in_dim as i32,
                     out_dim as i32,
-                    stream,
+                    stream_raw,
                 ),
                 KernelId::GemvQ80Standard => rocmforge_launch_gemv_q8_0_standard(
                     w_ptr as *const u8,
@@ -698,7 +766,7 @@ impl<'m> GraphExecutor<'m> {
                     out_ptr as *mut f32,
                     in_dim as i32,
                     out_dim as i32,
-                    stream,
+                    stream_raw,
                 ),
                 other => {
                     return Err(HipError {
@@ -710,14 +778,32 @@ impl<'m> GraphExecutor<'m> {
             }
         };
         check(rc, "gemv_tuned_launch")?;
-        // Sync so the elapsed time reflects actual GPU work; Phase 2
-        // replaces this with HIP events batched at token end.
-        self.stream.synchronize()?;
-        let time_us = start.elapsed().as_nanos() as f64 / 1000.0;
-        if let Some(runtime) = self.runtime.as_mut() {
-            runtime.record(&shape, variant_id, time_us);
+
+        if let Some(idx) = pair_idx {
+            if let Some(pool) = self.event_pool.as_mut() {
+                pool.record_stop(&self.stream, idx)?;
+            }
         }
         Ok(())
+    }
+
+    /// Drain the event pool into the Bandit. Called once per token
+    /// after the logits readback syncs the stream — the events are
+    /// guaranteed complete at that point. Cheap no-op when the pool
+    /// is empty (e.g. Bandit is in exploitation).
+    fn flush_event_pool(&mut self) -> HipResult<()> {
+        let pool = match self.event_pool.as_mut() {
+            Some(p) if !p.is_empty() => p,
+            _ => return Ok(()),
+        };
+        let runtime = match self.runtime.as_mut() {
+            Some(r) => r,
+            None => {
+                pool.clear_pending();
+                return Ok(());
+            }
+        };
+        pool.flush_into(runtime)
     }
 
     fn dispatch_gate_up_swiglu(
