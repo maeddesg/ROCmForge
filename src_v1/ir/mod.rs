@@ -5,6 +5,7 @@
 //! specification: `docs/v1.0/dequant_ir_spec.md`.
 
 pub mod formats;
+pub mod interpreter;
 pub mod printer;
 pub mod types;
 pub mod validator;
