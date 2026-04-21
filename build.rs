@@ -366,7 +366,7 @@ mod gpu_build {
 
         // Link Phase-1 v1 libraries. More land here as v1.0 kernels come online.
         println!("cargo:rustc-link-search=native={}", build_dir.display());
-        for lib in &["v1_smoke", "v1_device_info"] {
+        for lib in &["v1_smoke", "v1_device_info", "v1_dequant_parity"] {
             let path = build_dir.join(format!("lib{lib}.a"));
             if path.exists() {
                 println!("cargo:rustc-link-lib=static={lib}");

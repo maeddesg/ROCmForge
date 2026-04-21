@@ -31,3 +31,4 @@ endfunction()
 
 add_hip_kernel(v1_smoke smoke_test.hip)
 add_hip_kernel(v1_device_info device_info.hip)
+add_hip_kernel(v1_dequant_parity dequant_parity.hip)
