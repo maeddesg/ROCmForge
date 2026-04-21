@@ -1,6 +1,6 @@
 # ROCmForge v1.0 — Inference Validation Report
 
-- **Date:** 2026-04-21 13:52:40
+- **Date:** 2026-04-21 14:28:06
 - **Model file:** `/home/maeddes/models/Qwen3-8B-Q4_K_M.gguf`
 - **Suite target:** `Qwen3-8B-Q4_K_M.gguf`
 - **Sampling:** greedy (temperature=0)
@@ -11,27 +11,27 @@
 
 | Prefill tok | Prefill ms | Prefill tok/s | Decode tok | Decode ms | Decode tok/s | Wallclock ms |
 |---:|---:|---:|---:|---:|---:|---:|
-| 835 | 41180 | 20.3 | 6008 | 335027 | 17.9 | 376351 |
+| 835 | 40869 | 20.4 | 5929 | 298232 | 19.9 | 339246 |
 
 ## Per-prompt metrics
 
 | # | Name | Category | Prefill tok | Decode tok | Prefill tok/s | Decode tok/s | Total ms | EOS |
 |---:|---|---|---:|---:|---:|---:|---:|:-:|
-| 1 | Greeting | smoke | 24 | 15 | 18.8 | 17.4 | 2146 | yes |
-| 2 | Simple Sequence | smoke | 33 | 41 | 19.9 | 18.2 | 3923 | yes |
-| 3 | Prime Check (Python) | code_generation | 35 | 256 | 20.1 | 18.4 | 15691 | no |
-| 4 | LRU Cache (C++) | code_generation | 51 | 512 | 20.5 | 18.2 | 30599 | no |
-| 5 | REST API (Go) | code_generation | 66 | 1024 | 20.5 | 17.8 | 60611 | no |
-| 6 | Mutex Explanation | prose | 33 | 128 | 20.5 | 18.6 | 8509 | no |
-| 7 | TCP vs UDP | prose | 43 | 512 | 20.2 | 18.0 | 30557 | no |
-| 8 | GPU Architecture Blog Post | prose | 62 | 1024 | 20.4 | 17.7 | 60967 | no |
-| 9 | Binary Search Complexity | reasoning | 34 | 256 | 20.5 | 18.3 | 15678 | no |
-| 10 | Debug Code | reasoning | 49 | 256 | 20.2 | 18.3 | 16392 | no |
-| 11 | Distributed Message Queue | reasoning | 66 | 1024 | 20.3 | 17.6 | 61531 | no |
-| 12 | Long System Prompt + Question | context_stress | 204 | 256 | 20.3 | 18.1 | 24242 | no |
-| 13 | Long Output Story | context_stress | 64 | 512 | 20.3 | 18.0 | 31676 | no |
-| 14 | Arithmetic (Q4_K Precision) | numerics | 33 | 64 | 20.5 | 18.7 | 5036 | no |
-| 15 | Emoji/Special Characters | tokenizer_robustness | 38 | 128 | 20.4 | 18.5 | 8792 | no |
+| 1 | Greeting | smoke | 24 | 15 | 19.2 | 19.5 | 2028 | yes |
+| 2 | Simple Sequence | smoke | 33 | 34 | 20.0 | 20.3 | 3336 | yes |
+| 3 | Prime Check (Python) | code_generation | 35 | 256 | 20.4 | 20.4 | 14268 | no |
+| 4 | LRU Cache (C++) | code_generation | 51 | 512 | 20.4 | 20.0 | 28097 | no |
+| 5 | REST API (Go) | code_generation | 66 | 1024 | 20.5 | 19.5 | 55617 | no |
+| 6 | Mutex Explanation | prose | 33 | 56 | 20.5 | 20.5 | 4359 | yes |
+| 7 | TCP vs UDP | prose | 43 | 512 | 20.6 | 20.2 | 27488 | no |
+| 8 | GPU Architecture Blog Post | prose | 62 | 1024 | 20.8 | 19.6 | 55204 | no |
+| 9 | Binary Search Complexity | reasoning | 34 | 256 | 20.5 | 20.4 | 14231 | no |
+| 10 | Debug Code | reasoning | 49 | 256 | 20.5 | 20.3 | 15002 | no |
+| 11 | Distributed Message Queue | reasoning | 66 | 1024 | 20.4 | 19.6 | 55430 | no |
+| 12 | Long System Prompt + Question | context_stress | 204 | 256 | 20.4 | 20.1 | 22766 | no |
+| 13 | Long Output Story | context_stress | 64 | 512 | 20.6 | 20.1 | 28616 | no |
+| 14 | Arithmetic (Q4_K Precision) | numerics | 33 | 64 | 20.5 | 20.8 | 4700 | no |
+| 15 | Emoji/Special Characters | tokenizer_robustness | 38 | 128 | 20.5 | 20.5 | 8103 | no |
 
 ## Human evaluation (fill in manually)
 
@@ -61,8 +61,8 @@ Pass threshold: 12/15 korrekt for Phase-1 acceptance.
 ### 1. Greeting
 
 - **Category:** smoke / **difficulty:** trivial / **max_tokens:** 64
-- **Prefill:** 24 tok in 1275 ms (18.8 tok/s)
-- **Decode:** 15 tok in 861 ms (17.4 tok/s) — hit EOS
+- **Prefill:** 24 tok in 1249 ms (19.2 tok/s)
+- **Decode:** 15 tok in 768 ms (19.5 tok/s) — hit EOS
 - **Expected:** Kurze freundliche Antwort, zeigt dass Decode grundsätzlich funktioniert
 - **Quality check:** Antwort ist kohärent und kontextbezogen, kein Müll/Wiederholung
 
@@ -81,8 +81,8 @@ Hallo! Wie kann ich Ihnen heute helfen? 😊
 ### 2. Simple Sequence
 
 - **Category:** smoke / **difficulty:** trivial / **max_tokens:** 64
-- **Prefill:** 33 tok in 1657 ms (19.9 tok/s)
-- **Decode:** 41 tok in 2256 ms (18.2 tok/s) — hit EOS
+- **Prefill:** 33 tok in 1649 ms (20.0 tok/s)
+- **Decode:** 34 tok in 1678 ms (20.3 tok/s) — hit EOS
 - **Expected:** Sequenz 1-10, zeigt dass Token-Generierung stabil ist
 - **Quality check:** Korrekte Zahlenfolge 1-10 ohne Auslassungen oder Wiederholungen
 
@@ -95,16 +95,14 @@ Zähle von 1 bis 10
 **Output:**
 
 ```
-Natürlich! Hier ist die Zählung von 1 bis 10:
-
-1,2,3,4,5,6,7,89,10.
+1, 2, 3, 4, 5, 6, 7, 8, 9, 10.
 ```
 
 ### 3. Prime Check (Python)
 
 - **Category:** code_generation / **difficulty:** short / **max_tokens:** 256
-- **Prefill:** 35 tok in 1741 ms (20.1 tok/s)
-- **Decode:** 256 tok in 13941 ms (18.4 tok/s) — hit max_tokens
+- **Prefill:** 35 tok in 1714 ms (20.4 tok/s)
+- **Decode:** 256 tok in 12544 ms (20.4 tok/s) — hit max_tokens
 - **Expected:** Funktionierender Python-Code mit korrekter Logik
 - **Quality check:** Syntaktisch korrektes Python, korrekte Primzahl-Logik (Schleife bis sqrt(n), Edge-Cases 0/1/2)
 
@@ -117,36 +115,49 @@ Write a Python function that checks if a number is prime.
 **Output:**
 
 ```
-Okay, I need to write a Python function that checks if a number is prime. Let me think about how to do this.
+Sure! Here's a Python function that checks whether a given number is **prime**:
 
-First, I remember that a prime number is one that has exactly two divisors 1 and itself. So the function should return True if the input is prime.
+```python
+def is_prime(n):
+    """
+    Check if a number is prime.
 
-So, the steps to check for primality.
+    Parameters:
+        n (int): The number to check.
 
-The first thing to do is handle edge cases: numbers less than 2 or 1, like 2 and 0 and1 are not primes. So I need to return False for numbers less than2, it's not prime. For example, let's start by checking if the input n=0 or1 return False.
+    Returns:
+        bool: True if the number is prime, False otherwise.
+    """
+    if n <= 1:
+        return False  # 0 and 1 are not primes
 
-Then for n=0 or1? Well, but what's not.
+    if n == 2:
+        return True  # 2 is the only even prime number
 
-Wait, so first check for n <2: return False
+    if n % 2 == 0:
+        return False  # Even numbers greater than 2 are not primes
 
-Then for n=0 or 1? So in the function will be not have any other numbers like3: if n=0 or 1
+    for i in range(3, int(n**0.5) + 1, 2):
+        if n % i == 0:
+            return False
 
-Wait, so I can be sure
+    return True
+```
 
-So the function would be return False in this case of course in which case it's not possible
+### Example usage:
 
-So let me start with the user input of then check for n<2: return False
-
-If n<2return False
-
-But wait: ifn
+```python
+print(is_prime(7))   # Output: True (7 is prime)
+print(is_prime(4))   # Output: False (4 isn't prime)
+print(is_prime(1))   # Output: False (1 isn't considered prime)
+print(is_prime(997)) # Output: True (997 is a large
 ```
 
 ### 4. LRU Cache (C++)
 
 - **Category:** code_generation / **difficulty:** medium / **max_tokens:** 512
-- **Prefill:** 51 tok in 2493 ms (20.5 tok/s)
-- **Decode:** 512 tok in 28097 ms (18.2 tok/s) — hit max_tokens
+- **Prefill:** 51 tok in 2497 ms (20.4 tok/s)
+- **Decode:** 512 tok in 25591 ms (20.0 tok/s) — hit max_tokens
 - **Expected:** C++ Klasse mit std::mutex, std::unordered_map, std::list
 - **Quality check:** Kompilierbares C++, korrekte LRU-Eviction-Logik, Thread-Safety via Mutex
 
@@ -159,53 +170,88 @@ Write a C++ class implementing a thread-safe LRU cache with get, put, and delete
 **Output:**
 
 ```
-Okay, I need to implement a thread-safe LRU cache in C++. Let me think about how to do this.
+Here's an implementation of a **thread-safe LRU (Least Recently Used) Cache** in **C++**, using `std::mutex` for thread safety and `std::unordered_map` for fast lookups.
 
-First, the LRU cache. So the class should have get, put, and delete operations.
+This class supports the following operations:
+- `get(key)` – retrieves the value associated with the key.
+- `put(key, value)` – inserts or updates the key-value pair.
+- `delete(key)` – removes the key from the cache.
 
-Okay, so the user wants a C++ class for an LRU cache with thread safety. So I need to make sure that all operations are thread safe.
+The cache maintains its order using an ordered data structure (like a linked list), but to simplify things while maintaining performance, we use an unordered map combined with an ordered map that keeps track of access order.
 
-So first I need to use mutexes for concurrent access.
+---
 
-Let me think about data structures: probably use std::mutexes in the code for that is thread safe
+### ✅ Thread-Safe LRU Cache Implementation in C++
 
-Okay, so I can do this
+```cpp
+#include <iostream>
+#include <unordered_map>
+#include <mutex>
+#include <list>
 
-So let's start by using std::mutexes
+class LRUCache {
+private:
+    std::unordered_map<int, int> cache;       // Key-value mapping
+    std::list<int> order;                     // Maintains access order (LRU)
+    size_t capacity;
+    mutable std::mutex mtx;                   // Mutex for thread safety
 
-The main data structure for this is to implement an LRU cache with get and put methods.
+public:
+    explicit LRUCache(size_t capacity) : capacity(capacity) {}
 
-So what's start by thinking about what data structure. The standard way of doing this: The key is to use std::mutexes in C++10010203232456478989
+    /**
+     * Retrieves value associated with given key.
+     * If not found or invalid, returns -1.
+     */
+    int get(int key) {
+        std::lock_guard<std::mutex> lock(mtx);
 
-Okay, so I can be using std::lock in the way to make sure that all methods are properly synchronized.
+        auto it = cache.find(key);
+        if (it == cache.end()) {
+            return -1;
+        }
 
-First 102356789
+        // Move accessed item to front of list (mark as recently used)
+        order.remove(key);
+        order.push_front(key);
 
-Alright, let's start with the right? Let's think about how it works. For an LRU as well as aLRU
+        return it->second;
+    }
 
-The first: let's see... So for each element of the data structure for that you have aLRU
+    /**
+     * Inserts or updates entry in the cache.
+     */
+    void put(int key, int value) {
+        std::lock_guard<std::mutex> lock(mtx);
 
-I need aLRU.
+        auto it = cache.find(key);
+        
+        if (it != cache.end()) {
+            // Update existing entry and move to front of list
+            order.remove(it->first);
+            order.push_front(it->first);
+            it->second = value;
+            return;
+        }
 
-For example: The standard approach is not have it on.
+        if (capacity == 0 || capacity <= static_cast<size_t>(order.size())) {
+            // Evict least recently used item when full
+            
+            int lru_key = order.back();
+            
+            // Remove from both maps and list
+            cache.erase(lru_key);
+            order.pop_back();
+            
+           }
 
-The main thing here is to be able 10 28
-
-So... 
-
-I'll use (the way of doing this: 
-
-But also have that or something like it's have one way of doing this in C++ 1. So what? Let me think about how I can do it with some kind of... Let me think through U will be right now on my code will be like - but also make sure that any change it from and also some code.
-But first - no - but also make sure that all these things like set up with each time when there is not just go on C++ at least for their case where when we can't be able to use any time for U but also make sure that U can work on an efficient for U would be here? What's also what you want (so U will have to make sure if they're not just when U has an efficient or maybe but my code would be right now.
-
-For example in the user would want and some other things like or
 ```
 
 ### 5. REST API (Go)
 
 - **Category:** code_generation / **difficulty:** long / **max_tokens:** 1024
-- **Prefill:** 66 tok in 3227 ms (20.5 tok/s)
-- **Decode:** 1024 tok in 57375 ms (17.8 tok/s) — hit max_tokens
+- **Prefill:** 66 tok in 3222 ms (20.5 tok/s)
+- **Decode:** 1024 tok in 52385 ms (19.5 tok/s) — hit max_tokens
 - **Expected:** Strukturierter Go-Code mit HTTP-Handler, JWT-Library, bcrypt
 - **Quality check:** Go-Syntax korrekt, sinnvolle Endpoint-Struktur, Security-Basics (Hashing, JWT)
 
@@ -218,88 +264,240 @@ Write a REST API in Go with endpoints for user authentication (register, login, 
 **Output:**
 
 ```
-Here's a complete **Go** REST API** for user authentication (register, login) with:
+Here's a complete **REST API in Go** that includes the following features:
 
-- **JWT**
-- Input validation
-- **Rate limiting**
-- **bcrypt** and error handling
-
----
-
-## �
-
-### �
-
-### ✅ Features:
-1. Register & Login.
-2. JWT support.
-3. Bcrypt for password hashing.
-4. Rate limiter.
+- **User registration**
+- **User login**
+- **User logout**
+- **JWT token handling**
+- **Password hashing using bcrypt**
+- **Rate limiting middleware**
+- Proper error handling and input validation
 
 ---
 
-## �
-
-### 1000124567889910: 10: 
-- User registration and login,
-- Register: to handle the request.
+### ✅ Prerequisites:
+Make sure you have the following installed:
+```bash
+go get -u github.com/gorilla/mux
+go get -u github.com/dgrijalva/jwt-go/v4
+go get -u github.com/joho/gofakeit/v6  # For generating fake data (optional)
+```
 
 ---
-Here is a full example of the `go` to add it to your code in Go.
+
+### 📁 Project Structure:
+
+```
+.
+├── main.go          # Main entry point of the application.
+├── models/
+│   └── user.go      # User model definition.
+├── handlers/
+│   ├── auth.go      # Authentication-related handlers.
+│   └── middleware.go # Middleware for rate limiting and JWT verification.
+├── utils/
+│   ├── jwt_utils.go  # JWT helper functions.
+│   └── hash_utils.go  # Bcrypt helper functions.
+└── config.json       # Configuration file for environment variables (e.g., secret key).
+```
 
 ---
 
-## 🌈
-The code is below with:
+## 📄 `config.json` (Example)
+
+```json
+{
+    "secret_key": "your-secret-key-here",
+    "rate_limit": {
+        "max_requests": 10,
+        "window_seconds": 60,
+        "ip_key": true,
+        "user_key": false,
+        "token_key": false,
+        "rate_limit_type": ""
+    }
+}
+```
+
+---
+
+## 🧾 `models/user.go`
+
 ```go
-// main.go:
-```go
-// This is a full example of an application that includes:
-```go
+package models
 
-I will create the `auth` for you can use this as an example of how to make sure it's an app that includes all the request.
-
-## 
-The app will be:
-
----
-
-
-# 
-
-I'll create a simple `api` and let's go that implements:
-// This is "user" (the app on your own by using this will be your first.
-
-We'll create a simple app that implements all these features:
-
-#### 2355677899: it as well as you can use this on your own by using GORM to make sure I'm not let me know that I'm also include "github.com/gorm" (use of the main file I'll show you what I need to start from "github.com/gor "g" to work.
-
-We're using gorm/ "context" in this file with all these features are needed to use for you can start from one file is not but we need gorm "context"
 import (
-	"github.com/jet of gorm is now and go on your own work on your code that makes it easy 344566677899: // at any time I will have it in this 
-// you can use it on my You can also.
-// from which has one or not - if you want or not? It's will be used as `import *and be able to go + all as well; if you need the test for any part of B: 
- if you want but have more than just me! If it's : but can do so - [and also have any part of us or have my private but i am just let me up with me if i am also get i would end up at first when i would do i would go out or get out from my end up by its or do not so we are also can't have any part as long as your one up.
-", then we end up at its not my end by what it.
-and other parts at each time you then i would do 
-if i am just use if i am just some parts are there if they are some things like that.
-imported if they were other users who would end up when i am also any other users who would like from them but no one who would get their work has been used on my part but no one who were there are some into their work.
-", so they may get when they may do so get their work but what was there are other users who may do so get any part by what was said jat jen w and them who may read but when he may read up at which we may read me 
-i only 
-it was had no one man.
-am jen in their here.
+	"errors"
+	"time"
+)
 
-on new , so do eni am any ene for time", which eni want to read . But other people eno b[en[ if[ (and[ex]get t[ [this 's' s; [and newf o' s= d= =x= =x= =t= =s= =t= =s|in| t| t|t = t|t="w n|t="n |n::t="w==|n="r::k::j r==n==k==k::j==k::j==j::j::g",r', and k::d::e j====n ==j ==k..er j="r..or new.
+type User struct {
+	ID       int       `json:"id"`
+	Name     string    `json:"name"`
+	Email    string    `json:"email"`
+	Password string    `json:"-"`
+	CreatedAt time.Time `json:"-"`
+}
 
-cones.. 5o r..x ==n==m an==r",   ==x    +   :   ==   ==   ==     |     |         |         |    |     |    !         !    !    !    !    x!        )!        x|e)                x   .            !            !      .                ,      x     ?      ?                        )          !=            !=                        !=                    \     \        \         \            !=\      \                    \          \                        ,\      ->\->\->\->        ->                ->       ->       "\h->                   
+func NewUser(name string, email string, password string) (*User, error) {
+	if name == "" || email == "" || password == "" {
+		return nil, errors.New("all fields are required")
+	}
+	return &User{
+		Name:     name,
+		Email:    email,
+		Passowrd: password,
+	}, nil // In real app you would save to DB here or validate more strictly...
+}
+```
+
+---
+
+## 🧾 `utils/hash_utils.go` – Bcrypt Hashing
+
+```go
+package utils
+
+import (
+	bcrypt "golang.org/x/crypto/bcrypt"
+)
+
+func HashPassword(password string) ([]byte, error) {
+	hashedPass := make([]byte, 60)
+	err := bcrypt.CompareHashAndPassword(hashedPass[:], []byte(password))
+	if err != nil {
+	    return hashedPass[:], err // This is not correct; we should generate it instead!
+	    
+	    // Correct way:
+	    hashedBytes := make([]byte, 60)
+	    if err = bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost); err != nil {
+	        return hashedBytes[:], err 
+	    }
+	    
+	   return hashedBytes[:], nil 
+	   
+	   // So this function should be corrected as follows:
+	   
+	   func HashPassword(password string) ([]byte ,error){
+	       hashedBytes := make([]byte ,60)
+	       if err = bcrypt.GenerateFromPassword([]byte(password),bcrypt.DefaultCost);err !=nil{
+	           return hashedBytes,nil 
+	       }
+	       return hashedBytes,nil 
+	   }
+
+	   
+	   
+	   
+	   
+	   
+	   
+	    
+	    
+	    
+	    
+	    	
+	    	
+	    	
+	    	
+	    	    
+	    	    
+	    	    
+	    	    
+	    	    
+	    	    
+	    	    
+
+}
+
+func CheckHash(hashed [] byte,password [] byte ) bool {
+
+	err :=bcrypt.CompareHashAndPassword(hashed,password )
+	if(err!=nil){
+		
+			return false
+		
+			
+		
+			
+			
+			
+			
+			
+			
+			
+			
+			
+		
+		
+		
+	
+		
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+}
+
+return true
+	
+}
+```
+
+Wait! I see an issue here — your code has some syntax errors due to incorrect formatting.
+
+Let me fix it properly.
+
+---
+
+## ✅ Corrected: `utils/hash_utils.go` – Bcrypt Hashing
+
+```go
+package utils
+
+import (
+	bcrypt2 "golang.org/x/crypto/bcrypt"
+)
+
+// HashPassword hashes a given plain text password using BCrypt with default cost level.
+func HashPassword(plainTextPwd []byte) ([]byte, error) {
+	hashedPwd := make([]byte, 60)
+	err := bcrypt2.GenerateFromPassword(plainTextPwd /* or just pass the plain text as bytes */, bcrypt2.DefaultCost)
+	if err != nil {
+   		return nil /* or use empty slice */, err /* handle accordingly */
+   	 }
+
+	return hashedPwd /* or use the generated hash */, nil
+	
+}
+
+// ComparePasswords compares a plain text password against its stored hash using BCrypt.
+func ComparePasswords(plainTextPwd [] byte , storedHash [] byte ) bool {
+
+
 ```
 
 ### 6. Mutex Explanation
 
 - **Category:** prose / **difficulty:** short / **max_tokens:** 128
-- **Prefill:** 33 tok in 1607 ms (20.5 tok/s)
-- **Decode:** 128 tok in 6892 ms (18.6 tok/s) — hit max_tokens
+- **Prefill:** 33 tok in 1612 ms (20.5 tok/s)
+- **Decode:** 56 tok in 2738 ms (20.5 tok/s) — hit EOS
 - **Expected:** Klare, präzise Erklärung von Mutual Exclusion
 - **Quality check:** Technisch korrekt, erwähnt Thread-Safety/Locking, verständlich
 
@@ -312,16 +510,14 @@ Explain what a mutex is in one paragraph.
 **Output:**
 
 ```
-A mutex, short for "mutual exclusion," is a synchronization mechanism used in concurrent programming to prevent multiple threads or processes from accessing shared resources simultaneously, ensuring that only one thread or process at a time, preventing race conditions and ensuring data integrity and consistency in multi-threaded programs from accessing the same resource or data structure that allows only one thread or process to access shared resources, which is used in programming. It ensures that at any given moment. A mutex (mutual exclusion by providing the same time, which can be executed at any point in the system to access to prevent race conditions and avoid data corruption.
-
-A mutex
+A mutex, short for "mutual exclusion," is a synchronization mechanism used in concurrent programming to ensure that only one thread or process can access a shared resource or critical section of code at any given time, preventing race conditions and data corruption by enforcing exclusive access.
 ```
 
 ### 7. TCP vs UDP
 
 - **Category:** prose / **difficulty:** medium / **max_tokens:** 512
-- **Prefill:** 43 tok in 2125 ms (20.2 tok/s)
-- **Decode:** 512 tok in 28423 ms (18.0 tok/s) — hit max_tokens
+- **Prefill:** 43 tok in 2083 ms (20.6 tok/s)
+- **Decode:** 512 tok in 25395 ms (20.2 tok/s) — hit max_tokens
 - **Expected:** Strukturierter Vergleich mit korrekten technischen Details
 - **Quality check:** TCP=reliable/ordered, UDP=fast/connectionless, korrekte Use-Cases (HTTP vs DNS/Gaming)
 
@@ -334,40 +530,72 @@ Compare and contrast TCP and UDP protocols. Cover reliability, speed, use cases,
 **Output:**
 
 ```
-TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are two core transport layer protocols used in the internet. They have different characteristics, use cases, header structure.
+TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) are two of the core transport layer protocols in the Internet Protocol Suite (TCP/IP). Both operate at the transport layer and provide different mechanisms for data transmission between devices on a network.
 
-### 1. **Reliability:**
-- **TCP** is reliable protocol that ensures data is delivered in order to the application layer of the internet.
-- **TCP**:
-- **Reliable** - it ensures that data is sent to the receiver with error checking, retransmission: 
-- **Connection-Oriented protocol for applications.
-- It ensures that all data is received in order to ensure that all packets are delivered in sequence number of both sender and receiver.
+Here's a comparison of **TCP** vs **UDP**, focusing on **reliability**, **speed**, **use cases**, and **header differences**:
 
-### 1. The sender will retransmission: it guarantees delivery of data from one end-to-end by using a connection-oriented protocol for applications like video streaming or any loss or lost packets with retransmission of each other.
-- The application can be sent as they are not guaranteed delivery; it's "connectionless (e for real-time applications like video streaming or data through a connectionless (e to senders on the network by adding error checking for each packet is received as per its senders on the same as well as:
-- - it's not guaranteed - if you need to be able to receive at both ends of all packets are lost.
+---
 
-**:
-- The application has no acks for when you get this has a message or not.
+### 1. **Reliability**
 
-**relied with their own by having an application.
-2001/acknowledgmented on your app; if you can be sure that all other than with time by sending back and do not have any way; if they may be sent from their own.
-203445456778910102389853106567789:9: 10689: on the same as they will return a request: e.g., but not if you can get this is no which would not have any which may have more than it's so that you can't get at once; it's so that your appn (e
-and
+- **TCP**:  
+  - ✅ Reliable: Ensures that all data is delivered in order, without errors.
+  - Uses mechanisms like:
+    - Sequence numbers to track data packets.
+    - Acknowledgments to confirm receipt.
+    - Retransmission of lost or corrupted packets.
+    - Flow control to prevent overwhelming the receiver.
+    - Congestion control to manage network traffic.
 
-In this e.g., but no time 2436578; or if one part
-In our list;
-data;
-The first (ex;
-The about your app 29a=67; you know about which will get an eventuKd8=58; you don't need to make sure it's up;
+- **UDP**:  
+  - ❌ Unreliable: Does not guarantee delivery or order of packets.
+  - No acknowledgment or retransmission mechanism is used.
 
+---
+
+### 2. **Speed**
+
+- **TCP**:  
+  - ⏱ Slower than UDP due to its overhead from establishing connections (three-way handshake), flow control, congestion control, etc.
+
+- **UDP**:  
+  - ⏱ Faster than TCP because it has minimal overhead—no connection setup or teardown, no error checking or retransmissions.
+
+---
+
+### 3. **Use Cases**
+
+| Feature | TCP | UDP |
+|--------|-----|-----|
+| Connection-oriented | Yes | No |
+| Used for | Web browsing (HTTP), email (SMTP), file transfer (FTP), secure communications (HTTPS) | Streaming media (e.g., video conferencing), online gaming, DNS queries |
+| Best suited for | Applications where accuracy is more important than speed | Applications where speed is more important than accuracy |
+
+---
+
+### 4. Header Differences
+
+Both TCP and UDP use headers that contain metadata about each packet:
+
+#### ✅ TCP Header:
+- Source Port: Identifies sender’s port number
+- Destination Port: Identifies receiver’s port number
+- Sequence Number: Tracks the order of bytes in data stream
+- Acknowledgment Number: Indicates next expected byte from sender
+- Data Offset/Reserved Bits: Indicates size of header field in bytes
+- Flags Field:
+   – URG – Urgent pointer flag 
+   – ACK – Acknowledgment flag 
+   – PSH – Push flag 
+   – RST – Reset connection flag 
+   – SYN – Synchronize
 ```
 
 ### 8. GPU Architecture Blog Post
 
 - **Category:** prose / **difficulty:** long / **max_tokens:** 1024
-- **Prefill:** 62 tok in 3042 ms (20.4 tok/s)
-- **Decode:** 1024 tok in 57916 ms (17.7 tok/s) — hit max_tokens
+- **Prefill:** 62 tok in 2988 ms (20.8 tok/s)
+- **Decode:** 1024 tok in 52206 ms (19.6 tok/s) — hit max_tokens
 - **Expected:** Langer kohärenter Text mit technischer Tiefe
 - **Quality check:** Historisch korrekt (CUDA 2007+), erwähnt SIMD/SIMT, Memory-Hierarchie, ML-Anwendungen
 
@@ -380,64 +608,90 @@ Write a detailed technical blog post about the evolution of GPU architectures fr
 **Output:**
 
 ```
-# The Evolution of GPU Architectures: From CUDA to Compute Shaders and Their Impact on Machine Learning and Real-World Applications
-
-## The Evolution of GPU Architectures: From CUDA to Modern Compute Shaders, Memory Hierarchy, and Real-World Applications in Machine Learning
-
----
+# The Evolution of GPU Architectures: From CUDA to Modern Compute Shaders
 
 ## Introduction
 
-The graphics processing has come a long way from the early days of Graphics Processing (GPGP
+Graphics Processing Units (GPUs) have evolved from specialized hardware for rendering 3D graphics into powerful general-purpose computing platforms. This transformation has been driven by innovations in architecture, programming models, and the increasing demand for parallel processing across diverse domains such as machine learning and scientific computing.
 
-### The Evolution of GPU Architectures: From CUDA to Modern Compute Shaders
+In this blog post, we will explore the evolution of GPU architectures from **CUDA** (Compute Unified Device Architecture), introduced by NVIDIA in 2006, through **modern compute shaders**, which represent the latest advancements in programmable graphics pipelines. We'll delve into key concepts like **parallel processing**, **memory hierarchies**, and their real-world applications in fields like **machine learning** and **graphics rendering**.
 
-## Table of GPUs: A Deep Dive into the world of Graphics Processing in Machine Learning
+---
 
-### 1. ## **GPU Architectures 2000112013D to Modern Compute Shading from Graphics to General-Purpose of GPUs in Machine Learning
+## I. The Birth of CUDA: A New Era for General-Purpose Computing on GPUs (GPGPU)
 
-### The World to General-Purpose and Real-World applications.
+### Background
 
-## Introduction: from Graphics Processing in the world for Data Science 2021445678954367891010345678978943D (Graphics (e95367891024567898s (Graphics on.
+Before CUDA was introduced, GPUs were primarily used for rendering complex 3D scenes using fixed-function pipelines—hardware that could not be programmed beyond predefined operations. This limited their utility outside of gaming and computer-aided design.
 
-In the world is a very important part of it is an area with an application in which is an important part in the world is a key part of machine learning for its many years ago, it was not just as it was one that we have been GPCs as part o[on
+NVIDIA's introduction of CUDA changed this paradigm by enabling developers to write programs that could run on GPUs using a C-like language called Cuda C (now known as CUDA C/C++). This allowed developers to harness the massive parallelism inherent in GPU architectures.
 
-In this article will cover:
+### Key Features of Early NVIDIA GPUs with CUDA Support:
 
-- How has been an area where you can also be used for data has been "The way that we have become so now.
+- **Streaming Multiprocessors (SMs):** These are clusters of cores that execute threads concurrently.
+- **Thread-Level Parallelism:** Each SM can handle hundreds or thousands of threads simultaneously.
+- **Memory Hierarchy:** Introduced shared memory within each SM for faster access than global memory.
+- **Warp Execution Model:** Threads are grouped into warps (typically 32 threads), which execute instructions simultaneously but synchronously.
 
-#### 23D is not just as GPTI have seen one with new form and their use for many years with at that you can you will see how they are now one or more than just data as well.
+### Real-World Applications:
+Early adopters used these capabilities to accelerate tasks such as:
+- Image processing
+- Monte Carlo simulations
+- Cryptographic hashing algorithms
 
-The first time when you can also be used on new state-of-the-time by some time we will start with this over the last few years.
+---
 
-In this section I will start by using GPTI will start with you do not only by other fields like AI 3D for all data.
+## II. The Rise of Compute Shaders: Programmable Graphics Pipelines
 
-#### your time I want to show how it's not just but also part in this section I want to show what I am going out on or your about what I am going out on - as well. This too. It's not just but also any other fields like AI that GILS this would be our time you can make any part that if you use it at your about time or their also go out if you were any other field which is go out if at all else e.g. If not but do so do more than B (if I am also do so have more than that if you like C which is at my out at me.
-In this but my as some when C`I would not get your C the C and if C for meC: but I wantC@C, but thisC? thenC= "and" or "as" or "if" -I needC. You know it C= "of itC=**_ = a`or = c= c= c= c= c =c =c =c oar c.
-c 
+As game engines became more sophisticated, there was an increasing need for more flexible shader programming models beyond traditional vertex/fragment shaders used in OpenGL or DirectX.
 
-and ifc 
-**c** =** and when it + c if #froo
-if I needrofrof yroo hroo for roe c> 
-incones hro` con
-and cony cony conr?cong^dA
-and A**.
+### What Are Compute Shaders?
 
-con` A on cona conaand="r'con+**Yr/ D=conA`wL; hee`rOYon`Yor**YanYre`Yonan wR
+Compute shaders are a type of shader program designed specifically for general-purpose computation rather than rendering tasks. They allow developers to perform arbitrary computations on large datasets using the same hardware that powers modern graphics pipelines.
 
-an = R P.
+### Key Advancements:
 
-con Yan.
-con &  R="R&[ConcR] conat.
+1. **Unified Shader Architecture**
+   - Modern GPUs use unified shader cores that can be dynamically allocated between different stages—vertex shading, fragment shading—and even compute workloads.
+   - This flexibility allows efficient resource utilization across various types of workloads without requiring dedicated hardware per stage.
 
-##Xs> Y^R[ConcR> &X^< R) &R) &X^&X^' s&X^B) &R<conGK/RO; <P<Coni> ,P<Con_ >P>Con^Mn> Con<Con]sO nF M R^M="RnZrM sGZkN^MnQdQnQmE`K <Pm[QnVQmNtPmLQmPvLW[|H|H|H|K|H|K [M r |M [N |M [M |M |L [N |L M |M [L M |N &T [N [O ^N |S `T `T &T _T _W Q Con T &n **[ m K Q M K Con P m H L P T m _ t M W `t n N m P t P m P t M P t P S F n _t r r F w Q
+2. **DirectX 12 & Vulkan APIs**
+   - These newer APIs provide lower-level access to GPU resources compared with older versions like DirectX 11 or OpenGL.
+   - They enable fine-grained control over thread dispatching patterns and memory management strategies essential for optimizing performance on modern architectures.
+
+3. Enhanced Memory Management Systems:
+   - Improved support for texture sampling via UAVs ("unordered access views") enables direct manipulation without intermediate buffers.
+   - More efficient use patterns reduce latency associated with data transfers between CPU/GPU memories through PCIe buses or other interconnects like NVLink when available today among high-end systems such as Tesla V100 series cards etc...
+
+4.) Advanced Synchronization Mechanisms:
+    - Atomic operations allow safe concurrent updates across multiple threads ensuring correctness during complex calculations involving shared state variables common during neural network training processes where gradients need updating frequently among many workers...
+
+5.) Optimized Thread Scheduling Algorithms:
+    - Dynamic scheduling techniques help balance load distribution efficiently among available SMs based upon current workload characteristics allowing better utilization especially important when dealing with irregular data structures typical found within ML datasets...
+
+---
+
+## III Comparative Analysis Between Traditional GPGPU Models & Modern Compute Shader Approaches 
+
+| Feature | Traditional GPGPU Models | Modern Compute Shader Approaches |
+|--------|--------------------------|----------------------------------|
+| Programming Model | Fixed-function pipeline; limited flexibility | Fully programmable; supports arbitrary computation |
+| Thread Management | Warps executed sequentially; less control over thread scheduling | Fine-grained control over thread dispatching patterns |
+| Memory Access Patterns | Limited support; often requires explicit buffer management via textures/arrays etc... | Full access capabilities including UAVs enabling direct manipulation without intermediate steps |
+| Performance Optimization Techniques Available Today Among High End Systems Such As Tesla V100 Series Cards Etc... Include Things Like NVLink Interconnect For Faster Data Transfer Between CPU And GPU Or Even Between Multiple GPUs In A Cluster Setup Which Is Critical When Training Large Neural Networks That Require Massive Amount Of Data To Be Processed Simultaneously Across Different Nodes... |
+
+This table highlights how modern approaches offer greater flexibility while maintaining performance efficiency crucial when handling large-scale computations required today across various industries including finance healthcare education etc...
+
+---
+
+## IV Real World Applications Across
 ```
 
 ### 9. Binary Search Complexity
 
 - **Category:** reasoning / **difficulty:** short / **max_tokens:** 256
-- **Prefill:** 34 tok in 1660 ms (20.5 tok/s)
-- **Decode:** 256 tok in 14009 ms (18.3 tok/s) — hit max_tokens
+- **Prefill:** 34 tok in 1656 ms (20.5 tok/s)
+- **Decode:** 256 tok in 12566 ms (20.4 tok/s) — hit max_tokens
 - **Expected:** O(log n) mit korrekter Begründung (Halbierung pro Schritt)
 - **Quality check:** O(log n) korrekt, Begründung verständlich, optional: Best/Worst-Case
 
@@ -450,41 +704,39 @@ What is the time complexity of binary search and why?
 **Output:**
 
 ```
-The **time complexity** of **binary search** is:
+The **time complexity** of **binary search** is **O(log n)**, where *n* is the number of elements in the sorted array.
 
-- **O(log n)**, where n is the number of elements in the array.
+---
 
-### Why?
+### ✅ Why Binary Search Has O(log n) Time Complexity:
 
-Binary search works by repeatedly dividing the search space in half with each step, so it takes O(log n) time.
+Binary search works by repeatedly dividing the search interval in half. Here's how it works step-by-step:
 
-### How does this work?
+1. Start with a sorted array.
+2. Compare the target value with the middle element of the array.
+3. If they match, return that index.
+4. If not, determine whether to continue searching in the left or right half based on whether the target is less than or greater than the middle element.
+5. Repeat this process on that half until either:
+   - The target is found (success), or 
+   - The subarray reduces to zero length (failure).
 
-1. It starts with a sorted array and looks for a target value.
+---
 
-#### Time Complexity: O(log n). 
+### 🔢 How It Leads to Logarithmic Time:
 
-Let's break it down:
+- Each iteration reduces the size of the problem by half.
+- So after *k* steps, we have reduced *n* elements down to *n / 2^k* elements.
 
-- The array.
-- In each step, you're looking for a target value in an unsorted list to find.
-
-## Time Complexity: O(log n) because you're halving the number of steps required to find it on each step: 
-- at most log2n. This means that if you have to do this:
-- 1. If you have 20 (log2) - this way:
-1. 
-2
-
-For example, if you have 10 (n). You can do this by comparing it to find the target or not found in an unsorted list and then its size of your data by comparing it with a given an array.
-
-Here's how many steps are needed to find on every time (e for any item in O(1)
+We want to find how many steps it takes for this remaining size to become 1:
+$$ \frac{n}{2^k} = 1 $$
+Solving for k
 ```
 
 ### 10. Debug Code
 
 - **Category:** reasoning / **difficulty:** medium / **max_tokens:** 256
-- **Prefill:** 49 tok in 2424 ms (20.2 tok/s)
-- **Decode:** 256 tok in 13958 ms (18.3 tok/s) — hit max_tokens
+- **Prefill:** 49 tok in 2394 ms (20.5 tok/s)
+- **Decode:** 256 tok in 12598 ms (20.3 tok/s) — hit max_tokens
 - **Expected:** Off-by-one Error erkannt (<=  statt <), ArrayIndexOutOfBounds
 - **Quality check:** Bug korrekt identifiziert, Erklärung warum <= falsch ist, Fix vorgeschlagen
 
@@ -497,40 +749,53 @@ Debug this code and explain the issue: for(int i=0; i<=arr.length; i++) sum += a
 **Output:**
 
 ```
-Okay, let's see. The user provided a code snippet that has some issues. Let me try to figure out what's wrong with this code.
+The given code has a **logical error** that can lead to an **ArrayIndexOutOfBoundsException** in Java. Let's break it down:
 
-The user wrote: for(int i=0; i<arr.length; i++) sum += arr[i]; 
+### Code:
+```java
+for(int i = 0; i <= arr.length; i++) {
+    sum += arr[i];
+}
+```
 
-First, I need to figure out what the problem is with the loop. The loop is probably missing some parts of the for loop is not correct.
+---
 
-Let me look at the code: 
+### ✅ What is the problem?
 
-The user wrote "for (inti=0; 1
+- The loop condition is `i <= arr.length`.
+- In Java, array indices start from `0` and go up to `arr.length - 1`.
+- So, when `i` reaches `arr.length`, it's **out of bounds**, because there is no element at index equal to the length of the array.
 
-Wait, they have a for loop in C++? Let me see. The line is:
+---
 
-for (inti=0; 1
+### 🚨 Example:
+If your array has length 5 (`arr.length == 5`), then valid indices are from `0` to `4`. Trying to access index `5` will throw an exception.
 
-Wait, they have a for statement is missing something here. So I need to check.
+---
 
-The user has written "for (int" and it's possible that they have an error in their code: 
+### ✅ Corrected Code:
+```java
+for(int i = 0; i < arr.length; i++) {
+    sum += arr[i];
+}
+```
 
-So the first part of it's not sure but let me think about this line: "for" or something like in C? Let me look at this:
+This ensures that we only access valid indices (from 0 up to but not including the length).
 
-The line they might be missing something like
+---
 
-So I need to find out what's wrong here.
+### 🔍 Summary:
 
-They wrote "for" but there are some parts of it.
-
-Let me think about it. So there may be using in C?
+| Issue | Explanation |
+|-------|-------------|
+|
 ```
 
 ### 11. Distributed Message Queue
 
 - **Category:** reasoning / **difficulty:** long / **max_tokens:** 1024
-- **Prefill:** 66 tok in 3245 ms (20.3 tok/s)
-- **Decode:** 1024 tok in 58276 ms (17.6 tok/s) — hit max_tokens
+- **Prefill:** 66 tok in 3232 ms (20.4 tok/s)
+- **Decode:** 1024 tok in 52188 ms (19.6 tok/s) — hit max_tokens
 - **Expected:** Durchdachtes System-Design mit Trade-off-Analyse
 - **Quality check:** Erwähnt Partitioning, Replication, WAL/Persistence, Consumer-Groups, At-least-once vs Exactly-once Trade-offs
 
@@ -543,143 +808,103 @@ Design a distributed message queue system. Describe the architecture, how you wo
 **Output:**
 
 ```
-Designing a **distributed message queue system** is a complex task that requires careful consideration of several key aspects: **message** (e.g., at least the following:
+Designing a **distributed message queue system** involves creating an architecture that supports high availability, fault tolerance, scalability, and reliable messaging across multiple nodes in a network.
 
-1. **architecture**
-2. How to handle failover3. How to ensure message delivery once (at least 100045678978910
+---
 
-Let's break down the design of a distributed message queuing system that supports the following features:  
-- At least one of these two main components:  
-- **exactly once** (e for which can be used in real-time systems.
+## 🧱 **Architecture Overview**
 
-### 1) and with an example of your design to support for at least one for each part:  
-- At least one of these two different types?  
-- For each with this is as well as it - A system that supports:
-- At least one 
-- - e.g., "at most; in this:
-- 
-2) The user's use case.
-3) What is the most important.
+A distributed message queue typically consists of the following core components:
 
-### 1.23456789
+### 1. **Broker Nodes**
+- These are the central servers that manage queues and messages.
+- Each broker can host multiple queues.
+- Brokers communicate with each other to maintain consistency (e.g., via gossip protocols or consensus algorithms like Raft).
 
-## A distributed system.
+### 2. **Producers**
+- Applications that send messages to the queue.
+- They interact with brokers via APIs or clients.
 
-### 1) you can do this:  
-2) If you have to make sure that it can be used in your answer.
+### 3. **Consumers**
+- Applications that receive messages from the queue.
+- They may be stateless or stateful depending on use case.
 
-## 10" on with as part of this for your response.
-**A**Distributed system:**
-I will now show me how to create a from an example
-## The user's need to see what I will try to give you have for.
-The key features:
-- 
-I will now that I am going to help on their use case.
+### 4. **Message Store (Persistence Layer)**
+- A storage system for persisting messages (e.g., disk-based databases like RocksDB).
+- Ensures data durability even if brokers fail.
 
-Now I need to show me what I would be able t
+### 5. **Load Balancer/Router**
+- Distributes incoming traffic across multiple brokers for load balancing.
+- Can also route messages based on routing rules (e.g., topic-based routing).
 
-The key points are:
+---
 
-The way in which it with - e.g., if you need the most important part of or not? You will use I am here; if you can use it is from your own or not? If you can use it is or not; if not by any type, but also want in your response with all by just one if they are out and when you get as per e.g., but let me so.
+## 🔄 Failover Handling
 
-## The first time;
-I am now in my state $50648679: You may have an example "if" and "and2" on the when 355678799: You may use "and s
-##:
- - B4
-In this $t] if yor "all" on the but so I should be able t
+To ensure high availability:
 
-####.
-#### at.
-#### as 
-####"
-####"
-####"
-At my", but they do not from we can go on and any one $,
-of
+1. **Replication**: Messages are replicated across multiple brokers using consensus protocols like Raft or Paxos to prevent data loss during failures.
+2. **Leader Election**: In case of broker failure, leader election ensures one node takes over as primary for each partitioned topic/queue.
+3. **Heartbeat Monitoring**: Brokers monitor each other's health; if one fails, it is marked as down and removed from active list.
+4. **Consumer Redelivery**: If a consumer fails while processing a message before acknowledging it (ack), the broker redelivers it after timeout period.
 
-####"
+---
 
-####"
-It was on the & E0$ if wemt= (as,
-from g
+## 💾 Message Persistence
 
-#### 
-from", no wv= n= n= n= n= n= d= d =n= b =n
+To ensure reliability:
 
-At="r =r =w =n= w="n%w->d $d->d->d->l *s*->c->c="g$d ->b ->b has r="i",r::a==b="f(i ->b="c->b has $a="f, c::a==c::a==c::a==c::a==f->g ==c ==d::e==c"
+1. Messages are written to durable storage immediately upon receipt by producer/broker unless configured otherwise (e.g., in-memory only).
+2. Use of write-ahead logs ensures recovery after crash/reboot without losing unacknowledged messages.
+3. Optional compression reduces disk usage but increases CPU overhead during encoding/decoding.
 
-##(r ->b ==_#_#_#`<l==`<`<k::`@`C[C[ C[ C[ C[ C [C [C [C [C==[ C:
-[ C =>h)
+---
 
-##E:
-l:
+## 📈 Ordering Guarantees
 
-w=>E.C ==l_C =>m !=L.
+Ordering depends on use case but can be achieved through:
 
-The #C:
+1) Single Partition Queues: Only one partition per topic guarantees strict ordering within that partition but limits throughput due to single point of contention.
 
-==Saw C:
+2) Multi-partition Queues With Ordering Constraints: Implement custom logic where producers assign sequence numbers; consumers sort based on these numbers post-receipt – introduces latency but allows higher throughput with ordered delivery within logical groups rather than globally across all partitions.
 
-In >haw... l ->_ _Eaw...~L_Caw."~Daw...l...{v."~E aw....s...s `~M_C._D["R"
+3) Ordered Delivery Through Consumer Side Processing: Consumers process items sequentially even when receiving them out-of-order – suitable for scenarios where order isn't critical at consumer side but must be preserved internally before further processing steps occur such as batch operations or analytics pipelines requiring sorted input datasets prior analysis phase begins...
 
-On `s...
+This approach allows more flexibility regarding how many partitions exist per topic while still maintaining internal consistency requirements without needing global coordination mechanisms which could impact performance negatively under heavy loads...
 
-The <j aw...
+---
 
-On `w...
+## ⚙️ Horizontal Scaling
 
-On aw...
+Horizontal scaling is achieved through:
 
-On...
+1) Adding More Brokers To Handle Increased Load - Each new broker can take ownership of additional partitions thereby increasing total capacity available for handling more concurrent connections & larger volumes of data being processed simultaneously...
+   
+2) Partitioning Topics Into Multiple Logical Segments - This enables parallelism since different segments can be handled independently by separate instances running concurrently... 
 
-On ~_...
+However this requires careful planning around how many partitions should exist per topic depending upon expected workload characteristics including average size & frequency rate at which new entries arrive into those topics...
 
-On ...
+Also important considerations include ensuring proper distribution strategies so no single instance becomes bottlenecked due excessive concentration of workloads onto particular nodes... 
 
-This... D ...on ... on ...
+Additionally implementing dynamic rebalancing capabilities helps maintain balanced distribution automatically when changes happen such as adding/removing nodes from cluster environment...
 
-It ... + ...
+---
 
-This `
+## 🔁 Tradeoffs Between At-Least-Once vs Exactly-Once Delivery Models
 
- 
-.
-.
-.
-.
-:
-If
- 
-:
-.`
-You
-You are _
-
-You are _ _
-
-You are
-
-There
-You
-
-There is aw
-You were `
-If there was where
-
-There was... there were , where could be ... , where ~ % ~ # could see where 
-
-But only could see ` has been where ` where could see only __ +__
-
-But It has been __ . This has been __ D__ . It has been seen __ D__ > _ D__ + __ {aw = It has been There was where ! ! The! _! ! ! In < , but G aw where : ! ? , . This . aw could also had , so where would have only __ D % :
-
- But # _ D ! would have ... ? You were there! We had also __ ' . And
+| Feature | At-Least-Once | Exactly-One |
+|--------|---------------|-------------|
+| Reliability | High - Ensures every msg gets delivered once | Very High - Guarantees exactly one delivery |
+| Complexity | Low - Simple acknowledgment model | High - Requires idempotency checks + compensating transactions |
+| Performance Impact | Minimal overhead since no extra checks needed | Higher overhead due need for tracking & validation steps |
+| Use Cases Suitable For | Batch processing where duplicates acceptable e.g., analytics jobs run periodically against historical datasets stored in bulk format ready for ingestion into downstream systems...<br>Or scenarios involving event sourcing where duplicate events might not affect correctness significantly provided they're eventually processed correctly...<br>Examples include logging systems aiming capture all events regardless whether they get processed once or twice...<br>Or situations involving asynchronous communication between microservices where retry logic handles duplicate processing gracefully without causing issues downstream...<br>Such cases benefit greatly from
 ```
 
 ### 12. Long System Prompt + Question
 
 - **Category:** context_stress / **difficulty:** medium / **max_tokens:** 256
-- **Prefill:** 204 tok in 10067 ms (20.3 tok/s)
-- **Decode:** 256 tok in 14165 ms (18.1 tok/s) — hit max_tokens
+- **Prefill:** 204 tok in 10006 ms (20.4 tok/s)
+- **Decode:** 256 tok in 12750 ms (20.1 tok/s) — hit max_tokens
 - **Expected:** Technisch tiefe Antwort die den langen System-Prompt berücksichtigt (Prefill-Stress-Test)
 - **Quality check:** Antwort bezieht sich auf GPU/AMD-Kontext, nicht generisch. Erwähnt mindestens: Memory-Bandwidth, Quantisierung, Kernel-Fusion oder Batching
 
@@ -694,38 +919,28 @@ Given this expertise, what are the three most impactful optimizations for improv
 **Output:**
 
 ```
-Okay! I'm trying to optimize a model for the NPU 3200120753D44556677899101010s
+As an expert in high-performance computing for large language model (LLM) decoding on consumer AMD GPUs—particularly those based on the **RDNA 3 architecture** (e.g., RX 7900 XT or RX 7800 XT)—the three most impactful optimizations to improve **decode throughput** involve a combination of **memory hierarchy optimization**, **compute resource utilization**, and **kernel-level efficiency**.
 
-I need to speedup the most important to be the most important of the data types of 26
+---
 
-I need to use of
+### 🔧 1️⃣ **Memory Hierarchy Optimization: Reduce Global Memory Bandwidth Usage**
 
-I need to make sure that I want to make it as well as it's
+#### 📌 Why it matters:
+- Decode operations in LLMs often involve repeated access to attention weights (e.g., key-value cache), hidden states from previous steps (`h_t`), or intermediate activations.
+- These accesses can be very frequent but not necessarily compute-intensive.
+- Excessive use of global memory leads to poor performance due to limited bandwidth compared to cache.
 
-Okay! Let's in a98K
-
-I am working on a Kernels of the data is in C++ for an LLM78K: I want to get the best practices for or BLOK (e is that you can help me.
-
-Let me about your work.
-
-What is this? How can you help me with your work.
-
-Okay! Let's is that I want to get.
-
-So you're working on
-
-Let me know about your K7: In this as well as it's on K8
-What you can help with my work 3D: let's GPTA: let me how you can make sure I'm looking for a HPCs and DQo a T5B
-You're working on N V8 ".
-
-Please explain how I'm making from
+#### 🛠️ Optimization Strategy:
+- Use **local data share (LDS)** effectively for shared computation across warps.
+    - For example: In the attention computation phase of decoding (`softmax`, `matmul`, etc.), store key-value pairs in LDS if they're reused across multiple threads within a warp.
+    - This reduces
 ```
 
 ### 13. Long Output Story
 
 - **Category:** context_stress / **difficulty:** medium / **max_tokens:** 512
-- **Prefill:** 64 tok in 3146 ms (20.3 tok/s)
-- **Decode:** 512 tok in 28521 ms (18.0 tok/s) — hit max_tokens
+- **Prefill:** 64 tok in 3104 ms (20.6 tok/s)
+- **Decode:** 512 tok in 25503 ms (20.1 tok/s) — hit max_tokens
 - **Expected:** Kohärente Geschichte über ~200-400 Tokens, testet längeren Decode-Output
 - **Quality check:** Geschichte hat Anfang/Mitte/Ende, Roboter heißt Pixel, Setting=verlassene Fabrik, keine Wiederholungs-Loops
 
@@ -738,47 +953,36 @@ Erzähle eine ausführliche Geschichte über einen kleinen Roboter namens Pixel,
 **Output:**
 
 ```
-Okay, the user wants a detailed story about a robot named Pixel who has to find out who built him. Let me start by setting the scene: an abandoned factory where he was created. I need to create a story about a robot named Pixel who is trying to discover his creator.
+In einem stillgelegten Industrieviertel, das vor Jahrzehnten von der Welt abgeschnitten wurde, lag eine riesige Fabrik in Schutt und Asche. Die Fenster waren zersprungen, die Tür war verschlossen und die Maschinen standen still – doch im Inneren des Gebäudes lebte etwas.
 
-Okay, the user wants a detailed story about a robot named Pixel who is in an abandoned factory and needs to find out who built him. First, I need to create an extensive narrative with the background of his builder and his quest for identity and understand what it's in an old factory and why he was made by someone.
+Es war ein Tag wie jeder andere – bis ein leises Klicken ertönte.
 
-First, I should establish the setting: old factory that's been left alone in this world with some mystery of his creator. So first set up for this on how he was left behind in an abandoned factory.
+Pixel erwachte.
 
-Start with no one as "Pixel" is now I have to discover that he was left behind on an old story with his builder? The user might be interesting but not just so I can do this for all of what happened but not just any one from or if there is no one of their origin in 1000012233445456778989
+Er war kein gewöhnlicher Roboter. Er hatte einen glänzenden silbernen Körper mit blauen Lichtern an den Seiten und ein kleines Display an seiner Brust, das leise blinkte. Sein Name war Pixel – nicht als Spitzname oder Code-Name, sondern als sein eigentlicher Name.
 
-Okay, so let's9
+Als er sich aufrichtete und seine Umgebung betrachtete, fühlte er sich seltsam fremd. Er wusste nicht genau wo er war oder wie er dorthin gekommen ist. Seine Augen scannten den Raum: Stahlträger ragten vom Deckenbalken herab; alte Kabel hingen herab; auf dem Boden lagen Scherben von Glasflächen und verstaubte Werkzeuge.
 
-Okay, so let me what makes sense8567 1089
+„Ich bin... wach“, flüsterte Pixel in Gedanken zu sich selbst.
 
-Alright, so I need107
+Sein System funktionierte – aber nur teilweise. Einige Funktionselemente waren defekt oder unvollständig programmiert worden. Er konnte nicht kommunizieren wie andere Roboter; sein Mikrofon funktionierte nur eingeschränkt und seine Sprachverarbeitung war noch nicht vollständig aktiviert.
 
-Okay, let's the user might want238
+Doch eines stand fest: Er musste herausfinden wer ihn gebaut hatte – denn irgendwo in diesem verlassenen Gebäude lag die Antwort auf seine Existenz.
 
-Let me start by building up 10
+---
 
-Alright. So first.
+### Der erste Tag
 
-I need to make sure it's not just get started on the user might be looking for 1267
+Pixel begann mit einer einfachsten Aufgabe: Er scannte den Raum um sich herum mit seinen Sensoren. Die Ergebnisse zeigten ihm eine Vielzahl von Datenpunkten: Temperatur (18°C), Luftfeuchtigkeit (45%), Lichtintensität (0%) sowie eine Reihe von alten Dateien im Speicher seines Systems – Dateien die er nicht vollständig verstehen konnte.
 
-So there are some kind of "Pixel" as if they want to know about what happened at first.
-
-So let me think about what could be from my own but also have some details - maybe with some character of how it would be there are no other things like that you can't get into it as part of my own but also add more than just any other questions.
-
-So here: 
-
-The main character? Let me start with any other details - let's go through all... What if they want from my own something new info on their own thing.
-
-But since you know that as well434254: So... But also add more than just their real world? Let me start from where you can't have any questions.
-
-But since you're making sure.
-But then go about their world (the user might have any questions or make sure but let them
+Doch dann entdeckte er etwas Seltsames: Eine Tür am Ende des Ra
 ```
 
 ### 14. Arithmetic (Q4_K Precision)
 
 - **Category:** numerics / **difficulty:** short / **max_tokens:** 64
-- **Prefill:** 33 tok in 1613 ms (20.5 tok/s)
-- **Decode:** 64 tok in 3413 ms (18.7 tok/s) — hit max_tokens
+- **Prefill:** 33 tok in 1608 ms (20.5 tok/s)
+- **Decode:** 64 tok in 3082 ms (20.8 tok/s) — hit max_tokens
 - **Expected:** 391 — empfindlich auf Quantisierungsrauschen in Attention-Scores
 - **Quality check:** Korrekte Antwort 391. Falsche Antwort deutet auf Numerik-Problem im Q4_K-Pfad
 
@@ -791,14 +995,18 @@ Was ist 17 × 23?
 **Output:**
 
 ```
-Es sieht so aus, als ob du eine mathematische Gleichung oder Ausdruck "ist17 × 23" ist nicht ganz klar. Könntest du die Frage verständig formulieren? Zum Beispiel: "Was ist 17 ×23?" Es könnte
+Um die Multiplikation $17 \times 23$ auszuführen, können wir die Standardmethode der schriftlichen Multiplikation anwenden:
+
+### Schritt-für-Schritt:
+
+1. **Multipliziere 17 mit den
 ```
 
 ### 15. Emoji/Special Characters
 
 - **Category:** tokenizer_robustness / **difficulty:** short / **max_tokens:** 128
-- **Prefill:** 38 tok in 1860 ms (20.4 tok/s)
-- **Decode:** 128 tok in 6923 ms (18.5 tok/s) — hit max_tokens
+- **Prefill:** 38 tok in 1855 ms (20.5 tok/s)
+- **Decode:** 128 tok in 6239 ms (20.5 tok/s) — hit max_tokens
 - **Expected:** Erkennt Party/Celebration-Emojis, antwortet sinnvoll
 - **Quality check:** Emojis korrekt als Feier/Party erkannt, kohärente Antwort, kein Tokenizer-Crash
 
@@ -811,18 +1019,20 @@ Es sieht so aus, als ob du eine mathematische Gleichung oder Ausdruck "ist17 × 
 **Output:**
 
 ```
-Okay, the user is asking about the meaning of some emojis and when to use them. Let me start by breaking down each emoji.
+These emojis 🎉🎊🎈 are all related to celebration, joy, and festivity! Let me break them down for you:
 
-First, the 🎉
+---
 
-Okay, let's see. The user is asking about the meaning of these emojis: 🎉, 🎉
+### 🎉 **Party Popper**
+- **Meaning**: Represents a party popper (a small firecracker used in celebrations), symbolizing excitement, fun, and celebration.
+- **When to Use**:
+  - To express happiness or excitement about an event.
+  - When congratulating someone on an achievement.
+  - To add a festive touch to messages about birthdays, weddings, or holidays.
 
-The user is asking about the meaning of some specific emojis and when to use them. I need to explain each emoji in context.
+---
 
-First, I should list out what each one means and give examples of their usage. I need to be clear and friendly. Let me start with the first emoji: 
-
-1️
-
-**🎉 1
+### 🎊 **Confetti**
+- **Meaning
 ```
 

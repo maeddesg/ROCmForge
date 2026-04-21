@@ -19,7 +19,9 @@ __device__ __forceinline__ void rf_v1_gemv_set_ieee_denormal_mode() {
 #define Q6_K_MULTI_ROW_COLS    4
 #define Q6_K_FIXED_WAVES       8
 #define Q6_K_THREADS_PER_BLOCK (Q6_K_FIXED_WAVES * WARP_SIZE)
-#define Q6_K_SHARED_MEM_LIMIT  (48 * 1024)
+// 64 KB covers Llama-3.1-8B FFN-down (n_rows=14336 → 56 KB) and still
+// fits gfx1100's 64 KB LDS/CU. Match the Q4_K standard kernel.
+#define Q6_K_SHARED_MEM_LIMIT  (64 * 1024)
 
 __device__ __forceinline__
 float rf_v1_q6_k_super_block_dot(const uint8_t* __restrict__ sb_ptr,

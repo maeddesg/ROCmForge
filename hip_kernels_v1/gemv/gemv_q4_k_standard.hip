@@ -21,7 +21,12 @@ __device__ __forceinline__ void rf_v1_gemv_set_ieee_denormal_mode() {
 #define Q4_K_MULTI_ROW_COLS  4
 #define Q4_K_FIXED_WAVES     8
 #define Q4_K_THREADS_PER_BLOCK (Q4_K_FIXED_WAVES * WARP_SIZE)
-#define Q4_K_SHARED_MEM_LIMIT (48 * 1024)
+// 64 KB fits both gfx1100 (64 KB LDS/CU) and gfx1201 (128 KB LDS/CU)
+// and covers Llama-3.1-8B FFN (14336 × 4 B = 56 KB) which would be
+// rejected at the previous 48 KB ceiling. gfx1100 pays a small
+// occupancy cost at this size but this is Phase-1 correctness; tiled
+// LDS loading is a Phase-2 optimisation.
+#define Q4_K_SHARED_MEM_LIMIT (64 * 1024)
 
 __device__ __forceinline__
 void rf_v1_q4_k_unpack_scale_min(int j, const uint8_t* scales,
