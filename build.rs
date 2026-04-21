@@ -386,6 +386,7 @@ mod gpu_build {
             "v1_gemv_q4_k_gate_up_swiglu",
             "v1_elementwise_block_a",
             "v1_rope",
+            "v1_attention",
         ] {
             let path = build_dir.join(format!("lib{lib}.a"));
             if path.exists() {

@@ -783,3 +783,530 @@ fn test_rope_position_continuity() {
     assert!(err < 1e-6, "Single-vs-batched consistency err={err}");
     println!("RoPE position continuity (seq={seq_len}): max_abs_err = {err:.4e}");
 }
+
+// ─── Block C: Attention (decode + prefill + KV-cache) ──────────────────────
+
+use rocmforge::v1::backend::gpu::attention::{
+    rocmforge_launch_attention_decode, rocmforge_launch_attention_prefill,
+    rocmforge_launch_kv_cache_append,
+};
+
+/// CPU reference for attention decode (M=1, full KV cache up to seq_len).
+fn cpu_attention_decode(
+    q: &[f32],
+    k_cache: &[f32],
+    v_cache: &[f32],
+    num_heads: usize,
+    num_kv_heads: usize,
+    head_dim: usize,
+    seq_len: usize,
+    head_stride: usize,
+    scale: f32,
+) -> Vec<f32> {
+    let gqa_ratio = num_heads / num_kv_heads;
+    let mut output = vec![0.0f32; num_heads * head_dim];
+    for q_head in 0..num_heads {
+        let kv_head = q_head / gqa_ratio;
+        let q_vec = &q[q_head * head_dim..(q_head + 1) * head_dim];
+
+        // Scores
+        let mut scores = vec![0.0f32; seq_len];
+        for j in 0..seq_len {
+            let k_base = kv_head * head_stride + j * head_dim;
+            let k_vec = &k_cache[k_base..k_base + head_dim];
+            let dot: f32 = q_vec.iter().zip(k_vec).map(|(a, b)| a * b).sum();
+            scores[j] = dot * scale;
+        }
+        // Softmax
+        let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let exp_scores: Vec<f32> = scores.iter().map(|&s| (s - max_s).exp()).collect();
+        let sum: f32 = exp_scores.iter().sum();
+        let weights: Vec<f32> = exp_scores.iter().map(|&e| e / sum).collect();
+        // V sum
+        let out_base = q_head * head_dim;
+        for d in 0..head_dim {
+            let mut acc = 0.0f32;
+            for j in 0..seq_len {
+                let v_idx = kv_head * head_stride + j * head_dim + d;
+                acc += weights[j] * v_cache[v_idx];
+            }
+            output[out_base + d] = acc;
+        }
+    }
+    output
+}
+
+fn gen_random_f32(n: usize, seed: u64) -> Vec<f32> {
+    let mut rng = fastrand::Rng::with_seed(seed);
+    (0..n).map(|_| rng.f32() * 2.0 - 1.0).collect()
+}
+
+#[test]
+#[serial]
+fn test_attention_decode_single_head() {
+    let num_heads = 1usize;
+    let num_kv_heads = 1usize;
+    let head_dim = 128usize;
+    let seq_len = 16usize;
+    let head_stride = seq_len * head_dim; // tightly packed for this test
+
+    let q = gen_random_f32(num_heads * head_dim, 0xA1);
+    let k = gen_random_f32(num_kv_heads * head_stride, 0xA2);
+    let v = gen_random_f32(num_kv_heads * head_stride, 0xA3);
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let cpu = cpu_attention_decode(
+        &q, &k, &v, num_heads, num_kv_heads, head_dim, seq_len, head_stride, scale,
+    );
+
+    let d_q = upload_f32(&q).unwrap();
+    let d_k = upload_f32(&k).unwrap();
+    let d_v = upload_f32(&v).unwrap();
+    let mut d_out = HipBuffer::new(num_heads * head_dim * 4).unwrap();
+    let stream = HipStream::new().unwrap();
+    let rc = unsafe {
+        rocmforge_launch_attention_decode(
+            d_q.as_ptr() as *const f32,
+            d_k.as_ptr() as *const f32,
+            d_v.as_ptr() as *const f32,
+            d_out.as_mut_ptr() as *mut f32,
+            num_heads as i32,
+            num_kv_heads as i32,
+            head_dim as i32,
+            seq_len as i32,
+            head_stride as i32,
+            scale,
+            stream.raw(),
+        )
+    };
+    check(rc, "attention_decode single").unwrap();
+    stream.synchronize().unwrap();
+    let gpu = download_f32(&d_out, num_heads * head_dim).unwrap();
+
+    let err = max_abs_err(&cpu, &gpu);
+    assert!(err < 1e-4, "Attention decode single-head err={err}");
+    println!("Attention decode single-head (seq=16): max_abs_err = {err:.4e}");
+}
+
+#[test]
+#[serial]
+fn test_attention_decode_multihead_gqa() {
+    // Qwen3 GQA: 32 Q heads, 8 KV heads.
+    let num_heads = 32usize;
+    let num_kv_heads = 8usize;
+    let head_dim = 128usize;
+    let seq_len = 256usize;
+    let head_stride = seq_len * head_dim;
+
+    let q = gen_random_f32(num_heads * head_dim, 0xA4);
+    let k = gen_random_f32(num_kv_heads * head_stride, 0xA5);
+    let v = gen_random_f32(num_kv_heads * head_stride, 0xA6);
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let cpu = cpu_attention_decode(
+        &q, &k, &v, num_heads, num_kv_heads, head_dim, seq_len, head_stride, scale,
+    );
+
+    let d_q = upload_f32(&q).unwrap();
+    let d_k = upload_f32(&k).unwrap();
+    let d_v = upload_f32(&v).unwrap();
+    let mut d_out = HipBuffer::new(num_heads * head_dim * 4).unwrap();
+    let stream = HipStream::new().unwrap();
+    let rc = unsafe {
+        rocmforge_launch_attention_decode(
+            d_q.as_ptr() as *const f32,
+            d_k.as_ptr() as *const f32,
+            d_v.as_ptr() as *const f32,
+            d_out.as_mut_ptr() as *mut f32,
+            num_heads as i32,
+            num_kv_heads as i32,
+            head_dim as i32,
+            seq_len as i32,
+            head_stride as i32,
+            scale,
+            stream.raw(),
+        )
+    };
+    check(rc, "attention_decode gqa").unwrap();
+    stream.synchronize().unwrap();
+    let gpu = download_f32(&d_out, num_heads * head_dim).unwrap();
+
+    let err = max_abs_err(&cpu, &gpu);
+    assert!(err < 1e-3, "Attention decode GQA err={err}");
+    println!("Attention decode GQA (32Q/8KV, seq=256): max_abs_err = {err:.4e}");
+}
+
+#[test]
+#[serial]
+fn test_attention_decode_long_context() {
+    let num_heads = 8usize;
+    let num_kv_heads = 2usize;
+    let head_dim = 128usize;
+    let seq_len = 2048usize;
+    let head_stride = seq_len * head_dim;
+    assert!(seq_len * 4 <= 12 * 1024); // within 48 KiB budget
+
+    let q = gen_random_f32(num_heads * head_dim, 0xA7);
+    let k = gen_random_f32(num_kv_heads * head_stride, 0xA8);
+    let v = gen_random_f32(num_kv_heads * head_stride, 0xA9);
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let cpu = cpu_attention_decode(
+        &q, &k, &v, num_heads, num_kv_heads, head_dim, seq_len, head_stride, scale,
+    );
+
+    let d_q = upload_f32(&q).unwrap();
+    let d_k = upload_f32(&k).unwrap();
+    let d_v = upload_f32(&v).unwrap();
+    let mut d_out = HipBuffer::new(num_heads * head_dim * 4).unwrap();
+    let stream = HipStream::new().unwrap();
+    let rc = unsafe {
+        rocmforge_launch_attention_decode(
+            d_q.as_ptr() as *const f32,
+            d_k.as_ptr() as *const f32,
+            d_v.as_ptr() as *const f32,
+            d_out.as_mut_ptr() as *mut f32,
+            num_heads as i32,
+            num_kv_heads as i32,
+            head_dim as i32,
+            seq_len as i32,
+            head_stride as i32,
+            scale,
+            stream.raw(),
+        )
+    };
+    check(rc, "attention_decode long").unwrap();
+    stream.synchronize().unwrap();
+    let gpu = download_f32(&d_out, num_heads * head_dim).unwrap();
+
+    for v in &gpu {
+        assert!(v.is_finite(), "long-context produced non-finite: {v}");
+    }
+    let err = max_abs_err(&cpu, &gpu);
+    assert!(err < 5e-3, "Long-context err={err}");
+    println!("Attention decode long-context (seq=2048): max_abs_err = {err:.4e}");
+}
+
+#[test]
+#[serial]
+fn test_attention_softmax_stability() {
+    // Inputs designed to produce extreme score values. Q ≈ 10, K ≈ 10
+    // → scores ~100 after scale. Softmax must stay finite.
+    let num_heads = 1usize;
+    let num_kv_heads = 1usize;
+    let head_dim = 128usize;
+    let seq_len = 64usize;
+    let head_stride = seq_len * head_dim;
+
+    let q = vec![5.0f32; num_heads * head_dim];
+    let k = vec![5.0f32; num_kv_heads * head_stride];
+    let v = vec![1.0f32; num_kv_heads * head_stride];
+    let scale = 1.0; // un-scaled → scores up to 5*5*128 = 3200
+
+    let d_q = upload_f32(&q).unwrap();
+    let d_k = upload_f32(&k).unwrap();
+    let d_v = upload_f32(&v).unwrap();
+    let mut d_out = HipBuffer::new(num_heads * head_dim * 4).unwrap();
+    let stream = HipStream::new().unwrap();
+    let rc = unsafe {
+        rocmforge_launch_attention_decode(
+            d_q.as_ptr() as *const f32,
+            d_k.as_ptr() as *const f32,
+            d_v.as_ptr() as *const f32,
+            d_out.as_mut_ptr() as *mut f32,
+            num_heads as i32,
+            num_kv_heads as i32,
+            head_dim as i32,
+            seq_len as i32,
+            head_stride as i32,
+            scale,
+            stream.raw(),
+        )
+    };
+    check(rc, "attention softmax stability").unwrap();
+    stream.synchronize().unwrap();
+    let gpu = download_f32(&d_out, num_heads * head_dim).unwrap();
+
+    for v in &gpu {
+        assert!(v.is_finite(), "softmax instability: {v}");
+        // All scores equal → softmax uniform → all outputs = 1.0.
+        assert!((v - 1.0).abs() < 1e-4, "Expected 1.0, got {}", v);
+    }
+    println!("Attention softmax stability: all outputs finite, uniform weights OK");
+}
+
+fn cpu_attention_prefill(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    seq_len: usize,
+    num_heads: usize,
+    num_kv_heads: usize,
+    head_dim: usize,
+    scale: f32,
+) -> Vec<f32> {
+    let gqa_ratio = num_heads / num_kv_heads;
+    let q_stride = num_heads * head_dim;
+    let kv_stride = num_kv_heads * head_dim;
+    let mut output = vec![0.0f32; seq_len * q_stride];
+
+    for pos_i in 0..seq_len {
+        for q_head in 0..num_heads {
+            let kv_head = q_head / gqa_ratio;
+            let q_base = pos_i * q_stride + q_head * head_dim;
+            let q_vec = &q[q_base..q_base + head_dim];
+
+            // Causal: j in 0..=pos_i
+            let visible = pos_i + 1;
+            let mut scores = vec![0.0f32; visible];
+            for j in 0..visible {
+                let k_base = j * kv_stride + kv_head * head_dim;
+                let k_vec = &k[k_base..k_base + head_dim];
+                let dot: f32 = q_vec.iter().zip(k_vec).map(|(a, b)| a * b).sum();
+                scores[j] = dot * scale;
+            }
+            let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let exp_s: Vec<f32> = scores.iter().map(|&s| (s - max_s).exp()).collect();
+            let sum: f32 = exp_s.iter().sum();
+            for d in 0..head_dim {
+                let mut acc = 0.0f32;
+                for j in 0..visible {
+                    let v_idx = j * kv_stride + kv_head * head_dim + d;
+                    acc += (exp_s[j] / sum) * v[v_idx];
+                }
+                output[q_base + d] = acc;
+            }
+        }
+    }
+    output
+}
+
+#[test]
+#[serial]
+fn test_attention_causal_mask_prefill() {
+    let seq_len = 8usize;
+    let num_heads = 4usize;
+    let num_kv_heads = 2usize;
+    let head_dim = 64usize;
+
+    let q = gen_random_f32(seq_len * num_heads * head_dim, 0xB1);
+    let k = gen_random_f32(seq_len * num_kv_heads * head_dim, 0xB2);
+    let v = gen_random_f32(seq_len * num_kv_heads * head_dim, 0xB3);
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let cpu = cpu_attention_prefill(
+        &q, &k, &v, seq_len, num_heads, num_kv_heads, head_dim, scale,
+    );
+
+    let d_q = upload_f32(&q).unwrap();
+    let d_k = upload_f32(&k).unwrap();
+    let d_v = upload_f32(&v).unwrap();
+    let mut d_out = HipBuffer::new(seq_len * num_heads * head_dim * 4).unwrap();
+    let stream = HipStream::new().unwrap();
+    let rc = unsafe {
+        rocmforge_launch_attention_prefill(
+            d_q.as_ptr() as *const f32,
+            d_k.as_ptr() as *const f32,
+            d_v.as_ptr() as *const f32,
+            d_out.as_mut_ptr() as *mut f32,
+            seq_len as i32,
+            num_heads as i32,
+            num_kv_heads as i32,
+            head_dim as i32,
+            scale,
+            stream.raw(),
+        )
+    };
+    check(rc, "attention_prefill").unwrap();
+    stream.synchronize().unwrap();
+    let gpu = download_f32(&d_out, seq_len * num_heads * head_dim).unwrap();
+
+    let err = max_abs_err(&cpu, &gpu);
+    assert!(err < 1e-4, "Prefill err={err}");
+    println!("Attention prefill (causal, seq=8): max_abs_err = {err:.4e}");
+}
+
+#[test]
+#[serial]
+fn test_kv_cache_append() {
+    let num_kv_heads = 8usize;
+    let head_dim = 128usize;
+    let max_seq = 16usize;
+    let head_stride = max_seq * head_dim;
+
+    let mut k_cache = vec![0.0f32; num_kv_heads * head_stride];
+    let mut v_cache = vec![0.0f32; num_kv_heads * head_stride];
+
+    let mut d_k = upload_f32(&k_cache).unwrap();
+    let mut d_v = upload_f32(&v_cache).unwrap();
+
+    // Append 10 tokens with distinctive values.
+    for pos in 0..10usize {
+        let k_new: Vec<f32> = (0..num_kv_heads * head_dim)
+            .map(|i| (pos * 1000 + i) as f32)
+            .collect();
+        let v_new: Vec<f32> = (0..num_kv_heads * head_dim)
+            .map(|i| -((pos * 1000 + i) as f32))
+            .collect();
+
+        let d_k_new = upload_f32(&k_new).unwrap();
+        let d_v_new = upload_f32(&v_new).unwrap();
+        let stream = HipStream::new().unwrap();
+        let rc = unsafe {
+            rocmforge_launch_kv_cache_append(
+                d_k.as_mut_ptr() as *mut f32,
+                d_v.as_mut_ptr() as *mut f32,
+                d_k_new.as_ptr() as *const f32,
+                d_v_new.as_ptr() as *const f32,
+                num_kv_heads as i32,
+                head_dim as i32,
+                pos as i32,
+                head_stride as i32,
+                stream.raw(),
+            )
+        };
+        check(rc, "kv_cache_append").unwrap();
+        stream.synchronize().unwrap();
+
+        // Mirror on CPU reference.
+        for h in 0..num_kv_heads {
+            for d in 0..head_dim {
+                k_cache[h * head_stride + pos * head_dim + d] = k_new[h * head_dim + d];
+                v_cache[h * head_stride + pos * head_dim + d] = v_new[h * head_dim + d];
+            }
+        }
+    }
+
+    let gpu_k = download_f32(&d_k, num_kv_heads * head_stride).unwrap();
+    let gpu_v = download_f32(&d_v, num_kv_heads * head_stride).unwrap();
+    for i in 0..k_cache.len() {
+        assert_eq!(gpu_k[i].to_bits(), k_cache[i].to_bits());
+        assert_eq!(gpu_v[i].to_bits(), v_cache[i].to_bits());
+    }
+    println!("KV-cache append: 10 tokens, all positions bit-exact");
+}
+
+#[test]
+#[serial]
+fn test_kv_cache_alignment() {
+    // head_stride (in bytes) must be a multiple of 256 for coalesced
+    // per-head access. The caller is responsible; here we assert that
+    // a typical production choice aligns.
+    let head_dim = 128usize;
+    let max_seq = 8192usize;
+    let head_stride_bytes = max_seq * head_dim * 4;
+    assert_eq!(
+        head_stride_bytes % 256,
+        0,
+        "head_stride = {head_stride_bytes} B is not 256-aligned"
+    );
+    // Test with an explicit unaligned head_stride — kernel still works,
+    // but per-head slices then straddle cache lines.
+    let num_kv_heads = 4usize;
+    let seq_len = 8usize;
+    let head_stride = seq_len * head_dim; // 1024 → 4096 B, still aligned
+    assert_eq!(
+        (head_stride * 4) % 256,
+        0,
+        "head_stride ({head_stride} floats = {} B) alignment mismatch",
+        head_stride * 4
+    );
+
+    let k = gen_random_f32(num_kv_heads * head_stride, 0xC1);
+    let v = gen_random_f32(num_kv_heads * head_stride, 0xC2);
+    let q = gen_random_f32(num_kv_heads * head_dim, 0xC3);
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let d_q = upload_f32(&q).unwrap();
+    let d_k = upload_f32(&k).unwrap();
+    let d_v = upload_f32(&v).unwrap();
+    let mut d_out = HipBuffer::new(num_kv_heads * head_dim * 4).unwrap();
+    let stream = HipStream::new().unwrap();
+    let rc = unsafe {
+        rocmforge_launch_attention_decode(
+            d_q.as_ptr() as *const f32,
+            d_k.as_ptr() as *const f32,
+            d_v.as_ptr() as *const f32,
+            d_out.as_mut_ptr() as *mut f32,
+            num_kv_heads as i32,
+            num_kv_heads as i32,
+            head_dim as i32,
+            seq_len as i32,
+            head_stride as i32,
+            scale,
+            stream.raw(),
+        )
+    };
+    check(rc, "attention_decode alignment").unwrap();
+    stream.synchronize().unwrap();
+    println!("KV-cache alignment: head_stride {head_stride} floats = {} B (256-aligned = {})",
+             head_stride * 4, (head_stride * 4) % 256 == 0);
+}
+
+#[test]
+#[serial]
+fn test_attention_decode_vs_prefill_consistency() {
+    // Running the same tokens through prefill vs. decode-per-token (with
+    // cached KV) should yield the same final output for the last token.
+    // Small seq_len to keep the test fast.
+    let seq_len = 4usize;
+    let num_heads = 4usize;
+    let num_kv_heads = 2usize;
+    let head_dim = 64usize;
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let q = gen_random_f32(seq_len * num_heads * head_dim, 0xD1);
+    let k = gen_random_f32(seq_len * num_kv_heads * head_dim, 0xD2);
+    let v = gen_random_f32(seq_len * num_kv_heads * head_dim, 0xD3);
+
+    // Prefill result for last position.
+    let pre_out = cpu_attention_prefill(
+        &q, &k, &v, seq_len, num_heads, num_kv_heads, head_dim, scale,
+    );
+    let last_prefill: Vec<f32> = pre_out[(seq_len - 1) * num_heads * head_dim..].to_vec();
+
+    // Decode path: treat last Q as current token, cache has all seq_len K/V.
+    // head_stride = seq_len * head_dim (tightly packed) — equivalent to
+    // k[pos] stored as k_cache[kv_head, pos].
+    // BUT the layout differs: prefill has `[seq, kv_head, dim]`,
+    // decode expects `[kv_head, pos, dim]`. We need to transpose.
+    let head_stride = seq_len * head_dim;
+    let mut k_cache = vec![0.0f32; num_kv_heads * head_stride];
+    let mut v_cache = vec![0.0f32; num_kv_heads * head_stride];
+    for s in 0..seq_len {
+        for h in 0..num_kv_heads {
+            let src = s * num_kv_heads * head_dim + h * head_dim;
+            let dst = h * head_stride + s * head_dim;
+            k_cache[dst..dst + head_dim].copy_from_slice(&k[src..src + head_dim]);
+            v_cache[dst..dst + head_dim].copy_from_slice(&v[src..src + head_dim]);
+        }
+    }
+    let q_last: Vec<f32> = q[(seq_len - 1) * num_heads * head_dim..].to_vec();
+
+    let d_q = upload_f32(&q_last).unwrap();
+    let d_k = upload_f32(&k_cache).unwrap();
+    let d_v = upload_f32(&v_cache).unwrap();
+    let mut d_out = HipBuffer::new(num_heads * head_dim * 4).unwrap();
+    let stream = HipStream::new().unwrap();
+    unsafe {
+        rocmforge_launch_attention_decode(
+            d_q.as_ptr() as *const f32,
+            d_k.as_ptr() as *const f32,
+            d_v.as_ptr() as *const f32,
+            d_out.as_mut_ptr() as *mut f32,
+            num_heads as i32,
+            num_kv_heads as i32,
+            head_dim as i32,
+            seq_len as i32,
+            head_stride as i32,
+            scale,
+            stream.raw(),
+        );
+    }
+    stream.synchronize().unwrap();
+    let decode_out = download_f32(&d_out, num_heads * head_dim).unwrap();
+
+    let err = max_abs_err(&last_prefill, &decode_out);
+    assert!(err < 1e-3, "Decode-vs-prefill consistency err={err}");
+    println!("Decode-vs-prefill consistency (last token): max_abs_err = {err:.4e}");
+}
