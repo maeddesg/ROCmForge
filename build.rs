@@ -379,6 +379,9 @@ mod gpu_build {
             "v1_wmma_q6_k_fp8",
             "v1_wmma_q8_0_fp8",
             "v1_gemv_q4_0_standard",
+            "v1_gemv_q4_k_standard",
+            "v1_gemv_q6_k_standard",
+            "v1_gemv_q8_0_standard",
         ] {
             let path = build_dir.join(format!("lib{lib}.a"));
             if path.exists() {

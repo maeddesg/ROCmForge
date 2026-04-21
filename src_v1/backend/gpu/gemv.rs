@@ -29,3 +29,43 @@ extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 }
+
+#[link(name = "v1_gemv_q4_k_standard", kind = "static")]
+extern "C" {
+    /// Launch the Q4_K standard GEMV. `n_rows` must be a multiple of 256
+    /// (Q4_K super-block size). Caps input staging at 32 KiB LDS (K ≤ 8192).
+    pub fn rocmforge_launch_gemv_q4_k_standard(
+        weights: *const u8,
+        input: *const f32,
+        output: *mut f32,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_gemv_q6_k_standard", kind = "static")]
+extern "C" {
+    /// Launch the Q6_K standard GEMV. `n_rows` must be a multiple of 256.
+    pub fn rocmforge_launch_gemv_q6_k_standard(
+        weights: *const u8,
+        input: *const f32,
+        output: *mut f32,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_gemv_q8_0_standard", kind = "static")]
+extern "C" {
+    /// Launch the Q8_0 standard GEMV. `n_rows` must be a multiple of 32.
+    pub fn rocmforge_launch_gemv_q8_0_standard(
+        weights: *const u8,
+        input: *const f32,
+        output: *mut f32,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
