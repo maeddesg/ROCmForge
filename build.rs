@@ -383,6 +383,7 @@ mod gpu_build {
             "v1_gemv_q6_k_standard",
             "v1_gemv_q8_0_standard",
             "v1_gemv_q4_k_q8_inline",
+            "v1_gemv_q4_k_q8_inline_residual",
             "v1_gemv_q4_k_gate_up_swiglu",
             "v1_elementwise_block_a",
             "v1_rope",

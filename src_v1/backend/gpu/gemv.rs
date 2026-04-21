@@ -85,6 +85,25 @@ extern "C" {
     ) -> hipError_t;
 }
 
+#[link(name = "v1_gemv_q4_k_q8_inline_residual", kind = "static")]
+extern "C" {
+    /// Same as [`rocmforge_launch_gemv_q4_k_q8_inline`] but writes
+    /// `output[i] = GEMV(W,X)[i] + residual[i]` in one pass — saves
+    /// one kernel launch and one round-trip through the output
+    /// buffer per fusion site. `residual` must be `ncols_dst` FP32
+    /// values on device. Matches v0.x's
+    /// `gemv_q4_k_f32_q8_inline_residual_multi_row_kernel`.
+    pub fn rocmforge_launch_gemv_q4_k_q8_inline_residual(
+        weights: *const u8,
+        input: *const f32,
+        residual: *const f32,
+        output: *mut f32,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
 #[link(name = "v1_gemv_q4_k_gate_up_swiglu", kind = "static")]
 extern "C" {
     /// Launch the fused Q4_K Gate+Up+SwiGLU GEMV. Computes

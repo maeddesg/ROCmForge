@@ -118,6 +118,25 @@ pub enum GraphNode {
         up_buffer: BufferId,
         output: BufferId,
     },
+
+    /// Fused GEMV + in-place residual add (Phase 2 step 2.0.2). The
+    /// graph builder replaces a `Gemm → ResidualAdd` pair with this
+    /// node when the GEMV's output buffer is exactly the
+    /// ResidualAdd's `b` input and the `a` input's size matches.
+    /// Executor dispatches the `gemv_q4_k_q8_inline_residual` kernel
+    /// in one go: `residual[i] += GEMV(W, input)[i]`, no extra
+    /// launch, no extra VRAM round-trip.
+    FusedGemmResidual {
+        weight: WeightRef,
+        input: BufferId,
+        /// Residual source AND target — the fused kernel writes
+        /// `residual[i] = GEMV(W, input)[i] + residual[i]`. This
+        /// matches the `ResidualAdd { a: residual, b: gemv_out }`
+        /// pattern it replaces (a is read-modify-write).
+        residual: BufferId,
+        out_dim: usize,
+        in_dim: usize,
+    },
 }
 
 impl GraphNode {
@@ -133,6 +152,7 @@ impl GraphNode {
             GraphNode::ResidualAdd { .. } => "ResidualAdd",
             GraphNode::GateUpSwiGLU { .. } => "GateUpSwiGLU",
             GraphNode::SwiGLU { .. } => "SwiGLU",
+            GraphNode::FusedGemmResidual { .. } => "FusedGemmResidual",
         }
     }
 
@@ -160,6 +180,9 @@ impl GraphNode {
                 up_buffer,
                 ..
             } => vec![*gate_buffer, *up_buffer],
+            GraphNode::FusedGemmResidual {
+                input, residual, ..
+            } => vec![*input, *residual],
         }
     }
 
@@ -182,6 +205,8 @@ impl GraphNode {
             GraphNode::ResidualAdd { a, .. } => vec![*a],
             GraphNode::GateUpSwiGLU { output, .. } => vec![*output],
             GraphNode::SwiGLU { output, .. } => vec![*output],
+            // Fused GEMV+residual writes the sum back to `residual`.
+            GraphNode::FusedGemmResidual { residual, .. } => vec![*residual],
         }
     }
 }

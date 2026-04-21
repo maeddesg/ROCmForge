@@ -85,8 +85,10 @@ impl BufferPlan {
                 }
                 GraphNode::Rope { .. }
                 | GraphNode::KvCacheAppend { .. }
-                | GraphNode::ResidualAdd { .. } => {
-                    // In-place or cache-only — outputs already sized.
+                | GraphNode::ResidualAdd { .. }
+                | GraphNode::FusedGemmResidual { .. } => {
+                    // In-place, cache-only, or read-modify-write on
+                    // an already-sized residual — nothing new to size.
                 }
                 GraphNode::Attention { output, .. } => {
                     set(&mut specs, *output, cfg.n_heads * cfg.head_dim);

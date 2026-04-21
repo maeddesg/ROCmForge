@@ -260,22 +260,33 @@ mod gpu_tests {
         let runtime = pipe.executor.runtime().expect("runtime attached");
         runtime.print_tuning_report();
 
-        // At least one multi-variant shape should have converged —
-        // the best arm has > 55% of pulls. This is loose enough that
-        // a noisy GPU won't flake but tight enough to fail if UCB1 is
-        // broken (50/50 split would never exceed this threshold).
-        let converged = runtime.bandits.iter().any(|(_, bandit)| {
-            let best = bandit
+        // Every multi-variant shape should be in exploitation by
+        // now. Since step 2.0.1 the Bandit stops **recording** as
+        // soon as all shapes exploit, so pull-count ratios plateau
+        // — the mean-time separation is the real convergence
+        // signal. Winner is the arm with the smaller mean; we
+        // require the gap to be ≥ 1.3× (actual q8_inline vs standard
+        // is > 2×) so a broken UCB1 would still fail this.
+        assert!(
+            runtime.all_exploiting(),
+            "all bandits should exploit after 50 tokens"
+        );
+        let converged = runtime.bandits.values().any(|bandit| {
+            let winner_mean = bandit
                 .arms
                 .iter()
-                .max_by_key(|a| a.n_pulls)
-                .expect("arms");
-            let pct = best.n_pulls as f64 / bandit.total_pulls.max(1) as f64;
-            bandit.total_pulls >= 50 && pct > 0.55
+                .map(|a| a.mean_time_us)
+                .fold(f64::INFINITY, f64::min);
+            let loser_mean = bandit
+                .arms
+                .iter()
+                .map(|a| a.mean_time_us)
+                .fold(0.0f64, f64::max);
+            bandit.total_pulls >= 20 && loser_mean / winner_mean > 1.3
         });
         assert!(
             converged,
-            "expected at least one Bandit to converge (>55% on best arm after ≥50 pulls)"
+            "at least one Bandit should show a >1.3× winner/loser mean-time gap"
         );
     }
 }

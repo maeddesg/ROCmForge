@@ -346,8 +346,26 @@ impl GraphBuilder {
             in_dim: config.hidden_dim,
         });
 
+        // ── Fusion pass (Phase 2 step 2.0.2) ──────────────────────────────
+        //
+        // Collapse every `Gemm → ResidualAdd` pair where:
+        //   (a) the Gemm's `output` buffer feeds directly into the
+        //       ResidualAdd's `b` input (no intervening read of that
+        //       buffer), AND
+        //   (b) the Gemm weight is Q4_K (only kernel we emit a fused
+        //       variant for right now), AND
+        //   (c) `out_dim == hidden_dim` (stride guard per prompt;
+        //       ensures `residual[i]` is element-addressable with
+        //       the same index as the GEMV output).
+        //
+        // Replaces the pair with one `FusedGemmResidual` node. The
+        // Gemm's bias is always `None` on the Attention-Output and
+        // FFN-Down sites for Qwen3/Llama-3.1; bias-carrying Gemms
+        // are skipped to keep semantics strict.
+        let fused_nodes = fuse_gemm_residual_pairs(nodes);
+
         Ok(ComputationGraph {
-            nodes,
+            nodes: fused_nodes,
             num_buffers: next_buf,
             config: config.clone(),
             logits_buffer: logits,
@@ -355,4 +373,51 @@ impl GraphBuilder {
             hidden_state_buffer: normed_final,
         })
     }
+}
+
+/// Post-pass that replaces adjacent (Gemm, ResidualAdd) pairs with a
+/// single `FusedGemmResidual` node. See `GraphBuilder::build` for the
+/// fusion conditions. Non-matching nodes are passed through unchanged.
+fn fuse_gemm_residual_pairs(nodes: Vec<GraphNode>) -> Vec<GraphNode> {
+    use super::super::core::tensor_info::GgmlType;
+
+    let mut out: Vec<GraphNode> = Vec::with_capacity(nodes.len());
+    let mut iter = nodes.into_iter().peekable();
+    while let Some(node) = iter.next() {
+        let take_fused = matches!(&node, GraphNode::Gemm { weight, bias, .. }
+            if weight.format == GgmlType::Q4_K && bias.is_none());
+        if take_fused {
+            if let GraphNode::Gemm {
+                weight,
+                bias: _,
+                input,
+                output,
+                out_dim,
+                in_dim,
+            } = &node
+            {
+                if let Some(GraphNode::ResidualAdd { a, b }) = iter.peek() {
+                    if *b == *output {
+                        let residual_target = *a;
+                        let gemv_input = *input;
+                        let weight = weight.clone();
+                        let out_dim = *out_dim;
+                        let in_dim = *in_dim;
+                        // Consume the ResidualAdd we just peeked.
+                        iter.next();
+                        out.push(GraphNode::FusedGemmResidual {
+                            weight,
+                            input: gemv_input,
+                            residual: residual_target,
+                            out_dim,
+                            in_dim,
+                        });
+                        continue;
+                    }
+                }
+            }
+        }
+        out.push(node);
+    }
+    out
 }

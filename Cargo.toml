@@ -258,6 +258,13 @@ name = "v1_sync_elimination_test"
 path = "tests_v1/sync_elimination_test.rs"
 required-features = ["v1", "gpu"]
 
+# v1.0 Phase-2 Schritt 2.0.2 — Residual-fused Q4_K Q8-inline GEMV.
+# CPU graph-fusion detection + GPU parity/sync-count regression.
+[[test]]
+name = "v1_residual_fused_test"
+path = "tests_v1/residual_fused_test.rs"
+required-features = ["v1"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

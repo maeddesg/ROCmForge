@@ -1578,6 +1578,10 @@ pub fn emit_all_gemv_files() -> Vec<(&'static str, String)> {
         ("gemv/gemv_q8_0_standard.hip", emit_q8_0_gemv_standard()),
         ("gemv/gemv_q4_k_q8_inline.hip", emit_q4_k_gemv_q8_inline()),
         (
+            "gemv/gemv_q4_k_q8_inline_residual.hip",
+            emit_q4_k_gemv_q8_inline_residual(),
+        ),
+        (
             "gemv/gemv_q4_k_gate_up_swiglu.hip",
             emit_q4_k_gemv_gate_up_swiglu(),
         ),
@@ -2337,6 +2341,241 @@ extern "C" hipError_t rocmforge_launch_gemv_q4_k_q8_inline(
 
     rf_v1_gemv_q4_k_q8_inline_kernel<<<n_blocks_x, Q4_K_Q8_THREADS_PER_BLOCK, shared_mem, stream>>>(
         weights, input, output, n_rows, ncols_dst);
+    return hipGetLastError();
+}
+"#);
+    s
+}
+
+// ─── Q4_K Q8-Inline with fused residual-add (Phase 2 step 2.0.2) ───────────
+//
+// Identical dot-product body to `gemv_q4_k_q8_inline`; the only
+// change is a third input `residual` and the final write:
+//
+//     output[i] = sums[c] + residual[i]
+//
+// This collapses the Phase-1 two-kernel pattern
+// `gemv_q4_k_q8_inline → residual_add_inplace` into a single launch
+// and saves one full output-buffer round-trip through VRAM. Matches
+// v0.x's `gemv_q4_k_q8_inline_residual_multi_row` behaviour, which
+// rocprof 1.17 confirmed as the critical dispatch-count gap to
+// v0.x (495 → 462 dispatches per token).
+//
+// The dequant-IR flag driving this emission is
+// `GemvVariant::FusedResidual` (see `dequant_ir_spec.md §2.5`).
+fn emit_q4_k_gemv_q8_inline_residual() -> String {
+    let mut s = String::from(GEMV_FILE_HEADER);
+    s.push_str(r#"// Q4_K GEMV with Q8-inline activation + fused residual add.
+// output[i] = GEMV(W,X)[i] + residual[i] — saves one kernel launch
+// and one VRAM round-trip vs. the unfused `gemv_q4_k_q8_inline +
+// residual_add_inplace` pair.
+
+#define WARP_SIZE                 32
+#define Q4_K_BLOCK_BYTES          144
+#define Q4_K_ELEMS_PER_BLOCK      256
+#define Q4_K_SUB_BLOCKS           8
+#define Q4_K_SUB_BLOCK_ELEMS      32
+#define Q4_K_Q8_COLS              4
+#define Q4_K_Q8_FIXED_WAVES       8
+#define Q4_K_Q8_THREADS_PER_BLOCK (Q4_K_Q8_FIXED_WAVES * WARP_SIZE)
+#define Q4_K_Q8_SHARED_MEM_LIMIT  (48 * 1024)
+#define Q8_0_BLOCK_SIZE_BYTES     34
+
+struct Q8_0_block_q4k_inline {
+    __half d;
+    int8_t qs[32];
+};
+
+__device__ __forceinline__
+void rf_v1_q4k_q8_unpack_scale_min(int j, const uint8_t* scales,
+                                    int* scale_out, int* min_out) {
+    if (j < 4) {
+        *scale_out = scales[j]     & 0x3F;
+        *min_out   = scales[j + 4] & 0x3F;
+    } else {
+        *scale_out = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
+        *min_out   = (scales[j + 4] >> 4)   | ((scales[j]     >> 6) << 4);
+    }
+}
+
+__device__ __forceinline__
+void rf_v1_q4k_q8_subblock_int_dot(
+    const uint8_t* __restrict__ qs,
+    const Q8_0_block_q4k_inline* __restrict__ x_block,
+    int j,
+    int* int_dot_out,
+    int* q8_sum_out)
+{
+    const int pair_base = (j >> 1) * 32;
+    const bool is_upper = (j & 1) != 0;
+    const uint8_t* qs_pair = qs + pair_base;
+    const int8_t* x_qs = x_block->qs;
+
+    int int_dot = 0;
+    int q8_sum = 0;
+    #pragma unroll
+    for (int i = 0; i < Q4_K_SUB_BLOCK_ELEMS; ++i) {
+        const uint8_t byte = qs_pair[i];
+        const int nib = is_upper ? (byte >> 4) : (byte & 0x0F);
+        const int x = (int)x_qs[i];
+        int_dot += nib * x;
+        q8_sum  += x;
+    }
+    *int_dot_out = int_dot;
+    *q8_sum_out  = q8_sum;
+}
+
+__device__ __forceinline__
+float rf_v1_q4k_q8_super_block_dot(
+    const uint8_t* __restrict__ sb_ptr,
+    const Q8_0_block_q4k_inline* __restrict__ x_blocks_base)
+{
+    const __half d_h    = *reinterpret_cast<const __half*>(sb_ptr + 0);
+    const __half dmin_h = *reinterpret_cast<const __half*>(sb_ptr + 2);
+    const float  d_f    = __half2float(d_h);
+    const float  dmin_f = __half2float(dmin_h);
+    const uint8_t* scales = sb_ptr + 4;
+    const uint8_t* qs     = sb_ptr + 16;
+
+    float acc = 0.0f;
+    #pragma unroll
+    for (int j = 0; j < Q4_K_SUB_BLOCKS; ++j) {
+        int scale_j, min_j;
+        rf_v1_q4k_q8_unpack_scale_min(j, scales, &scale_j, &min_j);
+
+        int int_dot, q8_sum;
+        rf_v1_q4k_q8_subblock_int_dot(qs, &x_blocks_base[j], j, &int_dot, &q8_sum);
+
+        const float x_scale = __half2float(x_blocks_base[j].d);
+        acc += x_scale * (
+              d_f    * (float)scale_j * (float)int_dot
+            - dmin_f * (float)min_j   * (float)q8_sum);
+    }
+    return acc;
+}
+
+__device__ __forceinline__
+void rf_v1_q4k_q8_quantize_activations_to_lds(
+    const float* __restrict__ input,
+    Q8_0_block_q4k_inline* __restrict__ s_input_q8,
+    int n_blocks_total,
+    int wave_id,
+    int lane_id,
+    int n_waves)
+{
+    for (int block_idx = wave_id; block_idx < n_blocks_total; block_idx += n_waves) {
+        const int row_offset = block_idx * 32;
+        const float val = input[row_offset + lane_id];
+        float max_val = fabsf(val);
+
+        #pragma unroll
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            max_val = fmaxf(max_val, __shfl_down(max_val, offset));
+        }
+
+        const float scale = fmaxf(__shfl(max_val, 0, WARP_SIZE) / 127.0f, 1e-30f);
+        const __half scale_h = __float2half(scale);
+        const float scale_f = __half2float(scale_h);
+        if (lane_id == 0) {
+            s_input_q8[block_idx].d = scale_h;
+        }
+
+        const float inv_scale = 1.0f / scale_f;
+        const float qf = fminf(fmaxf(val * inv_scale, -127.0f), 127.0f);
+        s_input_q8[block_idx].qs[lane_id] = static_cast<int8_t>(qf);
+    }
+}
+
+__launch_bounds__(Q4_K_Q8_THREADS_PER_BLOCK, 1)
+__global__ void rf_v1_gemv_q4_k_q8_inline_residual_kernel(
+    const uint8_t* __restrict__ weights,
+    const float*   __restrict__ input,
+    const float*   __restrict__ residual,
+    float*         __restrict__ output,
+    int n_rows,
+    int ncols_dst)
+{
+    rf_v1_gemv_set_ieee_denormal_mode();
+
+    const int tid = threadIdx.x;
+    const int wave_id = tid / WARP_SIZE;
+    const int lane_id = tid % WARP_SIZE;
+    const int col_base = (blockIdx.x * Q4_K_Q8_FIXED_WAVES + wave_id) * Q4_K_Q8_COLS;
+    const int super_blocks_per_row = n_rows / Q4_K_ELEMS_PER_BLOCK;
+    const int q8_blocks_total      = n_rows / 32;
+
+    extern __shared__ Q8_0_block_q4k_inline s_input_q8[];
+
+    rf_v1_q4k_q8_quantize_activations_to_lds(
+        input, s_input_q8, q8_blocks_total, wave_id, lane_id, Q4_K_Q8_FIXED_WAVES);
+    __syncthreads();
+
+    if (col_base >= ncols_dst) return;
+
+    const uint8_t* w_cols[Q4_K_Q8_COLS];
+    #pragma unroll
+    for (int c = 0; c < Q4_K_Q8_COLS; ++c) {
+        const int col = col_base + c;
+        w_cols[c] = (col < ncols_dst)
+            ? weights + (size_t)col * (size_t)super_blocks_per_row * Q4_K_BLOCK_BYTES
+            : nullptr;
+    }
+
+    float sums[Q4_K_Q8_COLS] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    for (int sb = lane_id; sb < super_blocks_per_row; sb += WARP_SIZE) {
+        const Q8_0_block_q4k_inline* x_blocks = &s_input_q8[sb * Q4_K_SUB_BLOCKS];
+        #pragma unroll
+        for (int c = 0; c < Q4_K_Q8_COLS; ++c) {
+            if (w_cols[c]) {
+                const uint8_t* sb_ptr = w_cols[c] + (size_t)sb * Q4_K_BLOCK_BYTES;
+                sums[c] += rf_v1_q4k_q8_super_block_dot(sb_ptr, x_blocks);
+            }
+        }
+    }
+
+    #pragma unroll
+    for (int c = 0; c < Q4_K_Q8_COLS; ++c) {
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            sums[c] += __shfl_down(sums[c], offset);
+        }
+    }
+
+    if (lane_id == 0) {
+        #pragma unroll
+        for (int c = 0; c < Q4_K_Q8_COLS; ++c) {
+            const int col = col_base + c;
+            if (col < ncols_dst) {
+                // Fused residual add: the GEMV result never visits
+                // VRAM — it's summed with `residual[col]` directly
+                // from the register and written once.
+                output[col] = sums[c] + residual[col];
+            }
+        }
+    }
+}
+
+extern "C" hipError_t rocmforge_launch_gemv_q4_k_q8_inline_residual(
+    const uint8_t* weights,
+    const float*   input,
+    const float*   residual,
+    float*         output,
+    int n_rows,
+    int ncols_dst,
+    hipStream_t stream)
+{
+    if (n_rows <= 0 || ncols_dst <= 0)               return hipErrorInvalidValue;
+    if ((n_rows % Q4_K_ELEMS_PER_BLOCK) != 0)        return hipErrorInvalidValue;
+    const size_t shared_mem =
+        (size_t)(n_rows / 32) * Q8_0_BLOCK_SIZE_BYTES;
+    if (shared_mem > Q4_K_Q8_SHARED_MEM_LIMIT)        return hipErrorInvalidValue;
+
+    const int n_blocks_x =
+        (ncols_dst + (Q4_K_Q8_FIXED_WAVES * Q4_K_Q8_COLS) - 1)
+        / (Q4_K_Q8_FIXED_WAVES * Q4_K_Q8_COLS);
+
+    rf_v1_gemv_q4_k_q8_inline_residual_kernel<<<n_blocks_x, Q4_K_Q8_THREADS_PER_BLOCK, shared_mem, stream>>>(
+        weights, input, residual, output, n_rows, ncols_dst);
     return hipGetLastError();
 }
 "#);

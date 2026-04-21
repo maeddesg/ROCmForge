@@ -36,8 +36,9 @@ use super::super::backend::gpu::elementwise::{
 use super::super::backend::gpu::error::{check, HipError, HipResult};
 use super::super::backend::gpu::gemv::{
     rocmforge_launch_gemv_q4_0_standard, rocmforge_launch_gemv_q4_k_gate_up_swiglu,
-    rocmforge_launch_gemv_q4_k_q8_inline, rocmforge_launch_gemv_q4_k_standard,
-    rocmforge_launch_gemv_q6_k_standard, rocmforge_launch_gemv_q8_0_standard,
+    rocmforge_launch_gemv_q4_k_q8_inline, rocmforge_launch_gemv_q4_k_q8_inline_residual,
+    rocmforge_launch_gemv_q4_k_standard, rocmforge_launch_gemv_q6_k_standard,
+    rocmforge_launch_gemv_q8_0_standard,
 };
 use super::super::backend::gpu::hip_ffi::{hipMemcpy, hipMemcpyDeviceToHost};
 use super::super::backend::gpu::wrappers::{HipBuffer, HipStream};
@@ -573,6 +574,20 @@ impl<'m> GraphExecutor<'m> {
                 };
                 check(rc, "swiglu")?;
             }
+            GraphNode::FusedGemmResidual {
+                weight,
+                input,
+                residual,
+                out_dim,
+                in_dim,
+            } => {
+                // Saves one dispatch + one VRAM round-trip vs. the
+                // unfused `Gemm → ResidualAdd` pair. See
+                // `hip_kernels_v1/gemv/gemv_q4_k_q8_inline_residual.hip`.
+                self.dispatch_fused_gemm_residual(
+                    weight, *input, *residual, *out_dim, *in_dim,
+                )?;
+            }
         }
         // No per-node stream sync: HIP guarantees in-order
         // execution within a single stream, so the next node's
@@ -784,6 +799,45 @@ impl<'m> GraphExecutor<'m> {
                 pool.record_stop(&self.stream, idx)?;
             }
         }
+        Ok(())
+    }
+
+    /// Phase-2 fused GEMV + ResidualAdd dispatch. Q4_K-only for now
+    /// — other quant formats fall back to the split path because no
+    /// fused kernel is emitted yet. The weight format is asserted
+    /// rather than returning an error: the graph-builder fuse-pass
+    /// already gates on `format == Q4_K`, so anything else reaching
+    /// this function is an invariant violation.
+    fn dispatch_fused_gemm_residual(
+        &mut self,
+        weight: &WeightRef,
+        input: BufferId,
+        residual: BufferId,
+        out_dim: usize,
+        in_dim: usize,
+    ) -> HipResult<()> {
+        debug_assert_eq!(
+            weight.format,
+            GgmlType::Q4_K,
+            "FusedGemmResidual only Q4_K in Phase 2 step 2.0.2"
+        );
+        let w_ptr = self.weight_ptr(weight);
+        let in_ptr = self.buf_ptr(input);
+        let residual_ptr = self.buf_mut_ptr(residual);
+        let rc = unsafe {
+            rocmforge_launch_gemv_q4_k_q8_inline_residual(
+                w_ptr as *const u8,
+                in_ptr as *const f32,
+                // The fused kernel reads the old residual then
+                // writes `residual + gemv` back to the same buffer.
+                residual_ptr as *const f32,
+                residual_ptr as *mut f32,
+                in_dim as i32,
+                out_dim as i32,
+                self.stream.raw(),
+            )
+        };
+        check(rc, "gemv_q4_k_q8_inline_residual")?;
         Ok(())
     }
 
