@@ -13,7 +13,7 @@
 
 #![cfg(feature = "v1")]
 
-use rocmforge::v1::core::gguf::GGUFFile;
+use rocmforge::v1::core::gguf::{GGUFFile, GgufValue};
 use rocmforge::v1::core::model_config::ModelConfig;
 use rocmforge::v1::core::tensor_info::{
     group_tensors_by_layer, validate_quant_types, GgmlType, TensorInfo, TensorRole,
@@ -220,6 +220,31 @@ fn test_rope_params() {
     let config = ModelConfig::from_metadata(gguf.metadata(), gguf.tensors()).unwrap();
     assert!(config.rope_freq_base > 0.0);
     println!("Qwen3 rope_freq_base: {}", config.rope_freq_base);
+}
+
+#[test]
+fn test_unsupported_arch_graceful() {
+    // Metadata with an architecture we've never heard of — no `{arch}.*`
+    // keys present. `ModelConfig::from_metadata` must not panic; it must
+    // return a descriptive `Err` naming the first missing arch-prefixed
+    // key, so callers can surface a helpful message.
+    let mut metadata: std::collections::HashMap<String, GgufValue> =
+        std::collections::HashMap::new();
+    metadata.insert(
+        "general.architecture".to_string(),
+        GgufValue::String("totally_unknown_arch_2026".to_string()),
+    );
+
+    let result = ModelConfig::from_metadata(&metadata, &[]);
+    assert!(
+        result.is_err(),
+        "bare metadata for unknown arch should not parse successfully"
+    );
+    let msg = format!("{}", result.unwrap_err());
+    assert!(
+        msg.contains("totally_unknown_arch_2026") && msg.contains("block_count"),
+        "error must name the unknown arch and the first missing key; got: {msg}"
+    );
 }
 
 #[test]
