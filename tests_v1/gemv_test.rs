@@ -681,3 +681,482 @@ fn test_gemv_q8_0_4096x4096() {
     assert!(err < tol, "Q8_0 GEMV 4096x4096 err={err} tol={tol}");
     println!("Q8_0 GEMV 4096x4096: max_abs_err = {err:.4e} (tol {tol:.4e})");
 }
+
+// ─── Block C: Q4_K Q8-Inline + Gate+Up+SwiGLU ──────────────────────────────
+
+use rocmforge::v1::backend::gpu::gemv::{
+    rocmforge_launch_gemv_q4_k_gate_up_swiglu, rocmforge_launch_gemv_q4_k_q8_inline,
+};
+
+fn run_gpu_gemv_q4_k_q8_inline(
+    weights: &[u8],
+    input: &[f32],
+    n: usize,
+    k: usize,
+) -> HipResult<Vec<f32>> {
+    run_gpu_gemv(
+        rocmforge_launch_gemv_q4_k_q8_inline,
+        weights,
+        input,
+        n,
+        k,
+    )
+}
+
+// v0.x Q8-inline launcher for bit-exact comparison.
+extern "C" {
+    fn gemv_q4_k_f32_q8_inline_launch(
+        weights_q4_k: *const std::ffi::c_void,
+        input: *const f32,
+        output: *mut f32,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: *mut std::ffi::c_void,
+    ) -> i32;
+
+    fn gemv_gate_up_swiglu_q4_k_f32_launch(
+        weights_gate_q4_k: *const std::ffi::c_void,
+        weights_up_q4_k: *const std::ffi::c_void,
+        input: *const f32,
+        swiglu_out: *mut f32,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: *mut std::ffi::c_void,
+    ) -> i32;
+}
+
+// ── Q4_K Q8-Inline correctness ─────────────────────────────────────────────
+
+/// Q8-quantised activation introduces up to ~0.8% relative error per
+/// element. Over K multiplications the error accumulates with a
+/// sqrt(K) RMS pattern. Absolute tolerance scales with output
+/// magnitude.
+fn q8_inline_tolerance(cpu: &[f32], k: usize) -> f32 {
+    let max_mag = cpu.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+    (max_mag + 1e-2) * (k as f32).sqrt() * 1e-2
+}
+
+#[test]
+#[serial]
+fn test_gemv_q4_k_q8_inline_minimal_64x256() {
+    let n = 64;
+    let k = 256;
+    let input = gen_input(k, 0x401);
+    let weights = gen_q4_k_weights(n, k, 0x402);
+
+    let cpu = cpu_reference_gemv(&q4_k(), &input, &weights, n, k);
+    let gpu = run_gpu_gemv_q4_k_q8_inline(&weights, &input, n, k).unwrap();
+
+    let tol = q8_inline_tolerance(&cpu, k);
+    let err = max_abs_err(&cpu, &gpu);
+    assert!(err < tol, "Q4_K Q8-inline 64x256 err={err} tol={tol}");
+    println!("Q4_K Q8-inline 64x256: max_abs_err = {err:.4e} (tol {tol:.4e})");
+}
+
+#[test]
+#[serial]
+fn test_gemv_q4_k_q8_inline_qkv_4096x4096() {
+    // Qwen3 QKV shape. LDS: K/32 × 34 = 128 × 34 = 4.4 KB, easy.
+    let n = 4096;
+    let k = 4096;
+    let input = gen_input(k, 0x403);
+    let weights = gen_q4_k_weights(n, k, 0x404);
+
+    let cpu = cpu_reference_gemv(&q4_k(), &input, &weights, n, k);
+    let gpu = run_gpu_gemv_q4_k_q8_inline(&weights, &input, n, k).unwrap();
+
+    let tol = q8_inline_tolerance(&cpu, k);
+    let err = max_abs_err(&cpu, &gpu);
+    assert!(err < tol, "Q4_K Q8-inline 4096x4096 err={err} tol={tol}");
+    println!("Q4_K Q8-inline 4096x4096: max_abs_err = {err:.4e} (tol {tol:.4e})");
+}
+
+/// Dual-accumulator regression guard (spec §5.3 dmin-offset formula).
+/// Construct weights where all nibbles are zero but dmin > 0 and
+/// min_j > 0, so:
+///
+///   value[i] = d · scale_j · 0 − dmin · min_j = −dmin · min_j
+///
+/// With Q8-inline activations:
+///
+///   Σ value[i] · x[i] = −dmin · min_j · Σ x[i] = −dmin · min_j · q8_sum
+///
+/// If the kernel accidentally used only `int_dot` it would produce 0.
+/// Only the dual-accumulator formula (`d·scale·int_dot − dmin·min·q8_sum`)
+/// yields the correct non-zero answer.
+#[test]
+#[serial]
+fn test_gemv_q4_k_q8_inline_dual_accumulator() {
+    let n = 64;
+    let k = 256;
+    // Craft a Q4_K super-block: d=0, dmin=1, scale_j=0 for all j,
+    // min_j=1 for all j, all nibbles=0. The scales-byte packing
+    // (get_scale_min_k4) requires:
+    //   j∈0..4: scale = scales[j] & 0x3F = 0   → scales[0..4] = 0
+    //           min   = scales[j+4] & 0x3F = 1 → scales[4..8] = 1
+    //   j∈4..8: scale = (scales[j+4] & 0x0F) | ((scales[j-4] >> 6) << 4)
+    //                 = (1 & 0x0F) | ((0 >> 6) << 4) = 1           ← we want 0!
+    //
+    // Getting scale_j = 0 everywhere while min_j = 1 for j<4 is not
+    // expressible given the packing. Instead use a simpler well-defined
+    // configuration: scales[0..4] = 0, scales[4..8] = 1. Then:
+    //   j∈0..4: scale=0, min=1   ← values = −dmin, independent of nibbles
+    //   j∈4..8: scale = (scales[j+4]=1 & 0x0F)|…  = 1
+    //           min   = (scales[j+4]=1 >> 4)|…    = 0
+    //           → values = d·1·nibble − dmin·0 = d·nibble (zero here since d=0)
+    //
+    // So for j∈0..4 we have the pure dual-accumulator scenario
+    // (nibbles don't matter; the output must be −dmin × q8_sum).
+    let mut weights = vec![0u8; n * (k / 256) * 144];
+    for row in 0..n {
+        let base = row * 144; // k/256 == 1 block
+        let d = 0.0f32;
+        let dmin = 1.0f32;
+        weights[base..base + 2]
+            .copy_from_slice(&f16::from_f32(d).to_bits().to_le_bytes());
+        weights[base + 2..base + 4]
+            .copy_from_slice(&f16::from_f32(dmin).to_bits().to_le_bytes());
+        // scales[0..4] = 0, scales[4..8] = 1, scales[8..12] = 0.
+        for i in 0..4 {
+            weights[base + 4 + i] = 0;
+        }
+        for i in 4..8 {
+            weights[base + 4 + i] = 1;
+        }
+        for i in 8..12 {
+            weights[base + 4 + i] = 0;
+        }
+        // qs stays zero.
+    }
+
+    let input = gen_input(k, 0x405);
+    let gpu = run_gpu_gemv_q4_k_q8_inline(&weights, &input, n, k).unwrap();
+
+    // Each output[row] = −dmin × Σ_{j=0..4} q8_sum(sub_block j).
+    // After Q8-quantisation, input in [-1, 1) maps to [-127, 127]. The
+    // first 128 elements of input contribute. With dmin=1 and min_j=1,
+    // every output row equals:
+    //   −1 × sum(q8[0..128] * their per-block x_scale)
+    // Instead of computing the exact reference (depends on Q8 scales),
+    // just verify: (a) outputs are NOT zero (dual-accu is active), and
+    // (b) all rows produce the same value (since weights are identical
+    // and only input/q8_sum determines the result).
+    let nonzero_count = gpu.iter().filter(|&&v| v.abs() > 1e-4).count();
+    assert!(
+        nonzero_count > 0,
+        "dual-accumulator inactive: all {} outputs are zero",
+        gpu.len()
+    );
+    // All rows share the same weights, so all outputs must match.
+    let first = gpu[0];
+    for (i, &v) in gpu.iter().enumerate() {
+        assert!(
+            (v - first).abs() < 1e-3,
+            "rows differ: gpu[0]={first} gpu[{i}]={v}"
+        );
+    }
+    println!(
+        "Q4_K Q8-inline dual-accumulator: output = {first:.4e} (non-zero → dual-accu active)"
+    );
+}
+
+#[test]
+#[serial]
+fn test_gemv_q4_k_q8_inline_vs_v0x() {
+    // v1 vs v0.x with identical Q8-inline logic.
+    let n = 64;
+    let k = 4096;
+    let input = gen_input(k, 0x406);
+    let weights = gen_q4_k_weights(n, k, 0x407);
+
+    let v1 = run_gpu_gemv_q4_k_q8_inline(&weights, &input, n, k).unwrap();
+    let v0 = run_gpu_gemv_v0x(gemv_q4_k_f32_q8_inline_launch, &weights, &input, n, k)
+        .unwrap();
+
+    let err = max_abs_err(&v1, &v0);
+    assert!(
+        err < 1e-3,
+        "Q4_K Q8-inline v1 vs v0.x err = {err} (tol 1e-3)"
+    );
+    println!("Q4_K Q8-inline v1 vs v0.x (N=64, K=4096): max_abs_err = {err:.4e}");
+}
+
+// ── Q4_K Gate+Up+SwiGLU ────────────────────────────────────────────────────
+
+fn silu_f32(x: f32) -> f32 {
+    x / (1.0 + (-x).exp())
+}
+
+fn run_gpu_gate_up_swiglu(
+    weights_gate: &[u8],
+    weights_up: &[u8],
+    input: &[f32],
+    n: usize,
+    k: usize,
+) -> HipResult<Vec<f32>> {
+    let stream = HipStream::new()?;
+
+    let mut d_wg = HipBuffer::new(weights_gate.len())?;
+    d_wg.copy_from_host(weights_gate)?;
+    let mut d_wu = HipBuffer::new(weights_up.len())?;
+    d_wu.copy_from_host(weights_up)?;
+
+    let mut d_in = HipBuffer::new(input.len() * 4)?;
+    let in_bytes =
+        unsafe { std::slice::from_raw_parts(input.as_ptr() as *const u8, input.len() * 4) };
+    d_in.copy_from_host(in_bytes)?;
+
+    let out_bytes = n * 4;
+    let mut d_out = HipBuffer::new(out_bytes)?;
+
+    let rc = unsafe {
+        rocmforge_launch_gemv_q4_k_gate_up_swiglu(
+            d_wg.as_ptr() as *const u8,
+            d_wu.as_ptr() as *const u8,
+            d_in.as_ptr() as *const f32,
+            d_out.as_mut_ptr() as *mut f32,
+            k as i32,
+            n as i32,
+            stream.raw(),
+        )
+    };
+    check(rc, "launch_gemv_q4_k_gate_up_swiglu")?;
+    stream.synchronize()?;
+
+    let mut host_bytes = vec![0u8; out_bytes];
+    let rc = unsafe {
+        hipMemcpy(
+            host_bytes.as_mut_ptr() as *mut _,
+            d_out.as_ptr(),
+            out_bytes,
+            hipMemcpyDeviceToHost,
+        )
+    };
+    check(rc, "D2H readback")?;
+
+    let mut out = Vec::with_capacity(n);
+    for chunk in host_bytes.chunks_exact(4) {
+        out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+    }
+    Ok(out)
+}
+
+#[test]
+#[serial]
+fn test_gemv_q4_k_gate_up_swiglu_correctness() {
+    // Compute gate = GEMV(W_gate), up = GEMV(W_up) with standard Q4_K,
+    // then silu(gate) * up on the CPU; compare to the fused kernel.
+    let n = 64;
+    let k = 256;
+    let input = gen_input(k, 0x501);
+    let w_gate = gen_q4_k_weights(n, k, 0x502);
+    let w_up = gen_q4_k_weights(n, k, 0x503);
+
+    let gate = run_gpu_gemv(
+        rocmforge_launch_gemv_q4_k_standard,
+        &w_gate,
+        &input,
+        n,
+        k,
+    )
+    .unwrap();
+    let up = run_gpu_gemv(
+        rocmforge_launch_gemv_q4_k_standard,
+        &w_up,
+        &input,
+        n,
+        k,
+    )
+    .unwrap();
+    let cpu_fused: Vec<f32> = gate
+        .iter()
+        .zip(up.iter())
+        .map(|(&g, &u)| silu_f32(g) * u)
+        .collect();
+
+    let gpu_fused =
+        run_gpu_gate_up_swiglu(&w_gate, &w_up, &input, n, k).unwrap();
+
+    let err = max_abs_err(&cpu_fused, &gpu_fused);
+    let max_mag = cpu_fused.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+    let tol = (max_mag + 1e-3) * 1e-4; // SiLU + one extra mul, tight tol
+    assert!(
+        err < tol,
+        "Gate+Up+SwiGLU err={err} tol={tol} (max_mag={max_mag})"
+    );
+    println!(
+        "Q4_K Gate+Up+SwiGLU correctness: max_abs_err = {err:.4e} (tol {tol:.4e})"
+    );
+}
+
+#[test]
+#[serial]
+fn test_gemv_q4_k_gate_up_swiglu_vs_v0x() {
+    let n = 64;
+    let k = 4096;
+    let input = gen_input(k, 0x504);
+    let w_gate = gen_q4_k_weights(n, k, 0x505);
+    let w_up = gen_q4_k_weights(n, k, 0x506);
+
+    let v1 = run_gpu_gate_up_swiglu(&w_gate, &w_up, &input, n, k).unwrap();
+
+    // v0.x fused-gate-up launch.
+    let stream = HipStream::new().unwrap();
+    let mut d_wg = HipBuffer::new(w_gate.len()).unwrap();
+    d_wg.copy_from_host(&w_gate).unwrap();
+    let mut d_wu = HipBuffer::new(w_up.len()).unwrap();
+    d_wu.copy_from_host(&w_up).unwrap();
+    let mut d_in = HipBuffer::new(input.len() * 4).unwrap();
+    let in_bytes =
+        unsafe { std::slice::from_raw_parts(input.as_ptr() as *const u8, input.len() * 4) };
+    d_in.copy_from_host(in_bytes).unwrap();
+    let mut d_out = HipBuffer::new(n * 4).unwrap();
+    let rc = unsafe {
+        gemv_gate_up_swiglu_q4_k_f32_launch(
+            d_wg.as_ptr() as *const std::ffi::c_void,
+            d_wu.as_ptr() as *const std::ffi::c_void,
+            d_in.as_ptr() as *const f32,
+            d_out.as_mut_ptr() as *mut f32,
+            k as i32,
+            n as i32,
+            stream.raw() as *mut std::ffi::c_void,
+        )
+    };
+    check(rc, "v0.x gate_up_swiglu").unwrap();
+    stream.synchronize().unwrap();
+    let mut host_bytes = vec![0u8; n * 4];
+    let rc = unsafe {
+        hipMemcpy(
+            host_bytes.as_mut_ptr() as *mut _,
+            d_out.as_ptr(),
+            n * 4,
+            hipMemcpyDeviceToHost,
+        )
+    };
+    check(rc, "D2H v0.x").unwrap();
+    let v0: Vec<f32> = host_bytes
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+
+    let err = max_abs_err(&v1, &v0);
+    assert!(
+        err < 1e-4,
+        "Gate+Up+SwiGLU v1 vs v0.x err = {err} (tol 1e-4)"
+    );
+    println!(
+        "Q4_K Gate+Up+SwiGLU v1 vs v0.x (N=64, K=4096): max_abs_err = {err:.4e}"
+    );
+}
+
+// ── Performance (informational) ────────────────────────────────────────────
+
+#[test]
+#[serial]
+fn test_gemv_q4_k_performance_standard_vs_q8_inline() {
+    use std::time::Instant;
+
+    let n = 4096;
+    let k = 4096;
+    let input = gen_input(k, 0x601);
+    let weights = gen_q4_k_weights(n, k, 0x602);
+
+    let measure_std = || -> f64 {
+        let stream = HipStream::new().unwrap();
+        let mut d_w = HipBuffer::new(weights.len()).unwrap();
+        d_w.copy_from_host(&weights).unwrap();
+        let mut d_in = HipBuffer::new(input.len() * 4).unwrap();
+        let in_bytes = unsafe {
+            std::slice::from_raw_parts(input.as_ptr() as *const u8, input.len() * 4)
+        };
+        d_in.copy_from_host(in_bytes).unwrap();
+        let mut d_out = HipBuffer::new(n * 4).unwrap();
+
+        // warm-up
+        for _ in 0..3 {
+            unsafe {
+                rocmforge_launch_gemv_q4_k_standard(
+                    d_w.as_ptr() as *const u8,
+                    d_in.as_ptr() as *const f32,
+                    d_out.as_mut_ptr() as *mut f32,
+                    k as i32,
+                    n as i32,
+                    stream.raw(),
+                );
+            }
+        }
+        stream.synchronize().unwrap();
+
+        let mut samples = Vec::with_capacity(10);
+        for _ in 0..10 {
+            let t0 = Instant::now();
+            unsafe {
+                rocmforge_launch_gemv_q4_k_standard(
+                    d_w.as_ptr() as *const u8,
+                    d_in.as_ptr() as *const f32,
+                    d_out.as_mut_ptr() as *mut f32,
+                    k as i32,
+                    n as i32,
+                    stream.raw(),
+                );
+            }
+            stream.synchronize().unwrap();
+            samples.push(t0.elapsed().as_micros() as f64);
+        }
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        samples[samples.len() / 2]
+    };
+
+    let measure_q8 = || -> f64 {
+        let stream = HipStream::new().unwrap();
+        let mut d_w = HipBuffer::new(weights.len()).unwrap();
+        d_w.copy_from_host(&weights).unwrap();
+        let mut d_in = HipBuffer::new(input.len() * 4).unwrap();
+        let in_bytes = unsafe {
+            std::slice::from_raw_parts(input.as_ptr() as *const u8, input.len() * 4)
+        };
+        d_in.copy_from_host(in_bytes).unwrap();
+        let mut d_out = HipBuffer::new(n * 4).unwrap();
+
+        for _ in 0..3 {
+            unsafe {
+                rocmforge_launch_gemv_q4_k_q8_inline(
+                    d_w.as_ptr() as *const u8,
+                    d_in.as_ptr() as *const f32,
+                    d_out.as_mut_ptr() as *mut f32,
+                    k as i32,
+                    n as i32,
+                    stream.raw(),
+                );
+            }
+        }
+        stream.synchronize().unwrap();
+
+        let mut samples = Vec::with_capacity(10);
+        for _ in 0..10 {
+            let t0 = Instant::now();
+            unsafe {
+                rocmforge_launch_gemv_q4_k_q8_inline(
+                    d_w.as_ptr() as *const u8,
+                    d_in.as_ptr() as *const f32,
+                    d_out.as_mut_ptr() as *mut f32,
+                    k as i32,
+                    n as i32,
+                    stream.raw(),
+                );
+            }
+            stream.synchronize().unwrap();
+            samples.push(t0.elapsed().as_micros() as f64);
+        }
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        samples[samples.len() / 2]
+    };
+
+    let std_us = measure_std();
+    let q8_us = measure_q8();
+    let speedup = std_us / q8_us;
+    println!(
+        "Q4_K GEMV N=4096, K=4096: Standard {std_us:.0} µs, Q8-inline {q8_us:.0} µs → speedup = {speedup:.2}×"
+    );
+    // No hard assertion — informational. v0.x sees 2-3× for this shape.
+}

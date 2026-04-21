@@ -69,3 +69,35 @@ extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 }
+
+#[link(name = "v1_gemv_q4_k_q8_inline", kind = "static")]
+extern "C" {
+    /// Launch the Q4_K Q8-inline GEMV. `n_rows` must be a multiple of 256.
+    /// Activation is quantised into LDS cooperatively; dual-accumulator
+    /// sum (int_dot + q8_sum) per sub-block handles the Q4_K dmin term.
+    pub fn rocmforge_launch_gemv_q4_k_q8_inline(
+        weights: *const u8,
+        input: *const f32,
+        output: *mut f32,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_gemv_q4_k_gate_up_swiglu", kind = "static")]
+extern "C" {
+    /// Launch the fused Q4_K Gate+Up+SwiGLU GEMV. Computes
+    /// `swiglu[n] = silu(gate_gemv(n)) * up_gemv(n)` in one pass; gate
+    /// and up weights share an activation-cache load. `n_rows` must be
+    /// a multiple of 256; input × 4 B must fit in 32 KiB LDS.
+    pub fn rocmforge_launch_gemv_q4_k_gate_up_swiglu(
+        weights_gate: *const u8,
+        weights_up: *const u8,
+        input: *const f32,
+        swiglu_out: *mut f32,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}

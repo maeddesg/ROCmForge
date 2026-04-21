@@ -1564,7 +1564,8 @@ pub fn emit_gemv_kernel(format: &QuantFormat, variant: GemvVariant) -> String {
         (8, GemvVariant::Standard) => emit_q8_0_gemv_standard(),
         (12, GemvVariant::Standard) => emit_q4_k_gemv_standard(),
         (14, GemvVariant::Standard) => emit_q6_k_gemv_standard(),
-        other => format!("// TODO(Phase 1.8 Block C): gemv for {:?}\n", other),
+        (12, GemvVariant::Q8Inline) => emit_q4_k_gemv_q8_inline(),
+        other => format!("// TODO(Phase 1.8+): gemv for {:?}\n", other),
     }
 }
 
@@ -1575,6 +1576,11 @@ pub fn emit_all_gemv_files() -> Vec<(&'static str, String)> {
         ("gemv/gemv_q4_k_standard.hip", emit_q4_k_gemv_standard()),
         ("gemv/gemv_q6_k_standard.hip", emit_q6_k_gemv_standard()),
         ("gemv/gemv_q8_0_standard.hip", emit_q8_0_gemv_standard()),
+        ("gemv/gemv_q4_k_q8_inline.hip", emit_q4_k_gemv_q8_inline()),
+        (
+            "gemv/gemv_q4_k_gate_up_swiglu.hip",
+            emit_q4_k_gemv_gate_up_swiglu(),
+        ),
     ]
 }
 
@@ -2092,6 +2098,408 @@ extern "C" hipError_t rocmforge_launch_gemv_q8_0_standard(
 
     rf_v1_gemv_q8_0_standard_kernel<<<n_blocks_x, Q8_0_THREADS_PER_BLOCK, shared_mem, stream>>>(
         weights, input, output, n_rows, ncols_dst);
+    return hipGetLastError();
+}
+"#);
+    s
+}
+
+// ─── Q4_K Q8-Inline GEMV (Block C) ──────────────────────────────────────────
+//
+// 1:1 port of hip_kernels/quant/q4_k_q8_inline.hip's
+// `gemv_q4_k_f32_q8_inline_multi_row_kernel`. Dual accumulator
+// (int_dot, q8_sum) per sub-block is the correctness-critical detail:
+//
+//   Σ value[i] · (x_scale · q8[i])
+//     = x_scale · ( d·scale_j · Σ nib·q8 − dmin·min_j · Σ q8 )
+//     = x_scale · ( d·scale_j · int_dot − dmin·min_j · q8_sum )
+//
+// The activation vector is Q8-quantised into LDS once per token via a
+// cooperative 8-wave layout; `__syncthreads()` after quantisation is
+// MANDATORY so later lanes read fully-initialised Q8 blocks (not a
+// race).
+fn emit_q4_k_gemv_q8_inline() -> String {
+    let mut s = String::from(GEMV_FILE_HEADER);
+    s.push_str(r#"// Q4_K GEMV with Q8-inline activation. Dual accumulator per sub-block.
+
+#define WARP_SIZE                 32
+#define Q4_K_BLOCK_BYTES          144
+#define Q4_K_ELEMS_PER_BLOCK      256
+#define Q4_K_SUB_BLOCKS           8
+#define Q4_K_SUB_BLOCK_ELEMS      32
+#define Q4_K_Q8_COLS              4
+#define Q4_K_Q8_FIXED_WAVES       8
+#define Q4_K_Q8_THREADS_PER_BLOCK (Q4_K_Q8_FIXED_WAVES * WARP_SIZE)
+#define Q4_K_Q8_SHARED_MEM_LIMIT  (32 * 1024)
+#define Q8_0_BLOCK_SIZE_BYTES     34
+
+struct Q8_0_block_q4k_inline {
+    __half d;
+    int8_t qs[32];
+};
+
+__device__ __forceinline__
+void rf_v1_q4k_q8_unpack_scale_min(int j, const uint8_t* scales,
+                                    int* scale_out, int* min_out) {
+    if (j < 4) {
+        *scale_out = scales[j]     & 0x3F;
+        *min_out   = scales[j + 4] & 0x3F;
+    } else {
+        *scale_out = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
+        *min_out   = (scales[j + 4] >> 4)   | ((scales[j]     >> 6) << 4);
+    }
+}
+
+// One Q4_K sub-block × one Q8_0 activation block → (int_dot, q8_sum).
+__device__ __forceinline__
+void rf_v1_q4k_q8_subblock_int_dot(
+    const uint8_t* __restrict__ qs,
+    const Q8_0_block_q4k_inline* __restrict__ x_block,
+    int j,
+    int* int_dot_out,
+    int* q8_sum_out)
+{
+    const int pair_base = (j >> 1) * 32;
+    const bool is_upper = (j & 1) != 0;
+    const uint8_t* qs_pair = qs + pair_base;
+    const int8_t* x_qs = x_block->qs;
+
+    int int_dot = 0;
+    int q8_sum = 0;
+    #pragma unroll
+    for (int i = 0; i < Q4_K_SUB_BLOCK_ELEMS; ++i) {
+        const uint8_t byte = qs_pair[i];
+        const int nib = is_upper ? (byte >> 4) : (byte & 0x0F);
+        const int x = (int)x_qs[i];
+        int_dot += nib * x;
+        q8_sum  += x;
+    }
+    *int_dot_out = int_dot;
+    *q8_sum_out  = q8_sum;
+}
+
+// One Q4_K super-block × matching 8 Q8_0 blocks — dual-accumulator sum.
+__device__ __forceinline__
+float rf_v1_q4k_q8_super_block_dot(
+    const uint8_t* __restrict__ sb_ptr,
+    const Q8_0_block_q4k_inline* __restrict__ x_blocks_base)
+{
+    const __half d_h    = *reinterpret_cast<const __half*>(sb_ptr + 0);
+    const __half dmin_h = *reinterpret_cast<const __half*>(sb_ptr + 2);
+    const float  d_f    = __half2float(d_h);
+    const float  dmin_f = __half2float(dmin_h);
+    const uint8_t* scales = sb_ptr + 4;
+    const uint8_t* qs     = sb_ptr + 16;
+
+    float acc = 0.0f;
+    #pragma unroll
+    for (int j = 0; j < Q4_K_SUB_BLOCKS; ++j) {
+        int scale_j, min_j;
+        rf_v1_q4k_q8_unpack_scale_min(j, scales, &scale_j, &min_j);
+
+        int int_dot, q8_sum;
+        rf_v1_q4k_q8_subblock_int_dot(qs, &x_blocks_base[j], j, &int_dot, &q8_sum);
+
+        const float x_scale = __half2float(x_blocks_base[j].d);
+        acc += x_scale * (
+              d_f    * (float)scale_j * (float)int_dot
+            - dmin_f * (float)min_j   * (float)q8_sum);
+    }
+    return acc;
+}
+
+// Cooperative Q8_0 quantisation of the activation vector into LDS.
+// 8 waves × 32 lanes strip the Q8 blocks; each wave quantises one
+// block at a time, 32 lanes cover its 32 elements.
+__device__ __forceinline__
+void rf_v1_q4k_q8_quantize_activations_to_lds(
+    const float* __restrict__ input,
+    Q8_0_block_q4k_inline* __restrict__ s_input_q8,
+    int n_blocks_total,
+    int wave_id,
+    int lane_id,
+    int n_waves)
+{
+    for (int block_idx = wave_id; block_idx < n_blocks_total; block_idx += n_waves) {
+        const int row_offset = block_idx * 32;
+        const float val = input[row_offset + lane_id];
+        float max_val = fabsf(val);
+
+        #pragma unroll
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            max_val = fmaxf(max_val, __shfl_down(max_val, offset));
+        }
+
+        const float scale = fmaxf(__shfl(max_val, 0, WARP_SIZE) / 127.0f, 1e-30f);
+        const __half scale_h = __float2half(scale);
+        const float scale_f = __half2float(scale_h);
+        if (lane_id == 0) {
+            s_input_q8[block_idx].d = scale_h;
+        }
+
+        const float inv_scale = 1.0f / scale_f;
+        const float qf = fminf(fmaxf(val * inv_scale, -127.0f), 127.0f);
+        s_input_q8[block_idx].qs[lane_id] = static_cast<int8_t>(qf);
+    }
+}
+
+__launch_bounds__(Q4_K_Q8_THREADS_PER_BLOCK, 1)
+__global__ void rf_v1_gemv_q4_k_q8_inline_kernel(
+    const uint8_t* __restrict__ weights,
+    const float*   __restrict__ input,
+    float*         __restrict__ output,
+    int n_rows,
+    int ncols_dst)
+{
+    rf_v1_gemv_set_ieee_denormal_mode();
+
+    const int tid = threadIdx.x;
+    const int wave_id = tid / WARP_SIZE;
+    const int lane_id = tid % WARP_SIZE;
+    const int col_base = (blockIdx.x * Q4_K_Q8_FIXED_WAVES + wave_id) * Q4_K_Q8_COLS;
+    const int super_blocks_per_row = n_rows / Q4_K_ELEMS_PER_BLOCK;
+    const int q8_blocks_total      = n_rows / 32;
+
+    extern __shared__ Q8_0_block_q4k_inline s_input_q8[];
+
+    // Every thread must pass the cooperative quantisation barrier,
+    // even threads whose columns lie past ncols_dst. `return`-before-
+    // barrier would be a hang.
+    rf_v1_q4k_q8_quantize_activations_to_lds(
+        input, s_input_q8, q8_blocks_total, wave_id, lane_id, Q4_K_Q8_FIXED_WAVES);
+    __syncthreads();  // PFLICHT per spec §5.3 race-condition note
+
+    if (col_base >= ncols_dst) return;
+
+    const uint8_t* w_cols[Q4_K_Q8_COLS];
+    #pragma unroll
+    for (int c = 0; c < Q4_K_Q8_COLS; ++c) {
+        const int col = col_base + c;
+        w_cols[c] = (col < ncols_dst)
+            ? weights + (size_t)col * (size_t)super_blocks_per_row * Q4_K_BLOCK_BYTES
+            : nullptr;
+    }
+
+    float sums[Q4_K_Q8_COLS] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    for (int sb = lane_id; sb < super_blocks_per_row; sb += WARP_SIZE) {
+        const Q8_0_block_q4k_inline* x_blocks = &s_input_q8[sb * Q4_K_SUB_BLOCKS];
+        #pragma unroll
+        for (int c = 0; c < Q4_K_Q8_COLS; ++c) {
+            if (w_cols[c]) {
+                const uint8_t* sb_ptr = w_cols[c] + (size_t)sb * Q4_K_BLOCK_BYTES;
+                sums[c] += rf_v1_q4k_q8_super_block_dot(sb_ptr, x_blocks);
+            }
+        }
+    }
+
+    #pragma unroll
+    for (int c = 0; c < Q4_K_Q8_COLS; ++c) {
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            sums[c] += __shfl_down(sums[c], offset);
+        }
+    }
+
+    if (lane_id == 0) {
+        #pragma unroll
+        for (int c = 0; c < Q4_K_Q8_COLS; ++c) {
+            if (col_base + c < ncols_dst) {
+                output[col_base + c] = sums[c];
+            }
+        }
+    }
+}
+
+extern "C" hipError_t rocmforge_launch_gemv_q4_k_q8_inline(
+    const uint8_t* weights,
+    const float*   input,
+    float*         output,
+    int n_rows,
+    int ncols_dst,
+    hipStream_t stream)
+{
+    if (n_rows <= 0 || ncols_dst <= 0)               return hipErrorInvalidValue;
+    if ((n_rows % Q4_K_ELEMS_PER_BLOCK) != 0)        return hipErrorInvalidValue;
+    const size_t shared_mem =
+        (size_t)(n_rows / 32) * Q8_0_BLOCK_SIZE_BYTES;
+    if (shared_mem > Q4_K_Q8_SHARED_MEM_LIMIT)        return hipErrorInvalidValue;
+
+    const int n_blocks_x =
+        (ncols_dst + (Q4_K_Q8_FIXED_WAVES * Q4_K_Q8_COLS) - 1)
+        / (Q4_K_Q8_FIXED_WAVES * Q4_K_Q8_COLS);
+
+    rf_v1_gemv_q4_k_q8_inline_kernel<<<n_blocks_x, Q4_K_Q8_THREADS_PER_BLOCK, shared_mem, stream>>>(
+        weights, input, output, n_rows, ncols_dst);
+    return hipGetLastError();
+}
+"#);
+    s
+}
+
+// ─── Q4_K Gate+Up+SwiGLU fused GEMV (Block C) ──────────────────────────────
+//
+// 1:1 port of hip_kernels/quant/q4_k_gemv.hip's
+// `gemv_gate_up_swiglu_q4_k_f32_multi_row_kernel`. Computes
+// `swiglu[n] = silu(gate[n]) * up[n]` in one kernel, sharing the
+// activation cache between gate and up. This is the v0.x Decode
+// hot-spot (42 % of Qwen3-8B decode budget).
+fn emit_q4_k_gemv_gate_up_swiglu() -> String {
+    let mut s = String::from(GEMV_FILE_HEADER);
+    s.push_str(r#"// Q4_K fused Gate+Up+SwiGLU: swiglu[n] = silu(gate[n]) * up[n].
+
+#define WARP_SIZE              32
+#define Q4_K_BLOCK_BYTES       144
+#define Q4_K_ELEMS_PER_BLOCK   256
+#define Q4_K_SUB_BLOCKS        8
+#define Q4_K_SUB_BLOCK_ELEMS   32
+#define Q4_K_MULTI_ROW_COLS    4
+#define Q4_K_FIXED_WAVES       8
+#define Q4_K_THREADS_PER_BLOCK (Q4_K_FIXED_WAVES * WARP_SIZE)
+#define Q4_K_SHARED_MEM_LIMIT  (32 * 1024)
+
+__device__ __forceinline__
+void rf_v1_gu_q4_k_unpack_scale_min(int j, const uint8_t* scales,
+                                     int* scale_out, int* min_out) {
+    if (j < 4) {
+        *scale_out = scales[j]     & 0x3F;
+        *min_out   = scales[j + 4] & 0x3F;
+    } else {
+        *scale_out = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
+        *min_out   = (scales[j + 4] >> 4)   | ((scales[j]     >> 6) << 4);
+    }
+}
+
+__device__ __forceinline__
+float rf_v1_gu_q4_k_super_block_dot(const uint8_t* __restrict__ sb_ptr,
+                                     const float*   __restrict__ input_base) {
+    const __half d_h    = *reinterpret_cast<const __half*>(sb_ptr + 0);
+    const __half dmin_h = *reinterpret_cast<const __half*>(sb_ptr + 2);
+    const float  d_f    = __half2float(d_h);
+    const float  dmin_f = __half2float(dmin_h);
+    const uint8_t* scales = sb_ptr + 4;
+    const uint8_t* qs     = sb_ptr + 16;
+
+    float acc = 0.0f;
+    #pragma unroll
+    for (int j = 0; j < Q4_K_SUB_BLOCKS; ++j) {
+        int scale_j, min_j;
+        rf_v1_gu_q4_k_unpack_scale_min(j, scales, &scale_j, &min_j);
+        const float d_scale = d_f    * (float)scale_j;
+        const float d_min   = dmin_f * (float)min_j;
+
+        const int pair_base = (j >> 1) * 32;
+        const bool is_upper = (j & 1) != 0;
+        const float* in_ptr = input_base + j * Q4_K_SUB_BLOCK_ELEMS;
+
+        #pragma unroll
+        for (int i = 0; i < Q4_K_SUB_BLOCK_ELEMS; ++i) {
+            const uint8_t byte = qs[pair_base + i];
+            const int nib = is_upper ? (byte >> 4) : (byte & 0x0F);
+            acc += (d_scale * (float)nib - d_min) * in_ptr[i];
+        }
+    }
+    return acc;
+}
+
+__device__ __forceinline__ float rf_v1_silu_f32(float x) {
+    return x / (1.0f + expf(-x));
+}
+
+__launch_bounds__(Q4_K_THREADS_PER_BLOCK, 1)
+__global__ void rf_v1_gemv_q4_k_gate_up_swiglu_kernel(
+    const uint8_t* __restrict__ weights_gate,
+    const uint8_t* __restrict__ weights_up,
+    const float*   __restrict__ input,
+    float*         __restrict__ swiglu_out,
+    int n_rows,
+    int ncols_dst)
+{
+    rf_v1_gemv_set_ieee_denormal_mode();
+
+    const int tid = threadIdx.x;
+    const int wave_id = tid / WARP_SIZE;
+    const int lane_id = tid % WARP_SIZE;
+
+    const int col_base = (blockIdx.x * Q4_K_FIXED_WAVES + wave_id) * Q4_K_MULTI_ROW_COLS;
+    const int super_blocks_per_row = n_rows / Q4_K_ELEMS_PER_BLOCK;
+    if (col_base >= ncols_dst) return;
+
+    extern __shared__ float s_input[];
+    for (int i = tid; i < n_rows; i += blockDim.x) {
+        s_input[i] = input[i];
+    }
+    __syncthreads();
+
+    const uint8_t* w_gate_cols[Q4_K_MULTI_ROW_COLS];
+    const uint8_t* w_up_cols[Q4_K_MULTI_ROW_COLS];
+    #pragma unroll
+    for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+        const int col = col_base + c;
+        if (col < ncols_dst) {
+            const size_t off = (size_t)col * (size_t)super_blocks_per_row * Q4_K_BLOCK_BYTES;
+            w_gate_cols[c] = weights_gate + off;
+            w_up_cols[c]   = weights_up + off;
+        } else {
+            w_gate_cols[c] = nullptr;
+            w_up_cols[c]   = nullptr;
+        }
+    }
+
+    float gate_sums[Q4_K_MULTI_ROW_COLS] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float up_sums[Q4_K_MULTI_ROW_COLS]   = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    for (int sb = lane_id; sb < super_blocks_per_row; sb += WARP_SIZE) {
+        const float* in_base = s_input + sb * Q4_K_ELEMS_PER_BLOCK;
+        #pragma unroll
+        for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+            if (w_gate_cols[c]) {
+                gate_sums[c] += rf_v1_gu_q4_k_super_block_dot(
+                    w_gate_cols[c] + (size_t)sb * Q4_K_BLOCK_BYTES, in_base);
+                up_sums[c] += rf_v1_gu_q4_k_super_block_dot(
+                    w_up_cols[c] + (size_t)sb * Q4_K_BLOCK_BYTES, in_base);
+            }
+        }
+    }
+
+    #pragma unroll
+    for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+            gate_sums[c] += __shfl_down(gate_sums[c], offset);
+            up_sums[c]   += __shfl_down(up_sums[c], offset);
+        }
+    }
+
+    if (lane_id == 0) {
+        #pragma unroll
+        for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {
+            const int col = col_base + c;
+            if (col < ncols_dst) {
+                swiglu_out[col] = rf_v1_silu_f32(gate_sums[c]) * up_sums[c];
+            }
+        }
+    }
+}
+
+extern "C" hipError_t rocmforge_launch_gemv_q4_k_gate_up_swiglu(
+    const uint8_t* weights_gate,
+    const uint8_t* weights_up,
+    const float*   input,
+    float*         swiglu_out,
+    int n_rows,
+    int ncols_dst,
+    hipStream_t stream)
+{
+    if (n_rows <= 0 || ncols_dst <= 0)               return hipErrorInvalidValue;
+    if ((n_rows % Q4_K_ELEMS_PER_BLOCK) != 0)        return hipErrorInvalidValue;
+    if ((size_t)n_rows * sizeof(float) > Q4_K_SHARED_MEM_LIMIT) return hipErrorInvalidValue;
+
+    const int n_blocks_x =
+        (ncols_dst + (Q4_K_FIXED_WAVES * Q4_K_MULTI_ROW_COLS) - 1)
+        / (Q4_K_FIXED_WAVES * Q4_K_MULTI_ROW_COLS);
+    const size_t shared_mem = (size_t)n_rows * sizeof(float);
+
+    rf_v1_gemv_q4_k_gate_up_swiglu_kernel<<<n_blocks_x, Q4_K_THREADS_PER_BLOCK, shared_mem, stream>>>(
+        weights_gate, weights_up, input, swiglu_out, n_rows, ncols_dst);
     return hipGetLastError();
 }
 "#);
