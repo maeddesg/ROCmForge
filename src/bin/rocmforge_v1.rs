@@ -135,7 +135,11 @@ fn main() {
             return;
         }
         if interactive {
-            if let Err(e) = run_interactive(&path, max_tokens, show) {
+            if let Err(e) = rocmforge::v1::cli::inference_test::run_interactive(
+                &path,
+                max_tokens,
+                show,
+            ) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -157,42 +161,11 @@ fn main() {
     std::process::exit(2);
 }
 
-#[cfg(all(feature = "v1", feature = "gpu"))]
-fn run_interactive(
-    model_path: &str,
-    max_tokens: usize,
-    show: rocmforge::v1::cli::inference_test::ShowFlags,
-) -> Result<(), String> {
-    use std::io::{BufRead, Write};
-    println!("rocmforge-v1 interactive mode. Ctrl-D or empty line to exit.");
-    println!("(Phase 1: each turn is independent — KV-cache resets between turns.)\n");
-    let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
-    loop {
-        print!("> ");
-        stdout.flush().ok();
-        let mut line = String::new();
-        let read = stdin.lock().read_line(&mut line).map_err(|e| e.to_string())?;
-        if read == 0 {
-            println!();
-            break;
-        }
-        let line = line.trim();
-        if line.is_empty() || line == "quit" || line == "exit" {
-            break;
-        }
-        if let Err(e) = rocmforge::v1::cli::inference_test::run_single_prompt(
-            model_path,
-            line,
-            max_tokens,
-            show,
-        ) {
-            eprintln!("error: {e}");
-        }
-        println!();
-    }
-    Ok(())
-}
+// Interactive REPL now lives in the library — see
+// `rocmforge::v1::cli::inference_test::run_interactive`. It builds
+// the pipeline once at session start and reuses it per turn,
+// which the old binary-side loop did not (it re-built the whole
+// pipeline for every line of user input).
 
 #[cfg(feature = "v1")]
 fn print_help() {

@@ -440,6 +440,134 @@ pub fn run_single_prompt(
     Ok(())
 }
 
+/// REPL loop for the `--interactive` CLI path. **Builds the
+/// pipeline exactly once** at session start; each turn only
+/// resets the KV cache and re-enters `generate`. Without this
+/// single-build design every turn would re-load the model
+/// (~5 GB upload), re-scan introspection (~1.4 s) and
+/// re-calibrate (~1 s) — i.e. several seconds of latency per
+/// turn for no reason.
+///
+/// Phase-1 scope: each turn is still an independent generation;
+/// there's no multi-turn history replay. Extending this to carry
+/// KV state between turns is a Phase-2 follow-up.
+pub fn run_interactive(
+    model_path: impl AsRef<Path>,
+    max_tokens: usize,
+    show: ShowFlags,
+) -> Result<(), String> {
+    use std::io::{BufRead, Write};
+
+    let model_path = model_path.as_ref().to_path_buf();
+    let device = GpuDevice::detect(0).map_err(|e| format!("GPU detect: {e}"))?;
+    let model = LoadedModel::load(&model_path, &device)
+        .map_err(|e| format!("model load: {e}"))?;
+    let gguf = GGUFFile::open(&model_path).map_err(|e| format!("gguf reopen: {e}"))?;
+    let cfg = ModelConfig::from_metadata(gguf.metadata(), gguf.tensors())
+        .map_err(|e| format!("model config: {e}"))?;
+
+    print_banner(&model_path, &cfg, &device);
+
+    let layers = group_tensors_by_layer(gguf.tensors());
+    let mut globals: std::collections::HashMap<TensorRole, &TensorInfo> =
+        std::collections::HashMap::new();
+    for t in gguf.tensors() {
+        let (role, li) = parse_tensor_name(&t.name);
+        if li.is_none() && !matches!(role, TensorRole::Unknown(_)) {
+            globals.insert(role, t);
+        }
+    }
+    let ctx = GraphBuildContext {
+        config: &cfg,
+        layers: &layers,
+        global_tensors: globals,
+    };
+    let graph = GraphBuilder::build(&ctx).map_err(|e| format!("graph build: {e}"))?;
+    let plan = BufferPlan::plan_phase1(&graph);
+
+    let max_seq = (max_tokens + 512).max(1024);
+    let mut pipe = InferencePipeline::new(graph, plan, &model, &gguf, max_seq)
+        .map_err(|e| format!("pipeline: {e}"))?;
+
+    if show.introspection {
+        pipe.profile.print_summary();
+    }
+    if show.tuning {
+        pipe.executor
+            .attach_runtime(crate::v1::runtime::Runtime::new(
+                crate::v1::runtime::VariantRegistry::new(),
+            ));
+    }
+    if show.quality {
+        pipe.calibrate_monitor()
+            .map_err(|e| format!("calibrate: {e}"))?;
+    }
+
+    println!("rocmforge-v1 interactive mode. Type 'quit', 'exit', or empty line to leave.");
+    println!(
+        "(Phase 1: each turn runs independently — KV cache resets between turns.)\n"
+    );
+
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let sampling = SamplingConfig::greedy();
+
+    loop {
+        print!("> ");
+        stdout.flush().ok();
+        let mut line = String::new();
+        let read = stdin
+            .lock()
+            .read_line(&mut line)
+            .map_err(|e| e.to_string())?;
+        if read == 0 {
+            println!();
+            break;
+        }
+        let line = line.trim();
+        if line.is_empty() || line == "quit" || line == "exit" {
+            break;
+        }
+
+        pipe.reset().map_err(|e| format!("reset: {e}"))?;
+        match pipe.generate(line, max_tokens, &sampling, true) {
+            Ok(result) => {
+                println!("{}", result.output);
+                eprintln!(
+                    "--- {} prompt tok, {} decode tok, {:.1} tok/s decode, {:.0} ms ---",
+                    result.prompt_tokens,
+                    result.generated_tokens,
+                    result.decode_tok_s,
+                    result.total_ms
+                );
+            }
+            Err(e) => eprintln!("error: {e}"),
+        }
+        println!();
+    }
+
+    // Session summary — report bandit convergence and monitor
+    // event count once at the end, not per turn.
+    if show.tuning {
+        if let Some(rt) = pipe.executor.runtime() {
+            rt.print_tuning_report();
+        }
+    }
+    if show.quality {
+        println!(
+            "Quality Monitor: {} event(s) across the session",
+            pipe.monitor.revision_log.len()
+        );
+        for ev in pipe.monitor.revision_log.iter().take(8) {
+            println!(
+                "  token {} node {:?} — {:?}",
+                ev.token_index, ev.node_id, ev.signal.reason
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Default output path: `results/inference_test_YYYYMMDD.md`.
 pub fn default_output_path() -> PathBuf {
     let date = chrono::Local::now().format("%Y%m%d");
