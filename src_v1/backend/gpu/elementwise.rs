@@ -61,3 +61,34 @@ extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 }
+
+#[link(name = "v1_rope", kind = "static")]
+extern "C" {
+    /// Apply classic (non-NeoX) RoPE to a single-token tensor
+    /// `x[num_heads × head_dim]` in-place. `freq_scale` may be NULL
+    /// (standard RoPE) or a length-`head_dim/2` device pointer from the
+    /// Llama-3.1 `rope_freqs.weight` tensor.
+    pub fn rocmforge_launch_rope(
+        x: *mut f32,
+        pos: i32,
+        num_heads: i32,
+        head_dim: i32,
+        theta_base: f32,
+        freq_scale: *const f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    /// Batched prefill variant: each sequence row `s ∈ [0, seq_len)`
+    /// gets rotation angle `(start_pos + s) * θ`. Layout
+    /// `x[seq_len × num_heads × head_dim]`.
+    pub fn rocmforge_launch_rope_batched(
+        x: *mut f32,
+        start_pos: i32,
+        num_heads: i32,
+        head_dim: i32,
+        theta_base: f32,
+        seq_len: i32,
+        freq_scale: *const f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
