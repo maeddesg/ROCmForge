@@ -40,6 +40,10 @@ pub struct ComputationGraph {
     /// Input buffer holding token ids (filled by the executor's
     /// entry-point before dispatch).
     pub token_ids_buffer: BufferId,
+    /// Hidden state right before the LM head — the input to the
+    /// final `Gemm` node. Quality Monitor reads this buffer on
+    /// calibration + periodic drift checks.
+    pub hidden_state_buffer: BufferId,
 }
 
 /// Build errors. Carries the specific tensor / layer that's missing,
@@ -348,6 +352,7 @@ impl GraphBuilder {
             config: config.clone(),
             logits_buffer: logits,
             token_ids_buffer: token_ids,
+            hidden_state_buffer: normed_final,
         })
     }
 }

@@ -111,6 +111,12 @@ pub fn run(
         crate::v1::runtime::VariantRegistry::new(),
     ));
 
+    // Calibrate the Quality Monitor — installs the mean-abs /
+    // max-abs band for OUTPUT_HIDDEN so the per-32-token drift
+    // check is actually meaningful. Phase 1 only logs drift
+    // signals; Phase 2 uses them for precision escalation.
+    pipe.calibrate_monitor().map_err(|e| format!("calibrate: {e}"))?;
+
     // Greedy with a light repeat-penalty. Pre-fix, greedy degenerated
     // into number-soup after ~30 decode tokens because the RoPE pair
     // layout was wrong — that bug is now resolved. A repeat_penalty
@@ -155,6 +161,19 @@ pub fn run(
     write_report(&output_path, &model_path, &suite.model_target, &outcomes)?;
     if let Some(rt) = pipe.executor.runtime() {
         rt.print_tuning_report();
+    }
+    // Quality Monitor end-of-suite summary — Phase 1 just
+    // reports counts; caller can inspect `pipe.monitor.revision_log`
+    // if it needs the raw events.
+    println!(
+        "Monitor events across suite: {}",
+        pipe.monitor.revision_log.len()
+    );
+    for ev in pipe.monitor.revision_log.iter().take(8) {
+        println!(
+            "  token {} node {:?} — {:?}",
+            ev.token_index, ev.node_id, ev.signal.reason
+        );
     }
     println!("\nReport: {}", output_path.display());
     Ok(())

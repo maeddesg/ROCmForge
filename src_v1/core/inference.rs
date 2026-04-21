@@ -41,6 +41,9 @@ pub struct InferencePipeline<'m> {
     /// Phase 1 records it and surfaces warnings; Phase 2's precision
     /// GA and the FP32-overlay path consume it downstream.
     pub profile: super::super::introspection::ModelProfile,
+    /// Säule 5 — Quality Monitor. Phase 1 logs drift events;
+    /// Phase 2 uses the signals to escalate precision + rewind.
+    pub monitor: super::super::monitor::QualityMonitor,
 }
 
 impl<'m> InferencePipeline<'m> {
@@ -80,12 +83,75 @@ impl<'m> InferencePipeline<'m> {
         }
 
         let executor = GraphExecutor::new(graph, plan, model, gguf, max_seq)?;
+        // Monitor stays un-calibrated at this point — calibration
+        // requires a decoding pass, which callers trigger via
+        // `calibrate_monitor()` after construction.
+        let monitor = super::super::monitor::QualityMonitor::new(32, 3.0);
         Ok(Self {
             executor,
             tokenizer,
             config,
             profile,
+            monitor,
         })
+    }
+
+    /// One-shot calibration: decode the Arch-Doc reference prompt
+    /// for a handful of steps, collect (mean_abs, max_abs) at the
+    /// final hidden-state buffer, install the band for
+    /// `OUTPUT_HIDDEN`. Runs on-demand so the pipeline stays cheap
+    /// to construct for callers that don't need the monitor.
+    pub fn calibrate_monitor(&mut self) -> HipResult<()> {
+        use super::super::monitor::{CALIBRATION_PROMPT, MIN_CALIBRATION_STEPS, OUTPUT_HIDDEN};
+
+        self.reset()?;
+        let prompt_tokens = self.tokenizer.encode(CALIBRATION_PROMPT, true);
+        if prompt_tokens.is_empty() {
+            return Ok(());
+        }
+
+        // Prefill.
+        let mut last_logits = Vec::new();
+        for (i, &tok) in prompt_tokens.iter().enumerate() {
+            last_logits = self.executor.execute_decode(tok, i)?;
+        }
+
+        // Greedy decode a few more steps and harvest hidden-state
+        // stats after each one. 10 steps is the Phase-1 minimum
+        // for a stable stddev; callers can bump this later.
+        let sampling = SamplingConfig::greedy();
+        let mut samples: Vec<(f32, f32)> = Vec::with_capacity(MIN_CALIBRATION_STEPS);
+        let mut all_tokens = prompt_tokens.clone();
+        for step in 0..MIN_CALIBRATION_STEPS {
+            let next = sample_token(&mut last_logits, &sampling, &all_tokens);
+            all_tokens.push(next);
+            let hidden = self.executor.read_hidden_state()?;
+            let n = hidden.len() as f32;
+            let mean_abs = hidden.iter().map(|x| x.abs()).sum::<f32>() / n;
+            let max_abs = hidden.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
+            samples.push((mean_abs, max_abs));
+            // Skip the very first step — its hidden state reflects
+            // the end of prefill, which can be a magnitude-different
+            // regime from steady-state decode.
+            if step + 1 < MIN_CALIBRATION_STEPS {
+                last_logits = self.executor.execute_decode(next, prompt_tokens.len() + step)?;
+            }
+        }
+        // Drop the prefill-tail step so the band reflects decode
+        // steady-state only.
+        if samples.len() > 1 {
+            samples.remove(0);
+        }
+        self.monitor.install_calibration(OUTPUT_HIDDEN, &samples);
+        eprintln!(
+            "[monitor] calibrated: mean_abs={:.4} ± {:.4}, max_abs={:.4} over {} steps",
+            self.monitor.expected_ranges[&OUTPUT_HIDDEN].mean_abs_expected,
+            self.monitor.expected_ranges[&OUTPUT_HIDDEN].mean_abs_stddev,
+            self.monitor.expected_ranges[&OUTPUT_HIDDEN].max_abs_expected,
+            samples.len()
+        );
+        self.reset()?;
+        Ok(())
     }
 
     /// Reset KV state for a fresh prompt.
@@ -144,6 +210,53 @@ impl<'m> InferencePipeline<'m> {
             }
             generated.push(next_tok);
             all_tokens.push(next_tok);
+
+            // Säule 5 — Quality Monitor hooks.
+            // Phase 1 only logs; nothing in the control flow
+            // changes based on a drift signal.
+            self.monitor.record_token(next_tok);
+            if let Some(reason) = self.monitor.check_repetition(next_tok) {
+                let event = super::super::monitor::RevisionEvent {
+                    token_index: step as u64,
+                    node_id: super::super::monitor::OUTPUT_HIDDEN,
+                    signal: super::super::monitor::PrecisionRevisionSignal {
+                        affected_node: super::super::monitor::OUTPUT_HIDDEN,
+                        current_precision:
+                            super::super::introspection::PrecisionHint::Fp16Scales,
+                        recommended_precision:
+                            super::super::introspection::PrecisionHint::Fp16Scales,
+                        reason,
+                    },
+                    resolved: false,
+                };
+                eprintln!(
+                    "[monitor] token {} — {:?}",
+                    event.token_index, event.signal.reason
+                );
+                self.monitor.revision_log.push(event);
+            }
+            if self.monitor.should_check()
+                && !self.monitor.expected_ranges.is_empty()
+            {
+                let hidden = self.executor.read_hidden_state()?;
+                let node = super::super::monitor::OUTPUT_HIDDEN;
+                if let Some(signal) = self.monitor.check_hidden_state(node, &hidden) {
+                    eprintln!(
+                        "[monitor] token {} — drift at {:?}: {:?}",
+                        step, node, signal.reason
+                    );
+                    self.monitor.revision_log.push(
+                        super::super::monitor::RevisionEvent {
+                            token_index: step as u64,
+                            node_id: node,
+                            signal,
+                            resolved: false,
+                        },
+                    );
+                }
+                self.monitor.reset_check_counter();
+            }
+
             if step + 1 == max_tokens {
                 break;
             }

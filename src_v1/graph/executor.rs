@@ -893,6 +893,15 @@ impl<'m> GraphExecutor<'m> {
             .unwrap_or(self.graph.config.hidden_dim)
     }
 
+    /// Quality-Monitor hook: copy the post-output-norm hidden state
+    /// from device to host. Synchronises the stream first so the
+    /// caller sees the state **after** the last kernel in the
+    /// current decode step, not a stale copy from the prior token.
+    pub fn read_hidden_state(&mut self) -> HipResult<Vec<f32>> {
+        self.stream.synchronize()?;
+        self.read_buffer(self.graph.hidden_state_buffer, self.graph.config.hidden_dim)
+    }
+
     fn read_buffer(&self, id: BufferId, elems: usize) -> HipResult<Vec<f32>> {
         let mut host_bytes = vec![0u8; elems * 4];
         let rc = unsafe {

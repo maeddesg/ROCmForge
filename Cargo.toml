@@ -234,6 +234,14 @@ name = "v1_introspection_test"
 path = "tests_v1/introspection_test.rs"
 required-features = ["v1"]
 
+# v1.0 Quality Monitor tests — Phase 1 Schritt 1.14.
+# CPU-only unit tests for drift + repetition primitives; GPU
+# integration tests for calibration + false-positive invariant.
+[[test]]
+name = "v1_monitor_test"
+path = "tests_v1/monitor_test.rs"
+required-features = ["v1"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
