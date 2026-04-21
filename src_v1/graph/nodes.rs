@@ -38,12 +38,18 @@ pub enum GraphNode {
         output: BufferId, // [seq_len × hidden_dim] f32
     },
 
-    /// RMS layer normalisation.
+    /// RMS layer normalisation. `dim` is the inner (per-row) length —
+    /// `hidden_dim` for the main norms, `head_dim` for per-head QK-norm.
+    /// `num_rows` batches multiple independent RMS computations in one
+    /// dispatch (1 for the main norms, `n_heads` for Q-norm,
+    /// `n_kv_heads` for K-norm).
     RmsNorm {
         weight: WeightRef,
         input: BufferId,
         output: BufferId,
         eps: f32,
+        dim: usize,
+        num_rows: usize,
     },
 
     /// Matrix-multiply. Executor picks GEMV (seq_len=1) or WMMA

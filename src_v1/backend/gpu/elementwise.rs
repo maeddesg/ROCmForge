@@ -60,6 +60,16 @@ extern "C" {
         n: i32,
         stream: hipStream_t,
     ) -> hipError_t;
+
+    /// `out[i] = silu(gate[i]) * up[i]`. Used by the prefill
+    /// gate+up+swiglu split path.
+    pub fn rocmforge_launch_swiglu(
+        gate: *const f32,
+        up: *const f32,
+        out: *mut f32,
+        n: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
 }
 
 #[link(name = "v1_rope", kind = "static")]

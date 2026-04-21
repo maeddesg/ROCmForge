@@ -21,7 +21,7 @@ __device__ __forceinline__ void rf_v1_gemv_set_ieee_denormal_mode() {
 #define Q4_K_MULTI_ROW_COLS  4
 #define Q4_K_FIXED_WAVES     8
 #define Q4_K_THREADS_PER_BLOCK (Q4_K_FIXED_WAVES * WARP_SIZE)
-#define Q4_K_SHARED_MEM_LIMIT (32 * 1024)
+#define Q4_K_SHARED_MEM_LIMIT (48 * 1024)
 
 __device__ __forceinline__
 void rf_v1_q4_k_unpack_scale_min(int j, const uint8_t* scales,

@@ -18,7 +18,7 @@ __device__ __forceinline__ void rf_v1_gemv_set_ieee_denormal_mode() {
 #define Q8_0_BLOCK_BYTES  34
 #define Q8_0_FIXED_WAVES  8
 #define Q8_0_THREADS_PER_BLOCK (Q8_0_FIXED_WAVES * WARP_SIZE)
-#define Q8_0_SHARED_MEM_LIMIT  (32 * 1024)
+#define Q8_0_SHARED_MEM_LIMIT  (48 * 1024)
 
 struct Q8_0_block {
     __half  d;

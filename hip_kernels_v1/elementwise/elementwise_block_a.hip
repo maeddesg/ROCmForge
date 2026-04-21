@@ -235,3 +235,36 @@ extern "C" hipError_t rocmforge_launch_residual_add_inplace(
     rf_v1_residual_add_inplace_kernel<<<blocks, threads, 0, stream>>>(a, b, N);
     return hipGetLastError();
 }
+
+// ── SwiGLU (elementwise: silu(gate) * up) ─────────────────────────────────
+// Phase-1 Schritt 1.10 Block B: needed by the prefill gate+up+swiglu
+// split path. silu(x) = x / (1 + exp(-x)).
+
+__global__ void rf_v1_swiglu_kernel(
+    const float* __restrict__ gate,
+    const float* __restrict__ up,
+    float*       __restrict__ out,
+    int N)
+{
+    rf_v1_elem_set_ieee_denormal_mode();
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < N) {
+        const float g = gate[i];
+        const float silu_g = g / (1.0f + expf(-g));
+        out[i] = silu_g * up[i];
+    }
+}
+
+extern "C" hipError_t rocmforge_launch_swiglu(
+    const float* gate,
+    const float* up,
+    float*       out,
+    int N,
+    hipStream_t stream)
+{
+    if (N <= 0) return hipErrorInvalidValue;
+    const int threads = 256;
+    const int blocks  = (N + threads - 1) / threads;
+    rf_v1_swiglu_kernel<<<blocks, threads, 0, stream>>>(gate, up, out, N);
+    return hipGetLastError();
+}

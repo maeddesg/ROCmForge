@@ -180,6 +180,8 @@ impl GraphBuilder {
                 input: hidden,
                 output: normed,
                 eps: config.rms_norm_eps,
+                dim: config.hidden_dim,
+                num_rows: 1,
             });
 
             // Q, K, V projections. Bias is optional (Qwen2.5 has it).
@@ -220,12 +222,16 @@ impl GraphBuilder {
                     input: q,
                     output: q_normed,
                     eps: config.rms_norm_eps,
+                    dim: config.head_dim,
+                    num_rows: config.n_heads,
                 });
                 nodes.push(GraphNode::RmsNorm {
                     weight: layer_weight(layer, TensorRole::AttentionKNorm)?,
                     input: k,
                     output: k_normed,
                     eps: config.rms_norm_eps,
+                    dim: config.head_dim,
+                    num_rows: config.n_kv_heads,
                 });
                 (q_normed, k_normed)
             } else {
@@ -282,6 +288,8 @@ impl GraphBuilder {
                 input: hidden,
                 output: normed_ffn,
                 eps: config.rms_norm_eps,
+                dim: config.hidden_dim,
+                num_rows: 1,
             });
 
             // Gate + Up + SwiGLU (fused node; executor splits for prefill).
@@ -320,6 +328,8 @@ impl GraphBuilder {
             input: hidden,
             output: normed_final,
             eps: config.rms_norm_eps,
+            dim: config.hidden_dim,
+            num_rows: 1,
         });
 
         let logits = alloc(&mut next_buf);

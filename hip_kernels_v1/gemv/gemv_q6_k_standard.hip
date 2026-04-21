@@ -19,7 +19,7 @@ __device__ __forceinline__ void rf_v1_gemv_set_ieee_denormal_mode() {
 #define Q6_K_MULTI_ROW_COLS    4
 #define Q6_K_FIXED_WAVES       8
 #define Q6_K_THREADS_PER_BLOCK (Q6_K_FIXED_WAVES * WARP_SIZE)
-#define Q6_K_SHARED_MEM_LIMIT  (32 * 1024)
+#define Q6_K_SHARED_MEM_LIMIT  (48 * 1024)
 
 __device__ __forceinline__
 float rf_v1_q6_k_super_block_dot(const uint8_t* __restrict__ sb_ptr,
