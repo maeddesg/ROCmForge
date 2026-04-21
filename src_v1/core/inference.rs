@@ -128,7 +128,11 @@ impl<'m> InferencePipeline<'m> {
         let decode_ms = decode_start.elapsed().as_secs_f64() * 1000.0;
         let total_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-        let output = self.tokenizer.decode(&generated, true);
+        let raw_output = self.tokenizer.decode(&generated, true);
+        // Strip Qwen3 <think>…</think> blocks. A no-op for non-Qwen
+        // architectures (no tags present) and for Qwen3 with the
+        // `/no_think` directive applied (no tags emitted).
+        let output = Tokenizer::strip_think_block(&raw_output);
 
         let prefill_tok_s = if prefill_ms > 0.0 {
             prompt_len as f64 / (prefill_ms / 1000.0)

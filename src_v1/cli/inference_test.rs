@@ -102,7 +102,21 @@ pub fn run(
     let mut pipe = InferencePipeline::new(graph, plan, &model, &gguf, max_seq)
         .map_err(|e| format!("pipeline: {e}"))?;
 
-    let sampling = SamplingConfig::greedy();
+    // Mild stochastic sampling with nucleus + light repeat-penalty.
+    // temperature=0.0 + repeat_penalty=1.2 drops natural follow-up
+    // tokens so hard that the argmax falls back onto unrelated
+    // multilingual tokens (e.g. Vietnamese). With temperature=0.6 and
+    // top_p=0.9 the nucleus keeps the plausible continuations alive,
+    // and repeat_penalty=1.05 still breaks degenerate loops without
+    // flattening word frequencies. The seed is fixed so each test
+    // run is reproducible.
+    let sampling = SamplingConfig {
+        temperature: 0.6,
+        top_k: 0,
+        top_p: 0.9,
+        repeat_penalty: 1.05,
+        seed: 0xA1B2_C3D4,
+    };
     let mut outcomes: Vec<PromptOutcome> = Vec::with_capacity(suite.prompts.len());
 
     for (idx, entry) in suite.prompts.into_iter().enumerate() {

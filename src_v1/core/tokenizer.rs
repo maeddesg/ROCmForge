@@ -11,17 +11,35 @@
 //! one of two layouts: ChatML (Qwen) or Llama-3 header blocks.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use crate::loader::TokenizerData as V0xTokenizerData;
 use crate::tokenizer::BpeTokenizer as V0xBpe;
 
 use super::gguf::GgufValue;
 
+/// Extra end-of-generation literals that the v0.x `is_eog()` list
+/// misses. `<|endoftext|>` (id 151643 in Qwen3) has no underscore and
+/// is distinct from `<|end_of_text|>`; a model that drops out with
+/// this token would otherwise run to `max_tokens`.
+const EXTRA_EOG_LITERALS: &[&str] = &[
+    "<|endoftext|>",
+    "<|im_end|>",
+    "<|eot_id|>",
+    "<|eom_id|>",
+    "<|end|>",
+    "<end_of_turn>",
+];
+
 /// Phase-1 Tokenizer — wraps the v0.x BPE implementation.
 pub struct Tokenizer {
     inner: V0xBpe,
     architecture: String,
     chat_template: Option<String>,
+    /// Supplementary EOG ids resolved from the vocab at load time.
+    /// Takes the union of `inner.eog_ids()` and whatever extra literals
+    /// we can find in the vocabulary.
+    extra_eog: HashSet<u32>,
 }
 
 impl Tokenizer {
@@ -100,7 +118,7 @@ impl Tokenizer {
             .map(|s| s.to_string());
 
         let td = V0xTokenizerData {
-            tokens,
+            tokens: tokens.clone(),
             merges,
             bos_token_id,
             eos_token_id,
@@ -112,10 +130,26 @@ impl Tokenizer {
         };
         let inner = V0xBpe::from_gguf(&td);
 
+        // Walk the vocab once and collect ids of any literal that
+        // should terminate generation. v0.x's `is_eog()` handles most
+        // of these, but it misses `<|endoftext|>` (Qwen3 id 151643).
+        let mut extra_eog: HashSet<u32> = HashSet::new();
+        for (i, bytes) in tokens.iter().enumerate() {
+            if let Ok(s) = std::str::from_utf8(bytes) {
+                if EXTRA_EOG_LITERALS.contains(&s) {
+                    extra_eog.insert(i as u32);
+                }
+            }
+        }
+        if let Some(id) = eos_token_id {
+            extra_eog.insert(id);
+        }
+
         Ok(Self {
             inner,
             architecture: architecture.to_string(),
             chat_template,
+            extra_eog,
         })
     }
 
@@ -134,9 +168,21 @@ impl Tokenizer {
     /// Returns true if the token is any end-of-generation token
     /// (`<|im_end|>`, `<|endoftext|>`, `<|eot_id|>`, etc.).
     /// Qwen3 and Llama-3.1 both have multiple EOG candidates; v0.x
-    /// tracks them in `eog_ids()`.
+    /// tracks most in `eog_ids()`, and `extra_eog` covers the rest.
     pub fn is_eos(&self, id: u32) -> bool {
-        self.inner.is_eog(id)
+        self.inner.is_eog(id) || self.extra_eog.contains(&id)
+    }
+
+    /// List every token id that should terminate generation. Useful
+    /// for GPU-side stop-token lookup tables.
+    pub fn eog_ids(&self) -> Vec<u32> {
+        let mut ids: HashSet<u32> = self.inner.eog_ids().into_iter().collect();
+        for id in &self.extra_eog {
+            ids.insert(*id);
+        }
+        let mut out: Vec<u32> = ids.into_iter().collect();
+        out.sort();
+        out
     }
 
     /// Encode text to token ids. `add_special=false` keeps control
@@ -153,9 +199,15 @@ impl Tokenizer {
     }
 
     /// Apply an architecture-appropriate chat template to a single
-    /// user turn. Phase-1 hardcodes the two layouts ChatML (all Qwen
-    /// variants) and Llama-3 header blocks. Returns the formatted
-    /// prompt ready for `encode(..., add_special=true)`.
+    /// user turn. Phase-1 hardcodes two layouts: ChatML (Qwen variants)
+    /// and Llama-3 header blocks.
+    ///
+    /// Qwen3 is a reasoning model that emits a `<think>…</think>`
+    /// preamble by default. For Phase-1 validation we want the answer
+    /// directly, so the user turn is suffixed with `/no_think` — a
+    /// directive Qwen3 recognises to suppress the reasoning block. If
+    /// the model still leaks a think block, `strip_think_block()`
+    /// cleans up the decoded output as a backup.
     pub fn apply_chat_template(&self, user_prompt: &str, system_prompt: Option<&str>) -> String {
         let system = system_prompt.unwrap_or("You are a helpful assistant.");
         match self.architecture.as_str() {
@@ -164,12 +216,42 @@ impl Tokenizer {
                  <|start_header_id|>user<|end_header_id|>\n\n{user_prompt}<|eot_id|>\
                  <|start_header_id|>assistant<|end_header_id|>\n\n"
             ),
+            "qwen3" => format!(
+                "<|im_start|>system\n{system}<|im_end|>\n\
+                 <|im_start|>user\n{user_prompt} /no_think<|im_end|>\n\
+                 <|im_start|>assistant\n"
+            ),
             _ => format!(
                 "<|im_start|>system\n{system}<|im_end|>\n\
                  <|im_start|>user\n{user_prompt}<|im_end|>\n\
                  <|im_start|>assistant\n"
             ),
         }
+    }
+
+    /// Strip any `<think>…</think>` block from a decoded assistant
+    /// reply. Qwen3's reasoning output lives inside those tags; the
+    /// validation suite wants only the final answer. Also trims the
+    /// leading whitespace left behind after the closing tag.
+    pub fn strip_think_block(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(open) = rest.find("<think>") {
+            out.push_str(&rest[..open]);
+            match rest[open..].find("</think>") {
+                Some(rel_close) => {
+                    rest = &rest[open + rel_close + "</think>".len()..];
+                }
+                None => {
+                    // Unterminated think block — drop everything from
+                    // here. A truncated model output would otherwise
+                    // dump the whole reasoning trace.
+                    return out.trim_start().to_string();
+                }
+            }
+        }
+        out.push_str(rest);
+        out.trim_start().to_string()
     }
 
     pub fn architecture(&self) -> &str {
