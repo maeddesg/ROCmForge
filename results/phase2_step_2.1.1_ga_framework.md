@@ -9,9 +9,9 @@ in diesem Schritt optimiert — das folgt in 2.1.3.
 
 ## Kurzfassung
 
-Neues Modul `src_v1/ga/` mit 1 555 LOC über 10 Dateien (plus 715 LOC
-Tests, 2 270 LOC gesamt). Enthält das komplette Framework aus
-`ga_tuning_spec §2`:
+Neues Modul `src_v1/ga/` mit 1 748 LOC über 10 Dateien (plus 818 LOC
+Tests, 2 566 LOC gesamt — inklusive Sanitize-Follow-up). Enthält das
+komplette Framework aus `ga_tuning_spec §2`:
 
 - `KernelGenome` + Crossover/Mutation/Random (1:1 aus `architecture §4.2`)
 - Two-Stage-Validation: Pre-Compile-Heuristik (LDS / VGPR / WMMA-
@@ -29,7 +29,13 @@ Tests, 2 270 LOC gesamt). Enthält das komplette Framework aus
 
 Das Framework konvergiert auf dem Toy-Problem in **13 Generationen**
 (bei `early_exit=true`), Best-Fitness **2.0000** bei Seed 42. Tests:
-**41/41 grün** (26 Integration + 15 inline `mod tests`).
+**45/45 grün** (30 Integration + 15 inline `mod tests`).
+
+**Follow-up-Erweiterung (Sanitize):** `random`, `crossover`, `mutate`
+rufen nun intern `sanitize` am Ende auf — alle drei produzieren
+damit Garanten-valide Genome (pre-compile-Gate passiert immer). Das
+ist Pflicht für die 3 Korrektheits-Tests aus der Folge-Aufgabe (siehe
+Abschnitt weiter unten).
 
 ## Modul-Struktur
 
@@ -39,8 +45,10 @@ src_v1/ga/
 ├── types.rs           137 LOC    TileConfig, PrecisionLevel, LdsStrategy,
 │                                 KernelTarget, CodeObjectResources
 ├── rng.rs             122 LOC    SeededRng (xorshift64*), self-test
-├── genome.rs          223 LOC    KernelGenome, DequantStrategy,
-│                                 random/crossover/mutate, impl From<&K> for TileConfig
+├── genome.rs          416 LOC    KernelGenome, DequantStrategy,
+│                                 random/random_unsanitized/crossover/mutate,
+│                                 sanitize + sanitize_for (comprehensive repair),
+│                                 impl From<&K> for TileConfig
 ├── validation.rs      215 LOC    validate_pre_compile, estimate_vgprs,
 │                                 validate_post_compile, PostCompileResult
 ├── compile.rs         224 LOC    CompileCache, CompileKey, CompiledKernel,
@@ -52,8 +60,8 @@ src_v1/ga/
 └── toy.rs              83 LOC    toy_fitness, run_toy_ga, toy_ga_defaults
 ```
 
-Gesamt **1 555 LOC** Framework + **715 LOC** Tests (`tests_v1/ga_framework_test.rs`)
-+ `Cargo.toml`-Target.
+Gesamt **1 748 LOC** Framework + **818 LOC** Tests
+(`tests_v1/ga_framework_test.rs`) + `Cargo.toml`-Target.
 
 Alle neuen Typen leben **in der GA-Crate**, nicht in `src_v1/ir/`.
 `TileConfig`/`PrecisionLevel`/`LdsStrategy`/`KernelShape`/`KernelTarget`
@@ -220,9 +228,92 @@ Per-Eval-Records (`event:"eval"`) schreibt die Toy-Engine nicht um
 den Log nicht aufzublähen — `log_eval_record` ist im Engine-Modul
 exportiert und wird vom echten GA-Pfad in 2.1.3 benutzt.
 
+## Follow-up: Sanitize als Korrektheits-Gate für GA-Operatoren
+
+Drei zusätzliche Tests prüfen, dass die GA-Operatoren niemals
+ungültige Genome liefern. Ohne zusätzliche Repair-Logik fallen zwei
+davon:
+
+| Test | Zuerst | Nach Repair |
+|---|:---:|:---:|
+| `test_crossover_produces_valid_children` | ❌ sub-block misalignment + LDS overflow in Kindern | ✅ |
+| `test_mutation_produces_valid_children` | ❌ gleiche Muster (rate=1.0 ≈ Random) | ✅ |
+| `test_ga_result_top5_all_valid` | ✅ (trivial: Toy-Fitness > 0 für alle Inputs) | ✅ |
+
+Bei 100 Zufalls-Crossovers fielen die Kinder an Constraints wie
+`tile_k = 16 (Q4_K sub_block=32)` oder `LDS > 64 KB` um, also an
+**Cross-Field-Constraints** — nicht an Einzel-Field-Werten (die
+stammen aus den Parent-Genomen und sind per Konstruktion legal). Der
+im Prompt vorgeschlagene Feld-Clamp-Sanitize wäre hier ein No-op
+gewesen.
+
+### Repair-Strategie
+
+`KernelGenome::sanitize_for(&mut self, fmt, level)` repariert alle
+fünf Pre-Compile-Constraints in fester Reihenfolge. Jeder Schritt
+belässt die Ergebnisse des vorhergehenden intakt, also reicht ein
+einziger Top-Down-Pass:
+
+1. **Feld-Snap** auf die jeweiligen Legal-Sets (`TILE_M_VALUES`,
+   `K_UNROLL_VALUES`, …). Defensiv — produziert für korrekt gebaute
+   Genome keine Änderung, schützt aber vor hand-konstruierten
+   Ausreißern.
+2. **Sub-Block-Alignment**: `tile_k` wird auf den nächst-größeren
+   legalen `tile_k`-Wert promoviert, der Vielfaches von
+   `fmt.sub_block_size` ist. Q4_K (32) promoviert 16 → 32; Q6_K (16)
+   tut nichts.
+3. **Workgroup-Tile-Produkt**: `tiles_per_wave × waves_per_block` wird
+   iterativ durch Halbierung des jeweils größeren Faktors auf ≤ 16
+   gedrückt (log₂-beschränkt, ≤ 5 Iterationen).
+4. **LDS-Budget**: Reduktions-Reihenfolge `double_buffer →
+   Inline-Strategie → use_lds_for_a → use_lds_for_b`. Max 4
+   Iterationen.
+5. **VGPR-Heuristik**: Reihenfolge `double_buffer → prefetch_depth →
+   Inline-Strategie → k_unroll ↓ → tile_m ↓`. Termination: minimale
+   Konfiguration (tile_m=16, k_unroll=1, Inline) liegt auf allen
+   Levels deutlich unter der 150-VGPR-Grenze (Fp32 worst-case: 80).
+
+`sanitize(&mut self)` ohne Argumente wrapt `sanitize_for` mit den
+Defaults Q4_K + Fp16 (primäres GA-Target laut Arch-Doc §1.5 —
+gate_up_swiglu ist Q4_K). Die Tests benutzen diese Defaults implizit;
+echte GA-Läufe in 2.1.3 werden `sanitize_for` mit dem konkreten
+`(fmt, level)` aufrufen.
+
+### Auswirkungen auf bestehende Operatoren
+
+- **`KernelGenome::random(rng)`** ruft `sanitize()` am Ende auf →
+  immer valid.
+- **`KernelGenome::random_unsanitized(rng)`** NEU — gibt den rohen
+  Draw zurück, nur für die Kalibrierungs-Tests des Pre-Compile-Gates.
+- **`KernelGenome::crossover(a, b, rng)`** sanitises Child am Ende.
+- **`KernelGenome::mutate(rate, rng)`** sanitises Self am Ende.
+- **`KernelGa::run_with`** erbt Validität der gesamten Population
+  automatisch — keine Änderung an der Engine nötig.
+
+### Kalibrierungs-Zahlen (Pre-Compile-Gate, unsanitized Draw)
+
+```
+pre-compile reject rate on 1000 unsanitized random genomes: 39.5 %
+```
+
+Der Gate verwirft 39.5 % der rohen Draws (Sub-Block-Miss, LDS-,
+VGPR-Overflow, Workgroup-Produkt > 16) — exakt in der Spec-Erwartung
+von 30–40 % (`ga_tuning_spec §2.3`). Nach `sanitize` sind 100 % der
+1000 Draws valide (`test_sanitize_eliminates_pre_compile_rejects`).
+
+### Sanitize-stabile Parents im Inheritance-Test
+
+`test_genome_crossover_inherits_genes` wurde mit neuen Parent-Werten
+versehen, die garantieren, dass beliebige Gen-Mischungen unter
+`sanitize_for(Q4_K, Fp16)` unverändert bleiben — Parents haben
+`tile_k ∈ {32, 64}` (Q4_K-aligned), beide LDS-Flags `false` (kein
+LDS-Overflow) und `tiles_per_wave × waves_per_block ≤ 16` in allen
+Kombinationen. Die ursprüngliche "Kind erbt jedes Gen von a oder b"-
+Invariante hält damit weiterhin.
+
 ## Test-Ergebnisse
 
-### GA-Framework-Tests (`v1_ga_framework_test`, 26 Tests, alle grün)
+### GA-Framework-Tests (`v1_ga_framework_test`, 30 Tests, alle grün)
 
 | Test | Scope |
 |---|---|
@@ -234,7 +325,11 @@ exportiert und wird vom echten GA-Pfad in 2.1.3 benutzt.
 | `test_pre_compile_rejects_lds_overflow` | Validation Stage 1 |
 | `test_pre_compile_rejects_high_vgpr_heuristic` | Validation Stage 1 |
 | `test_pre_compile_accepts_valid_genome` | Validation Stage 1 |
-| `test_pre_compile_reject_rate_on_random_genomes` | Validation Stage 1 |
+| `test_pre_compile_reject_rate_on_unsanitized_random_genomes` | Validation Stage 1 (Kalibrierung: 39.5 %) |
+| `test_sanitize_eliminates_pre_compile_rejects` | **Sanitize repair (Follow-up)** |
+| `test_crossover_produces_valid_children` | **Sanitize in crossover (Follow-up)** |
+| `test_mutation_produces_valid_children` | **Sanitize in mutate (Follow-up)** |
+| `test_ga_result_top5_all_valid` | **Top-5-Validität nach Engine-Lauf (Follow-up)** |
 | `test_post_compile_rejects_under_four_waves` | Validation Stage 2 |
 | `test_post_compile_accepts_moderate_vgprs` | Validation Stage 2 |
 | `test_tournament_selection_prefers_better` | Engine |
@@ -274,6 +369,15 @@ dokumentiert in 2.0.1 + 2.0.2).
 
 ## Design-Entscheidungen
 
+- **Sanitize ist comprehensive, nicht nur Feld-Clamp.** Die im
+  Follow-up-Prompt vorgeschlagene Sanitize-Skizze beschränkt sich auf
+  `tile_m = (tile_m / 16) * 16` & Co. Das ist für mein `random`/
+  `mutate` ein No-op, weil die bereits aus legal-Sets ziehen. Die
+  Tests fielen an Cross-Field-Constraints (Sub-Block, LDS, VGPR),
+  also musste `sanitize_for` auch diese reparieren können — sonst
+  wären die Tests nicht lauffähig gewesen. Die Implementation lebt
+  ganz in `genome.rs` (mit `estimate_vgprs` + `GaQuantFormat`
+  importiert), terminiert garantiert und ist idempotent.
 - **Eigene RNG, keine externe Crate.** `xorshift64*` ist 128 LOC und
   gibt der GA bit-identische Reproduzierbarkeit ohne die `rand`-
   Transitive-Deps. Entspricht der Vorgabe im Prompt ("Kein externer

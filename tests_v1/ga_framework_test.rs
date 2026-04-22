@@ -75,31 +75,38 @@ fn test_genome_random_produces_valid() {
 
 #[test]
 fn test_genome_crossover_inherits_genes() {
+    // Both parents are sanitize-stable for the default Q4_K + Fp16
+    // target, and any mix of their genes is too — that lets the
+    // inheritance assertions below hold even though `crossover` now
+    // runs `sanitize` at the end. A mix can reach at most
+    // tiles_per_wave=2 × waves_per_block=8 = 16 ≤ the workgroup-tile
+    // cap, tile_k ∈ {32, 64} is Q4_K-aligned either way, and both
+    // parents set both LDS flags off so LDS stays at 0.
     let a = KernelGenome {
         tile_m: 16,
         tile_n: 16,
-        tile_k: 16,
+        tile_k: 32,
         tiles_per_wave: 1,
         waves_per_block: 1,
-        use_lds_for_a: true,
-        use_lds_for_b: true,
+        use_lds_for_a: false,
+        use_lds_for_b: false,
         prefetch_depth: 0,
         k_unroll: 1,
-        double_buffer: true,
+        double_buffer: false,
         dequant_strategy: DequantStrategy::Inline,
     };
     let b = KernelGenome {
         tile_m: 128,
         tile_n: 128,
         tile_k: 64,
-        tiles_per_wave: 4,
+        tiles_per_wave: 2,
         waves_per_block: 8,
         use_lds_for_a: false,
         use_lds_for_b: false,
         prefetch_depth: 2,
-        k_unroll: 8,
+        k_unroll: 4,
         double_buffer: false,
-        dequant_strategy: DequantStrategy::Batched { batch_size: 4 },
+        dequant_strategy: DequantStrategy::Inline,
     };
     let mut rng = SeededRng::new(7);
     for _ in 0..50 {
@@ -114,6 +121,68 @@ fn test_genome_crossover_inherits_genes() {
         assert!(
             c.dequant_strategy == a.dequant_strategy
                 || c.dequant_strategy == b.dequant_strategy
+        );
+    }
+}
+
+#[test]
+fn test_crossover_produces_valid_children() {
+    // 100 crossover pairs from random parents, every child must pass
+    // `validate_pre_compile`. Sanitising inside `crossover` is what
+    // keeps the GA's next-generation invariants intact.
+    let fmt = GaQuantFormat::q4_k();
+    let level = PrecisionLevel::Fp16;
+    let mut rng = SeededRng::new(0xBAD5EED);
+    for i in 0..100 {
+        let a = KernelGenome::random(&mut rng);
+        let b = KernelGenome::random(&mut rng);
+        let child = KernelGenome::crossover(&a, &b, &mut rng);
+        assert!(
+            validate_pre_compile(&child, &fmt, level),
+            "Crossover #{i} produced invalid child:\n  parent_a = {:?}\n  parent_b = {:?}\n  child    = {:?}",
+            a,
+            b,
+            child
+        );
+    }
+}
+
+#[test]
+fn test_mutation_produces_valid_children() {
+    // 100 mutations at rate=1.0 (every gene resampled). After the
+    // mutate step completes, the genome must validate.
+    let fmt = GaQuantFormat::q4_k();
+    let level = PrecisionLevel::Fp16;
+    let mut rng = SeededRng::new(0xBADA5);
+    for i in 0..100 {
+        let mut genome = KernelGenome::random(&mut rng);
+        genome.mutate(1.0, &mut rng);
+        assert!(
+            validate_pre_compile(&genome, &fmt, level),
+            "Mutation #{i} produced invalid genome: {:?}",
+            genome
+        );
+    }
+}
+
+#[test]
+fn test_ga_result_top5_all_valid() {
+    // Full toy-GA — after 10 generations every top-5 candidate must
+    // have fitness > 0. A fitness of 0 in the GA contract means
+    // "rejected at the pre-compile gate"; top-5 rejects would mean
+    // the engine somehow propagated invalid genomes into the elite.
+    let cfg = GaConfig {
+        generations: 10,
+        ..toy_ga_defaults(42, "top5-validity")
+    };
+    let (result, _) = run_toy_ga(cfg, false);
+    assert!(!result.top.is_empty(), "top-5 should not be empty");
+    for (i, candidate) in result.top.iter().enumerate() {
+        assert!(
+            candidate.fitness > 0.0,
+            "Top-{i} has fitness={} — rejected candidate leaked into the elite: {:?}",
+            candidate.fitness,
+            candidate.genome
         );
     }
 }
@@ -253,15 +322,17 @@ fn test_pre_compile_accepts_valid_genome() {
 }
 
 #[test]
-fn test_pre_compile_reject_rate_on_random_genomes() {
-    // Sanity: the spec expects ~30–40% of random genomes to fail
-    // pre-compile validation (§2.3). Accept a wide 10–70% band;
-    // the point is just that the gate isn't pass-all or reject-all.
+fn test_pre_compile_reject_rate_on_unsanitized_random_genomes() {
+    // Sanity: the spec expects ~30–40% of raw random genomes to fail
+    // pre-compile validation (§2.3). Accept a wide 10–70% band; the
+    // point is that the gate isn't pass-all or reject-all. `random()`
+    // now auto-sanitises, so the test uses `random_unsanitized` to
+    // exercise the gate against the raw draw.
     let mut rng = SeededRng::new(2026);
     let mut rejected = 0;
     const N: usize = 1000;
     for _ in 0..N {
-        let g = KernelGenome::random(&mut rng);
+        let g = KernelGenome::random_unsanitized(&mut rng);
         if !validate_pre_compile(&g, &GaQuantFormat::q4_k(), PrecisionLevel::Fp16) {
             rejected += 1;
         }
@@ -273,9 +344,25 @@ fn test_pre_compile_reject_rate_on_random_genomes() {
         rate * 100.0
     );
     println!(
-        "pre-compile reject rate on {N} random genomes: {:.1}%",
+        "pre-compile reject rate on {N} unsanitized random genomes: {:.1}%",
         rate * 100.0
     );
+}
+
+#[test]
+fn test_sanitize_eliminates_pre_compile_rejects() {
+    // The flip side of the previous test: after `random()` has
+    // auto-sanitised, all 1000 draws must pass pre-compile. Confirms
+    // that `sanitize` is the actual repair step, not a no-op.
+    let mut rng = SeededRng::new(2026);
+    const N: usize = 1000;
+    for _ in 0..N {
+        let g = KernelGenome::random(&mut rng);
+        assert!(
+            validate_pre_compile(&g, &GaQuantFormat::q4_k(), PrecisionLevel::Fp16),
+            "random() returned a genome that fails pre-compile: {g:?}"
+        );
+    }
 }
 
 #[test]
