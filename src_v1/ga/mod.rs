@@ -20,6 +20,8 @@
 //!   * [`logger`]     — JSONL event log (`ga_tuning_spec §5.10`)
 //!   * [`toy`]        — toy fitness for framework validation
 
+#[cfg(feature = "gpu")]
+pub mod block_c;
 pub mod compile;
 #[cfg(feature = "gpu")]
 pub mod dynamic;
@@ -39,13 +41,19 @@ pub use compile::{CompileCache, CompileError, CompileKey, CompiledKernel};
 pub use compile::{compile_hip_source, find_hipcc};
 #[cfg(feature = "gpu")]
 pub use dynamic::{DynamicKernel, GateUpSwigluGeometry};
+#[cfg(feature = "gpu")]
+pub use block_c::{
+    bench_dynamic_gate_up, block_c_default_config, fixed_genome, parity_dynamic_gate_up,
+    random_num_waves_only, stability_dynamic_gate_up, BlockCCandidate, BlockCResult, BlockCWinner,
+    DynamicKernelCache, DynamicStabilityResult, BLOCK_C_NUM_WAVES_VALUES,
+};
 pub use engine::{GaConfig, GaResult, GenerationResults, KernelGa, KernelGenomeScored};
 pub use fitness::{evaluate_toy_fitness, FitnessResult};
 pub use genome::{DequantStrategy, KernelGenome};
 pub use logger::GaLogger;
 pub use parity::{
-    check_parity_output_pair, generate_deterministic_test_blocks, valu_reference_gemv,
-    KnownKernel, ParityConfig, ParityResult, ParityViolation, TestBlock,
+    check_parity_output_pair, generate_deterministic_test_blocks, valu_reference_gate_up_swiglu,
+    valu_reference_gemv, KnownKernel, ParityConfig, ParityResult, ParityViolation, TestBlock,
 };
 pub use rng::SeededRng;
 pub use stability::{stability_verdict_from_times, StabilityConfig, StabilityResult, THERMAL_COOLDOWN};

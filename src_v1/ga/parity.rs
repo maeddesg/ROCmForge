@@ -253,6 +253,31 @@ fn patch_q4_1_scales(bytes: &mut [u8], fmt: &QuantFormat, n_blocks: usize, rng: 
     }
 }
 
+/// VALU reference for the Block-C gate_up_swiglu shape:
+///   `out[n] = silu(gate[n]) * up[n]`
+/// with `silu(x) = x / (1 + exp(-x))` and both `gate` and `up`
+/// computed via [`valu_reference_gemv`] against their own weight
+/// matrix. Same dequant interpreter as the plain GEMV — the SwiGLU
+/// epilogue matches the hot path in the emitted kernel
+/// (`rf_v1_ga_silu_f32(g) * u`).
+pub fn valu_reference_gate_up_swiglu(
+    weights_gate: &[u8],
+    weights_up: &[u8],
+    input: &[f32],
+    format: &QuantFormat,
+    shape: &KernelShape,
+) -> Vec<f32> {
+    let gate = valu_reference_gemv(weights_gate, input, format, shape);
+    let up = valu_reference_gemv(weights_up, input, format, shape);
+    gate.iter()
+        .zip(up.iter())
+        .map(|(g, u)| {
+            let silu = g / (1.0 + (-g).exp());
+            silu * u
+        })
+        .collect()
+}
+
 /// VALU reference: FP32 scalar GEMV, `output[n] = Σ_k W[n,k] · in[k]`.
 /// Dequantisation goes through the shared interpreter from
 /// `src_v1/ir/interpreter.rs` so parity against the GPU is exactly a
