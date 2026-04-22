@@ -10,6 +10,7 @@
 //! sibling directory but ships as part of the single `rocmforge` package.
 
 pub mod core;
+pub mod ga;
 pub mod graph;
 pub mod ir;
 pub mod runtime;
