@@ -274,6 +274,16 @@ name = "v1_ga_framework_test"
 path = "tests_v1/ga_framework_test.rs"
 required-features = ["v1"]
 
+# v1.0 Phase-2 Schritt 2.1.2 — Parity + Stability validation.
+# CPU-only math tests for the VALU reference + output-pair detection +
+# stability variance math + JSONL events; GPU-gated tests confirm that
+# the Phase-1 Q4_K / Q6_K GEMV kernels pass parity against the shared
+# interpreter and hold variance under 2 %.
+[[test]]
+name = "v1_ga_parity_test"
+path = "tests_v1/ga_parity_test.rs"
+required-features = ["v1"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

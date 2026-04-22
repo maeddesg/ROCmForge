@@ -109,6 +109,19 @@ pub struct GaResult {
     pub generations_ran: usize,
     pub best_fitness: f64,
     pub early_exited: bool,
+    /// Post-convergence stability verdicts for the Top-K (populated
+    /// when the caller runs [`KernelGa::validate_top_k_stability`]).
+    /// Empty if the caller skipped stability validation (e.g. in the
+    /// toy-path where no real GPU kernel exists yet).
+    pub stable_top: Vec<StableCandidate>,
+}
+
+/// One Top-K candidate that survived the post-GA stability pass.
+#[derive(Debug, Clone)]
+pub struct StableCandidate {
+    pub genome: KernelGenome,
+    pub fitness: f64,
+    pub stability: super::stability::StabilityResult,
 }
 
 /// Main GA engine. Takes a user-supplied `evaluate` closure so the
@@ -218,6 +231,92 @@ impl KernelGa {
             generations_ran,
             best_fitness: best,
             early_exited,
+            stable_top: Vec::new(),
+        }
+    }
+
+    /// Post-convergence Stability-Validation (`ga_tuning_spec §2.9`).
+    ///
+    /// Sleeps [`super::stability::THERMAL_COOLDOWN`] before the first
+    /// run so the GPU has a chance to return to base clock after the
+    /// ~8 min GA hammering. Each Top-K candidate then gets 3×10 runs
+    /// + 1000-block parity; failures are logged as `stability_fail`
+    /// and drop out of the final `stable_top` list.
+    ///
+    /// The closure `kernel_for(&KernelGenome) -> Option<KnownKernel>`
+    /// lets the caller map genomes to Phase-1 kernels. Step 2.1.3 will
+    /// replace `KnownKernel` with a GA-compiled-kernel handle; the
+    /// engine signature stays the same.
+    #[cfg(feature = "gpu")]
+    pub fn validate_top_k_stability<F>(
+        result: &mut GaResult,
+        shape_label: &str,
+        shape: &super::types::KernelShape,
+        logger: &mut GaLogger,
+        cfg: &super::stability::StabilityConfig,
+        mut kernel_for: F,
+    ) where
+        F: FnMut(&KernelGenome) -> Option<super::parity::KnownKernel>,
+    {
+        std::thread::sleep(super::stability::THERMAL_COOLDOWN);
+
+        let candidates = result.top.clone();
+        result.stable_top.clear();
+        for cand in candidates {
+            let Some(kind) = kernel_for(&cand.genome) else {
+                // Caller has no binding for this genome yet (step
+                // 2.1.3 territory). Skip rather than fail the whole
+                // pass.
+                continue;
+            };
+            match super::stability::check_stability_known_kernel(kind, shape, cfg) {
+                Ok(stab) => {
+                    if stab.passed {
+                        let parity_max_err = stab
+                            .parity_result
+                            .as_ref()
+                            .map(|p| p.max_abs_err)
+                            .unwrap_or(0.0);
+                        let parity_blocks = stab
+                            .parity_result
+                            .as_ref()
+                            .map(|p| p.n_blocks_tested)
+                            .unwrap_or(0);
+                        let _ = logger.log_stability_pass(
+                            shape_label,
+                            cand.fitness,
+                            stab.variance_pct,
+                            parity_max_err,
+                            parity_blocks,
+                            &stab.median_times_us,
+                        );
+                        result.stable_top.push(StableCandidate {
+                            genome: cand.genome,
+                            fitness: cand.fitness,
+                            stability: stab,
+                        });
+                    } else {
+                        let reason = stab
+                            .reject_reason
+                            .as_deref()
+                            .unwrap_or("stability failed for unknown reason");
+                        let _ = logger.log_stability_fail(
+                            shape_label,
+                            cand.fitness,
+                            stab.variance_pct,
+                            reason,
+                        );
+                    }
+                }
+                Err(e) => {
+                    let _ = logger.log_stability_fail(
+                        shape_label,
+                        cand.fitness,
+                        0.0,
+                        &format!("stability error: {e}"),
+                    );
+                }
+            }
         }
     }
 

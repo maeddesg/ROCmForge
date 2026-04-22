@@ -180,6 +180,67 @@ impl GaLogger {
             "best_fitness": best_fitness,
         }))
     }
+
+    pub fn log_parity_violation(
+        &mut self,
+        shape: &str,
+        generation: usize,
+        individual: usize,
+        max_abs_err: f32,
+        tolerance: f32,
+        violations_count: usize,
+        worst_block: Option<usize>,
+        worst_element: Option<usize>,
+    ) -> io::Result<()> {
+        self.emit(json!({
+            "event": "parity_violation",
+            "shape": shape,
+            "generation": generation,
+            "individual": individual,
+            "max_abs_err": max_abs_err,
+            "tolerance": tolerance,
+            "violations_count": violations_count,
+            "worst_block": worst_block,
+            "worst_element": worst_element,
+        }))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn log_stability_pass(
+        &mut self,
+        shape: &str,
+        fitness: f64,
+        variance_pct: f64,
+        parity_max_err: f32,
+        parity_blocks: usize,
+        median_times_us: &[f64],
+    ) -> io::Result<()> {
+        self.emit(json!({
+            "event": "stability_pass",
+            "shape": shape,
+            "fitness": fitness,
+            "variance_pct": variance_pct,
+            "parity_max_err": parity_max_err,
+            "parity_blocks": parity_blocks,
+            "median_times_us": median_times_us,
+        }))
+    }
+
+    pub fn log_stability_fail(
+        &mut self,
+        shape: &str,
+        fitness: f64,
+        variance_pct: f64,
+        reject_reason: &str,
+    ) -> io::Result<()> {
+        self.emit(json!({
+            "event": "stability_fail",
+            "shape": shape,
+            "fitness": fitness,
+            "variance_pct": variance_pct,
+            "reject_reason": reject_reason,
+        }))
+    }
 }
 
 fn now_iso8601() -> String {

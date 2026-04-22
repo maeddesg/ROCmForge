@@ -25,7 +25,9 @@ pub mod engine;
 pub mod fitness;
 pub mod genome;
 pub mod logger;
+pub mod parity;
 pub mod rng;
+pub mod stability;
 pub mod toy;
 pub mod types;
 pub mod validation;
@@ -35,9 +37,19 @@ pub use engine::{GaConfig, GaResult, GenerationResults, KernelGa, KernelGenomeSc
 pub use fitness::{evaluate_toy_fitness, FitnessResult};
 pub use genome::{DequantStrategy, KernelGenome};
 pub use logger::GaLogger;
+pub use parity::{
+    check_parity_output_pair, generate_deterministic_test_blocks, valu_reference_gemv,
+    KnownKernel, ParityConfig, ParityResult, ParityViolation, TestBlock,
+};
 pub use rng::SeededRng;
+pub use stability::{stability_verdict_from_times, StabilityConfig, StabilityResult, THERMAL_COOLDOWN};
 pub use toy::{run_toy_ga, toy_fitness};
 pub use types::{
     CodeObjectResources, KernelShape, KernelTarget, LdsStrategy, PrecisionLevel, TileConfig,
 };
 pub use validation::{estimate_vgprs, validate_post_compile, validate_pre_compile, PostCompileResult};
+
+#[cfg(feature = "gpu")]
+pub use parity::{check_parity_known_kernel, run_known_kernel_gpu};
+#[cfg(feature = "gpu")]
+pub use stability::check_stability_known_kernel;

@@ -14,6 +14,7 @@
 
 use super::compile::{CompileCache, CompileKey, CompiledKernel};
 use super::genome::KernelGenome;
+use super::parity::ParityResult;
 use super::toy::toy_fitness;
 use super::types::{CodeObjectResources, KernelTarget, PrecisionLevel};
 use super::validation::{
@@ -48,6 +49,10 @@ pub struct FitnessResult {
     pub reject_reason: Option<String>,
     /// Post-compile resources (available iff compile ran).
     pub post_compile: Option<PostCompileResult>,
+    /// Parity snapshot (available iff the 6-phase real-GPU fitness
+    /// path ran this candidate through `check_parity_*`). The toy
+    /// path leaves this `None` — it has no GPU kernel to compare.
+    pub parity: Option<ParityResult>,
 }
 
 impl FitnessResult {
@@ -57,6 +62,7 @@ impl FitnessResult {
             median_us: None,
             reject_reason: Some(reason.to_string()),
             post_compile: None,
+            parity: None,
         }
     }
 
@@ -69,6 +75,26 @@ impl FitnessResult {
                 post.actual_vgprs, post.max_waves_per_cu
             )),
             post_compile: Some(post),
+            parity: None,
+        }
+    }
+
+    /// Fitness = 0 because the parity check against the VALU reference
+    /// failed. The GA's 6-phase pipeline uses this before any
+    /// benchmark runs happen — no budget is wasted timing a kernel
+    /// whose output is numerically wrong (`ga_tuning_spec §2.8`).
+    pub fn parity_violation(parity: ParityResult) -> Self {
+        let reason = format!(
+            "parity_violation: max_err={:.6} violations={}",
+            parity.max_abs_err,
+            parity.violations.len()
+        );
+        Self {
+            fitness: 0.0,
+            median_us: None,
+            reject_reason: Some(reason),
+            post_compile: None,
+            parity: Some(parity),
         }
     }
 
@@ -78,6 +104,22 @@ impl FitnessResult {
             median_us: Some(median_us),
             reject_reason: None,
             post_compile: Some(post),
+            parity: None,
+        }
+    }
+
+    pub fn measured_with_parity(
+        fitness: f64,
+        median_us: f64,
+        post: PostCompileResult,
+        parity: ParityResult,
+    ) -> Self {
+        Self {
+            fitness,
+            median_us: Some(median_us),
+            reject_reason: None,
+            post_compile: Some(post),
+            parity: Some(parity),
         }
     }
 
