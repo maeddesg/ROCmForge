@@ -21,6 +21,8 @@
 //!   * [`toy`]        — toy fitness for framework validation
 
 pub mod compile;
+#[cfg(feature = "gpu")]
+pub mod dynamic;
 pub mod engine;
 pub mod fitness;
 pub mod genome;
@@ -32,7 +34,11 @@ pub mod toy;
 pub mod types;
 pub mod validation;
 
-pub use compile::{CompileCache, CompileKey, CompiledKernel};
+pub use compile::{CompileCache, CompileError, CompileKey, CompiledKernel};
+#[cfg(feature = "gpu")]
+pub use compile::{compile_hip_source, find_hipcc};
+#[cfg(feature = "gpu")]
+pub use dynamic::{DynamicKernel, GateUpSwigluGeometry};
 pub use engine::{GaConfig, GaResult, GenerationResults, KernelGa, KernelGenomeScored};
 pub use fitness::{evaluate_toy_fitness, FitnessResult};
 pub use genome::{DequantStrategy, KernelGenome};

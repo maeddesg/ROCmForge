@@ -13,5 +13,6 @@ pub mod elementwise;
 pub mod error;
 pub mod gemv;
 pub mod hip_ffi;
+pub mod module;
 pub mod wmma;
 pub mod wrappers;

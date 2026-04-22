@@ -7,11 +7,15 @@
 //! rate after Generation 5+ is typically 50–70 % per
 //! `ga_tuning_spec §2.7.1`.
 //!
-//! For step 2.1.1 the compile pipeline itself is **stubbed**. The
-//! `compile_stub_for_test` entry point feeds known `CodeObjectResources`
-//! into the cache so the framework tests exercise cache-hit behaviour
-//! deterministically. Real hipcc invocation lands in step 2.1.3 when
-//! the Dequant-IR codegen accepts a `TileConfig`.
+//! For step 2.1.1 the compile pipeline itself was **stubbed** — the
+//! factory closure produced synthetic `CompiledKernel` values so the
+//! framework tests exercised cache-hit behaviour deterministically.
+//! Step 2.1.3 Block B lands the real path: `compile_hip_source`
+//! shells `hipcc --offload-arch=gfx1201 -shared -fPIC -O3` over a
+//! HIP source string, writes the `.co` to a temporary directory, and
+//! returns its bytes. The bytes then feed into
+//! `backend::gpu::module::HipModule::load` for a dynamic
+//! `hipModuleLoadData` binding.
 //!
 //! The `parse_amdgpu_metadata` helper is real and works today — it
 //! shells out to `llvm-readobj --notes` on an extracted gfx1201 code
@@ -167,6 +171,174 @@ fn extract_numeric(haystack: &str, needle: &str) -> Option<u32> {
         }
     }
     None
+}
+
+// ─── Runtime hipcc invocation (Block B) ────────────────────────────────────
+
+/// Error taxonomy for dynamic compile pipeline.
+#[derive(Debug)]
+pub enum CompileError {
+    Io(io::Error),
+    HipccNotFound,
+    HipccFailed {
+        kernel_name: String,
+        stderr: String,
+        status: Option<i32>,
+    },
+    MissingCodeObject(std::path::PathBuf),
+}
+
+impl From<io::Error> for CompileError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl std::fmt::Display for CompileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "io: {e}"),
+            Self::HipccNotFound => write!(
+                f,
+                "hipcc binary not found — tried $HIP_PATH/bin/hipcc, \
+                 $ROCM_PATH/bin/hipcc, /opt/rocm/bin/hipcc, and $PATH"
+            ),
+            Self::HipccFailed {
+                kernel_name,
+                stderr,
+                status,
+            } => {
+                write!(
+                    f,
+                    "hipcc failed for kernel '{kernel_name}' (exit {status:?}):\n{stderr}"
+                )
+            }
+            Self::MissingCodeObject(p) => write!(f, "hipcc reported success but {} missing", p.display()),
+        }
+    }
+}
+
+impl std::error::Error for CompileError {}
+
+/// Locate the `hipcc` wrapper. Preference order follows the recommended
+/// ROCm install conventions: explicit env vars first, then the
+/// CachyOS/Arch default `/opt/rocm/bin`, finally `$PATH`.
+pub fn find_hipcc() -> Result<std::path::PathBuf, CompileError> {
+    let candidates = [
+        std::env::var_os("HIP_PATH").map(|p| std::path::PathBuf::from(p).join("bin/hipcc")),
+        std::env::var_os("ROCM_PATH").map(|p| std::path::PathBuf::from(p).join("bin/hipcc")),
+        Some(std::path::PathBuf::from("/opt/rocm/bin/hipcc")),
+    ];
+    for cand in candidates.into_iter().flatten() {
+        if cand.is_file() {
+            return Ok(cand);
+        }
+    }
+    // Last resort: `hipcc` in PATH.
+    if Command::new("hipcc")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        return Ok(std::path::PathBuf::from("hipcc"));
+    }
+    Err(CompileError::HipccNotFound)
+}
+
+/// Compile a HIP source string into a **loadable** gfx1201 code
+/// object and return the AMDGPU ELF bytes.
+///
+/// The returned buffer is suitable for `hipModuleLoadData`. Pipeline:
+///
+///   1. `hipcc --offload-arch=gfx1201 --genco -O3 -o <bundle> <source>`
+///      produces a `__CLANG_OFFLOAD_BUNDLE__` (host stub + gfx1201
+///      ELF wrapped together).
+///   2. `clang-offload-bundler --unbundle --type=o
+///         --targets=hipv4-amdgcn-amd-amdhsa--gfx1201 ...`
+///      extracts the standalone AMDGPU ELF that `hipModuleLoadData`
+///      accepts.
+///
+/// Flags from `architecture_v1.2.0-draft §3.4`:
+///   * `--offload-arch=gfx1201` — RDNA 4 target
+///   * `--genco -O3`
+///   * **No** `-ffast-math` — we need IEEE-conformant FTZ=off so
+///     `parse_amdgpu_metadata` + the VALU parity from 2.1.2 stay
+///     valid.
+///
+/// Intermediate files under `$TMPDIR/rocmforge_ga/<kernel_name>.*`
+/// are kept on disk so future runs can be short-circuited by a
+/// file-level cache without reinvoking hipcc.
+pub fn compile_hip_source(source: &str, kernel_name: &str) -> Result<Vec<u8>, CompileError> {
+    let hipcc = find_hipcc()?;
+
+    let tmp = std::env::temp_dir().join("rocmforge_ga");
+    std::fs::create_dir_all(&tmp)?;
+    let src_path = tmp.join(format!("{kernel_name}.hip"));
+    let bundle_path = tmp.join(format!("{kernel_name}.co"));
+    let gpu_elf_path = tmp.join(format!("{kernel_name}.gfx1201.co"));
+    std::fs::write(&src_path, source)?;
+
+    // Step 1 — hipcc produces an offload bundle.
+    let output = Command::new(&hipcc)
+        .arg("--offload-arch=gfx1201")
+        .arg("--genco")
+        .arg("-O3")
+        .arg("-o")
+        .arg(&bundle_path)
+        .arg(&src_path)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(CompileError::HipccFailed {
+            kernel_name: kernel_name.to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            status: output.status.code(),
+        });
+    }
+
+    if !bundle_path.is_file() {
+        return Err(CompileError::MissingCodeObject(bundle_path));
+    }
+
+    // Step 2 — extract the AMDGPU ELF from the bundle. The tool lives
+    // in ROCm's LLVM bundle; the path mirrors hipcc's own location
+    // (<rocm>/lib/llvm/bin/clang-offload-bundler). Fall back to the
+    // system-wide binary if that doesn't exist.
+    let bundler_candidates = [
+        hipcc.parent().and_then(|b| b.parent()).map(|r| {
+            r.join("lib").join("llvm").join("bin").join("clang-offload-bundler")
+        }),
+        Some(std::path::PathBuf::from("/opt/rocm/lib/llvm/bin/clang-offload-bundler")),
+        Some(std::path::PathBuf::from("clang-offload-bundler")),
+    ];
+    let bundler = bundler_candidates
+        .into_iter()
+        .flatten()
+        .find(|p| p.to_string_lossy() == "clang-offload-bundler" || p.is_file())
+        .unwrap_or_else(|| std::path::PathBuf::from("clang-offload-bundler"));
+
+    let unbundle_output = Command::new(&bundler)
+        .arg("--type=o")
+        .arg("--targets=hipv4-amdgcn-amd-amdhsa--gfx1201")
+        .arg(format!("--input={}", bundle_path.display()))
+        .arg(format!("--output={}", gpu_elf_path.display()))
+        .arg("--unbundle")
+        .output()?;
+
+    if !unbundle_output.status.success() {
+        return Err(CompileError::HipccFailed {
+            kernel_name: format!("{kernel_name} (unbundle)"),
+            stderr: String::from_utf8_lossy(&unbundle_output.stderr).to_string(),
+            status: unbundle_output.status.code(),
+        });
+    }
+
+    if !gpu_elf_path.is_file() {
+        return Err(CompileError::MissingCodeObject(gpu_elf_path));
+    }
+
+    Ok(std::fs::read(&gpu_elf_path)?)
 }
 
 #[cfg(test)]

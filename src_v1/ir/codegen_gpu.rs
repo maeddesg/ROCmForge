@@ -2840,6 +2840,179 @@ extern "C" hipError_t rocmforge_launch_gemv_q4_k_gate_up_swiglu(
     s
 }
 
+// ─── Parametric gate_up_swiglu for the GA (Phase 2 step 2.1.3 Block B) ─────
+//
+// Same algorithm as `emit_q4_k_gemv_gate_up_swiglu`, but with
+// `Q4_K_FIXED_WAVES` lifted from a hard-coded 8 into a runtime
+// parameter. Block B keeps the search space to one axis (num_waves)
+// so the whole compile → load → launch pipeline can be proven
+// end-to-end; the remaining tile-config dimensions (`tile_m`,
+// `lds_strategy`, `unroll`, FP8 GEMV) fall to the next session.
+//
+// The parametric kernel uses `extern "C" __global__` so
+// `hipModuleGetFunction` can look it up by its unmangled name. The
+// name includes `num_waves` so distinct configs get distinct symbols
+// and the CompileCache can hash on the same info.
+
+/// Generate the unmangled `__global__` symbol for the parametric
+/// kernel. Callers pass this string to `HipModule::get_function`.
+pub fn ga_gate_up_swiglu_symbol(num_waves: u32) -> String {
+    format!("rf_v1_ga_gate_up_swiglu_w{num_waves}_kernel")
+}
+
+/// Emit a gate_up_swiglu GEMV HIP source with `num_waves` warps per
+/// threadblock. Returns `(source, symbol)` — the symbol is what
+/// `HipModule::get_function` looks up.
+///
+/// `num_waves` must be one of {1, 2, 4, 8}. Other values aren't
+/// rejected here but will generally fail the pre-compile validation
+/// upstream — the Rust-side sanitiser clamps to legal values first.
+pub fn emit_q4_k_gemv_gate_up_swiglu_parametric(num_waves: u32) -> (String, String) {
+    let symbol = ga_gate_up_swiglu_symbol(num_waves);
+    let mut s = String::from(GEMV_FILE_HEADER);
+    s.push_str(&format!(
+        r#"// Q4_K fused Gate+Up+SwiGLU (Phase 2 step 2.1.3 Block B —
+// num_waves parametric). Identical algorithm to the static Phase-1
+// kernel; only Q4_K_FIXED_WAVES and the symbol name change per config.
+
+#define WARP_SIZE              32
+#define Q4_K_BLOCK_BYTES       144
+#define Q4_K_ELEMS_PER_BLOCK   256
+#define Q4_K_SUB_BLOCKS        8
+#define Q4_K_SUB_BLOCK_ELEMS   32
+#define Q4_K_MULTI_ROW_COLS    4
+#define Q4_K_FIXED_WAVES       {num_waves}
+#define Q4_K_THREADS_PER_BLOCK (Q4_K_FIXED_WAVES * WARP_SIZE)
+#define Q4_K_SHARED_MEM_LIMIT  (48 * 1024)
+
+__device__ __forceinline__
+void rf_v1_ga_q4_k_unpack_scale_min(int j, const uint8_t* scales,
+                                     int* scale_out, int* min_out) {{
+    if (j < 4) {{
+        *scale_out = scales[j]     & 0x3F;
+        *min_out   = scales[j + 4] & 0x3F;
+    }} else {{
+        *scale_out = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
+        *min_out   = (scales[j + 4] >> 4)   | ((scales[j]     >> 6) << 4);
+    }}
+}}
+
+__device__ __forceinline__
+float rf_v1_ga_q4_k_super_block_dot(const uint8_t* __restrict__ sb_ptr,
+                                     const float*   __restrict__ input_base) {{
+    const __half d_h    = *reinterpret_cast<const __half*>(sb_ptr + 0);
+    const __half dmin_h = *reinterpret_cast<const __half*>(sb_ptr + 2);
+    const float  d_f    = __half2float(d_h);
+    const float  dmin_f = __half2float(dmin_h);
+    const uint8_t* scales = sb_ptr + 4;
+    const uint8_t* qs     = sb_ptr + 16;
+
+    float acc = 0.0f;
+    #pragma unroll
+    for (int j = 0; j < Q4_K_SUB_BLOCKS; ++j) {{
+        int scale_j, min_j;
+        rf_v1_ga_q4_k_unpack_scale_min(j, scales, &scale_j, &min_j);
+        const float d_scale = d_f    * (float)scale_j;
+        const float d_min   = dmin_f * (float)min_j;
+
+        const int pair_base = (j >> 1) * 32;
+        const bool is_upper = (j & 1) != 0;
+        const float* in_ptr = input_base + j * Q4_K_SUB_BLOCK_ELEMS;
+
+        #pragma unroll
+        for (int i = 0; i < Q4_K_SUB_BLOCK_ELEMS; ++i) {{
+            const uint8_t byte = qs[pair_base + i];
+            const int nib = is_upper ? (byte >> 4) : (byte & 0x0F);
+            acc += (d_scale * (float)nib - d_min) * in_ptr[i];
+        }}
+    }}
+    return acc;
+}}
+
+__device__ __forceinline__ float rf_v1_ga_silu_f32(float x) {{
+    return x / (1.0f + expf(-x));
+}}
+
+extern "C" __launch_bounds__(Q4_K_THREADS_PER_BLOCK, 1)
+__global__ void {symbol}(
+    const uint8_t* __restrict__ weights_gate,
+    const uint8_t* __restrict__ weights_up,
+    const float*   __restrict__ input,
+    float*         __restrict__ swiglu_out,
+    int n_rows,
+    int ncols_dst)
+{{
+    rf_v1_gemv_set_ieee_denormal_mode();
+
+    const int tid = threadIdx.x;
+    const int wave_id = tid / WARP_SIZE;
+    const int lane_id = tid % WARP_SIZE;
+
+    const int col_base = (blockIdx.x * Q4_K_FIXED_WAVES + wave_id) * Q4_K_MULTI_ROW_COLS;
+    const int super_blocks_per_row = n_rows / Q4_K_ELEMS_PER_BLOCK;
+    if (col_base >= ncols_dst) return;
+
+    extern __shared__ float s_input[];
+    for (int i = tid; i < n_rows; i += blockDim.x) {{
+        s_input[i] = input[i];
+    }}
+    __syncthreads();
+
+    const uint8_t* w_gate_cols[Q4_K_MULTI_ROW_COLS];
+    const uint8_t* w_up_cols[Q4_K_MULTI_ROW_COLS];
+    #pragma unroll
+    for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {{
+        const int col = col_base + c;
+        if (col < ncols_dst) {{
+            const size_t off = (size_t)col * (size_t)super_blocks_per_row * Q4_K_BLOCK_BYTES;
+            w_gate_cols[c] = weights_gate + off;
+            w_up_cols[c]   = weights_up + off;
+        }} else {{
+            w_gate_cols[c] = nullptr;
+            w_up_cols[c]   = nullptr;
+        }}
+    }}
+
+    float gate_sums[Q4_K_MULTI_ROW_COLS] = {{0.0f, 0.0f, 0.0f, 0.0f}};
+    float up_sums[Q4_K_MULTI_ROW_COLS]   = {{0.0f, 0.0f, 0.0f, 0.0f}};
+
+    for (int sb = lane_id; sb < super_blocks_per_row; sb += WARP_SIZE) {{
+        const float* in_base = s_input + sb * Q4_K_ELEMS_PER_BLOCK;
+        #pragma unroll
+        for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {{
+            if (w_gate_cols[c]) {{
+                gate_sums[c] += rf_v1_ga_q4_k_super_block_dot(
+                    w_gate_cols[c] + (size_t)sb * Q4_K_BLOCK_BYTES, in_base);
+                up_sums[c] += rf_v1_ga_q4_k_super_block_dot(
+                    w_up_cols[c] + (size_t)sb * Q4_K_BLOCK_BYTES, in_base);
+            }}
+        }}
+    }}
+
+    #pragma unroll
+    for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {{
+        for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {{
+            gate_sums[c] += __shfl_down(gate_sums[c], offset);
+            up_sums[c]   += __shfl_down(up_sums[c], offset);
+        }}
+    }}
+
+    if (lane_id == 0) {{
+        #pragma unroll
+        for (int c = 0; c < Q4_K_MULTI_ROW_COLS; ++c) {{
+            const int col = col_base + c;
+            if (col < ncols_dst) {{
+                swiglu_out[col] = rf_v1_ga_silu_f32(gate_sums[c]) * up_sums[c];
+            }}
+        }}
+    }}
+}}
+"#
+    ));
+
+    (s, symbol)
+}
+
 // ─── Elementwise kernels (Phase 1 Schritt 1.9 Block A) ─────────────────────
 //
 // Embedding, RMSNorm, Residual Add — the "glue" operations between

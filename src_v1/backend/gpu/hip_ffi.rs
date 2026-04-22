@@ -23,6 +23,8 @@ use std::ffi::{c_char, c_int, c_void};
 pub type hipError_t = c_int;
 pub type hipStream_t = *mut c_void; // struct ihipStream_t*
 pub type hipEvent_t = *mut c_void; // struct ihipEvent_t*
+pub type hipModule_t = *mut c_void; // struct ihipModule_t*
+pub type hipFunction_t = *mut c_void; // struct ihipModuleSymbol_t*
 
 // --- Enum / constant mirrors ------------------------------------------------
 //
@@ -95,6 +97,37 @@ extern "C" {
     // Error strings.
     pub fn hipGetLastError() -> hipError_t;
     pub fn hipGetErrorString(error: hipError_t) -> *const c_char;
+
+    // Dynamic module loading (Phase-2 step 2.1.3 Block B) — takes a
+    // fatbinary / code-object buffer produced by an out-of-process
+    // `hipcc` invocation and binds it into the current context.
+    pub fn hipModuleLoadData(
+        module: *mut hipModule_t,
+        image: *const c_void,
+    ) -> hipError_t;
+
+    pub fn hipModuleGetFunction(
+        function: *mut hipFunction_t,
+        module: hipModule_t,
+        name: *const c_char,
+    ) -> hipError_t;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn hipModuleLaunchKernel(
+        f: hipFunction_t,
+        gridDimX: u32,
+        gridDimY: u32,
+        gridDimZ: u32,
+        blockDimX: u32,
+        blockDimY: u32,
+        blockDimZ: u32,
+        sharedMemBytes: u32,
+        stream: hipStream_t,
+        kernelParams: *mut *mut c_void,
+        extra: *mut *mut c_void,
+    ) -> hipError_t;
+
+    pub fn hipModuleUnload(module: hipModule_t) -> hipError_t;
 }
 
 // --- Device-info helpers (linked from hip_kernels_v1/libv1_device_info.a) --

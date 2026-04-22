@@ -293,6 +293,15 @@ name = "v1_fp8_pair_packing_test"
 path = "tests_v1/fp8_pair_packing_test.rs"
 required-features = ["v1"]
 
+# v1.0 Phase-2 Schritt 2.1.3 Block B — dynamic compile + load + launch.
+# Thin vertical slice: hipcc invocation, hipModule FFI + RAII, and a
+# num_waves-parametric gate_up_swiglu codegen. Dynamic kernel with
+# num_waves=8 must match the static Phase-1 kernel bit-for-bit.
+[[test]]
+name = "v1_dynamic_kernel_test"
+path = "tests_v1/dynamic_kernel_test.rs"
+required-features = ["v1"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
