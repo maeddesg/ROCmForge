@@ -105,8 +105,14 @@ fn gen_input(k: usize, seed: u64) -> Vec<f32> {
 
 // ── CPU-only: Bandit registration ─────────────────────────────────────
 
+// sudot4 was deregistered on 2026-04-23 because it is 1.41× slower
+// than q4_k_q8_inline on gfx1201 AND its presence as a third bandit
+// arm prevents UCB1 from committing within a single CLI run (rocprof
+// showed 8 640 q4_k_standard exploration pulls with 3 arms vs. 90
+// with 2). The KernelId stays in the enum and the kernel is still
+// callable — the bandit just does not see it anymore.
 #[test]
-fn test_bandit_registers_sudot4_variant() {
+fn test_sudot4_variant_is_deregistered() {
     let mut reg = VariantRegistry::new();
     reg.register_gemv_shape(GgmlType::Q4_K, 4096, 4096);
     let shape = ShapeKey {
@@ -119,11 +125,14 @@ fn test_bandit_registers_sudot4_variant() {
     let kernels: Vec<_> = variants.iter().map(|v| v.kernel).collect();
     assert!(kernels.contains(&KernelId::GemvQ4KStandard));
     assert!(kernels.contains(&KernelId::GemvQ4KQ8Inline));
-    assert!(kernels.contains(&KernelId::GemvQ4KQ8InlineSudot4));
+    assert!(
+        !kernels.contains(&KernelId::GemvQ4KQ8InlineSudot4),
+        "sudot4 must stay deregistered (slower + blocks bandit convergence)"
+    );
     assert_eq!(
         variants.len(),
-        3,
-        "expected 3 Q4_K variants, got {variants:?}"
+        2,
+        "expected exactly 2 Q4_K variants, got {variants:?}"
     );
 }
 

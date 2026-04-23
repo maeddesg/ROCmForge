@@ -120,8 +120,18 @@ impl VariantRegistry {
     ///
     /// For GEMV shapes we register:
     ///   * Q4_K: `standard` + `q8_inline`       (2 variants → Bandit)
-    ///   * Q6_K: `standard` + `q8_inline` (2 variants, Bandit active)
-    ///   * Q4_0 / Q8_0: `standard` only  (1 variant → no Bandit)
+    ///   * Q6_K: `standard` only                (1 variant → no Bandit)
+    ///   * Q4_0 / Q8_0: `standard` only         (1 variant → no Bandit)
+    ///
+    /// Two variants were deregistered on 2026-04-23 because both are
+    /// measurably slower than the baselines and their presence as extra
+    /// bandit arms delays UCB1 convergence (rocprof showed 8 640
+    /// q4_k_standard exploration pulls with 3 arms vs. 90 with 2).
+    /// The kernels and their KernelId discriminants stay in the code
+    /// for future experiments:
+    ///   * `GemvQ4KQ8InlineSudot4` — 1.41× slower than q8_inline (bit-
+    ///     exact parity, sudot4 intrinsic not a win on gfx1201).
+    ///   * `GemvQ6KQ8Inline` — 1.5-1.9× slower than q6_k_standard.
     ///
     /// WMMA variants are registered globally by `register_wmma_shape`
     /// once the graph exposes the prefill shapes (Phase 2).
@@ -139,15 +149,9 @@ impl VariantRegistry {
             GgmlType::Q4_K => {
                 self.register(shape, "q4_k_standard", KernelId::GemvQ4KStandard);
                 self.register(shape, "q4_k_q8_inline", KernelId::GemvQ4KQ8Inline);
-                self.register(
-                    shape,
-                    "q4_k_q8_inline_sudot4",
-                    KernelId::GemvQ4KQ8InlineSudot4,
-                );
             }
             GgmlType::Q6_K => {
                 self.register(shape, "q6_k_standard", KernelId::GemvQ6KStandard);
-                self.register(shape, "q6_k_q8_inline", KernelId::GemvQ6KQ8Inline);
             }
             GgmlType::Q8_0 => {
                 self.register(shape, "q8_0_standard", KernelId::GemvQ80Standard);

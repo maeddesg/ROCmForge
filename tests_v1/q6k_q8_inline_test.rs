@@ -116,8 +116,14 @@ fn fill_q6k_block(dst: &mut [u8], seed: u64) {
 
 // ── CPU-only ──────────────────────────────────────────────────────────
 
+// q6_k_q8_inline was deregistered on 2026-04-23 because it is
+// 1.5-1.9× slower than q6_k_standard on gfx1201 AND its presence as
+// a second bandit arm prevents UCB1 from committing the LM-head
+// Q6_K shape within a 15-prompt run (~6 K pulls, q6_k convergence
+// needs >10 K). The KernelId stays in the enum and the kernel is
+// still callable — the bandit just does not see it anymore.
 #[test]
-fn test_bandit_registers_two_q6k_variants() {
+fn test_q6k_q8_inline_is_deregistered() {
     let mut reg = VariantRegistry::new();
     reg.register_gemv_shape(GgmlType::Q6_K, 4096, 4096);
     let shape = ShapeKey {
@@ -129,15 +135,18 @@ fn test_bandit_registers_two_q6k_variants() {
     let variants = reg.variants.get(&shape).expect("q6_k registered");
     let names: Vec<_> = variants.iter().map(|v| v.name).collect();
     assert!(names.contains(&"q6_k_standard"));
-    assert!(names.contains(&"q6_k_q8_inline"));
+    assert!(
+        !names.contains(&"q6_k_q8_inline"),
+        "q6_k_q8_inline must stay deregistered (slower + blocks bandit convergence)"
+    );
     assert_eq!(
         variants.len(),
-        2,
-        "expected exactly 2 Q6_K variants, got {variants:?}"
+        1,
+        "expected exactly 1 Q6_K variant, got {variants:?}"
     );
     let kernels: Vec<_> = variants.iter().map(|v| v.kernel).collect();
     assert!(kernels.contains(&KernelId::GemvQ6KStandard));
-    assert!(kernels.contains(&KernelId::GemvQ6KQ8Inline));
+    assert!(!kernels.contains(&KernelId::GemvQ6KQ8Inline));
 }
 
 // ── GPU: kernel-level parity + perf ──────────────────────────────────
