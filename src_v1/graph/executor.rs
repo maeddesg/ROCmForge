@@ -44,7 +44,11 @@ use super::super::backend::gpu::gemv::{
     rocmforge_launch_gemv_q8_0_standard,
 };
 use super::super::backend::gpu::hip_ffi::{
-    hipMemcpy, hipMemcpyDeviceToDevice, hipMemcpyDeviceToHost,
+    hipGraphDestroy, hipGraphExecDestroy, hipGraphExecKernelNodeSetParams, hipGraphExec_t,
+    hipGraphGetNodes, hipGraphInstantiate, hipGraphKernelNodeGetParams, hipGraphLaunch,
+    hipGraphNode_t, hipGraph_t, hipKernelNodeParams, hipMemcpy, hipMemcpyDeviceToDevice,
+    hipMemcpyDeviceToHost, hipStreamBeginCapture, hipStreamCaptureModeGlobal, hipStreamEndCapture,
+    HIP_SUCCESS,
 };
 use super::super::backend::gpu::wmma::{
     rocmforge_launch_wmma_gemm_q4_0_fp16, rocmforge_launch_wmma_gemm_q4_0_fp8,
@@ -160,6 +164,12 @@ pub struct GraphExecutor<'m> {
     /// field that would change the dispatched kernel changes —
     /// `set_gate_up_swiglu_dynamic_kernel`, `set_fused_gate_up`.
     node_fast_cache: Option<Vec<NodeFastEntry>>,
+
+    /// Captured HIP-Graph for the decode hot path (post-Bandit-
+    /// convergence). `None` → normal dispatch; `Some` → replay path.
+    /// Invalidated (set to `None`) by the same triggers as
+    /// `node_fast_cache`, plus on monitor-detected drift.
+    hip_graph: Option<HipGraphDecodeCache>,
 }
 
 /// Per-node cache entry for the fast dispatch path. All pointers
@@ -305,6 +315,7 @@ impl<'m> GraphExecutor<'m> {
                         == Some("1"),
                     buffer_ptrs,
                     node_fast_cache: None,
+                    hip_graph: None,
                 });
             }
             other => {
@@ -382,6 +393,7 @@ impl<'m> GraphExecutor<'m> {
             fused_gate_up: std::env::var("ROCMFORGE_FUSED_GATE_UP").ok().as_deref() == Some("1"),
             buffer_ptrs,
             node_fast_cache: None,
+            hip_graph: None,
         })
     }
 
@@ -404,6 +416,12 @@ impl<'m> GraphExecutor<'m> {
     /// rebuilt.
     fn invalidate_fast_dispatch(&mut self) {
         self.node_fast_cache = None;
+        // Any config change that affects kernel selection invalidates
+        // the captured HIP-graph too — the graph holds the pre-
+        // bandit-committed function pointers.
+        if let Some(cache) = self.hip_graph.take() {
+            cache.destroy();
+        }
     }
 
     /// Build the per-node fast-dispatch cache. Called lazily at
@@ -564,6 +582,42 @@ impl<'m> GraphExecutor<'m> {
     /// Run one forward pass for a single token. Returns the full logits
     /// vector (length = vocab_size).
     pub fn execute_decode(&mut self, token_id: u32, pos: usize) -> HipResult<Vec<f32>> {
+        // HIP-Graph fast path (Option C, 2026-04-23).
+        //   * If we already have a captured graph, replay it.
+        //   * Otherwise, if the Bandit has converged and graph capture
+        //     is not env-disabled, capture now. Capture runs the first
+        //     launch itself (producing this token's logits) so this
+        //     method returns successfully on either path.
+        //   * Any failure in capture/replay falls back to the legacy
+        //     dispatch below, which always works.
+        if self.hip_graph.is_some() {
+            match self.replay_decode_graph(token_id, pos) {
+                Ok(logits) => return Ok(logits),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e.message,
+                        "HIP-graph replay failed, invalidating cache and falling back"
+                    );
+                    if let Some(cache) = self.hip_graph.take() {
+                        cache.destroy();
+                    }
+                    // Fall through to legacy path for this token.
+                }
+            }
+        } else if self.should_capture_hip_graph() {
+            match self.capture_decode_graph(token_id, pos) {
+                Ok(logits) => return Ok(logits),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e.message,
+                        "HIP-graph capture failed, continuing on legacy path"
+                    );
+                    // `capture_decode_graph` cleans up on failure;
+                    // just fall through.
+                }
+            }
+        }
+
         // Seed the token-ids buffer.
         let tok_bytes = token_id.to_le_bytes();
         self.buffers
@@ -2192,4 +2246,377 @@ fn build_buffer_ptrs_cache(buffers: &HashMap<BufferId, HipBuffer>) -> Vec<*mut c
         cache[id.0 as usize] = buf.as_ptr() as *mut c_void;
     }
     cache
+}
+
+// ─── HIP-Graph decode integration (Option C) ────────────────────────────────
+//
+// Captures the decode forward pass once (at the first decode token after
+// the Bandit has converged on every shape) and replays it for every
+// subsequent token. Pre-token work that cannot live inside the graph —
+// the `copy_from_host` that writes `token_id` to the token-ids buffer —
+// runs right before `hipGraphLaunch`.
+//
+// Only three kernel parameters vary per token:
+//   * `pos` in `rope` (Q and K launches) — arg index 1
+//   * `pos` in `kv_cache_append`         — arg index 6
+//   * `seq_len` (= pos + 1) in `attention_decode` — arg index 7
+//
+// They are driven from two heap-stable `Box<i32>` slots so the address
+// we pass to `hipGraphExecKernelNodeSetParams` doesn't move.
+
+/// Per-token-mutable slots + captured kernel-node handles.
+pub struct HipGraphDecodeCache {
+    graph: hipGraph_t,
+    exec: hipGraphExec_t,
+    /// Persistent storage for the `pos` argument (Rope + KvCacheAppend).
+    kv_pos_slot: Box<i32>,
+    /// Persistent storage for the `seq_len` argument (Attention).
+    seq_len_slot: Box<i32>,
+    /// Kernel nodes that take `pos` as arg index 1 (Rope Q + K).
+    rope_nodes: Vec<hipGraphNode_t>,
+    /// Kernel nodes that take `pos` as arg index 6 (KvCacheAppend).
+    kv_write_nodes: Vec<hipGraphNode_t>,
+    /// Kernel nodes that take `seq_len` as arg index 7 (Attention).
+    attention_nodes: Vec<hipGraphNode_t>,
+}
+
+impl HipGraphDecodeCache {
+    /// Tear down graph + exec handles. Called from `Drop` and from
+    /// `invalidate_fast_dispatch`.
+    fn destroy(self) {
+        unsafe {
+            if !self.exec.is_null() {
+                let _ = hipGraphExecDestroy(self.exec);
+            }
+            if !self.graph.is_null() {
+                let _ = hipGraphDestroy(self.graph);
+            }
+        }
+        // kv_pos_slot / seq_len_slot dropped normally — just Box<i32>.
+    }
+}
+
+impl Drop for HipGraphDecodeCache {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.exec.is_null() {
+                let _ = hipGraphExecDestroy(self.exec);
+            }
+            if !self.graph.is_null() {
+                let _ = hipGraphDestroy(self.graph);
+            }
+        }
+    }
+}
+
+/// Per-kernel arg signatures that the replay path patches.
+const ROPE_POS_ARG_IDX: usize = 1;
+const ROPE_N_ARGS: usize = 6;
+
+const KV_WRITE_POS_ARG_IDX: usize = 6;
+const KV_WRITE_N_ARGS: usize = 8;
+
+const ATTENTION_SEQ_LEN_ARG_IDX: usize = 7;
+const ATTENTION_N_ARGS: usize = 10;
+
+impl<'m> GraphExecutor<'m> {
+    /// Return `true` if HIP-Graph decode capture should be attempted
+    /// right now.
+    fn should_capture_hip_graph(&self) -> bool {
+        if std::env::var("ROCMFORGE_DISABLE_HIP_GRAPH").ok().as_deref() == Some("1") {
+            return false;
+        }
+        let converged = self
+            .runtime
+            .as_ref()
+            .map(|r| r.all_exploiting())
+            .unwrap_or(false);
+        converged && self.hip_graph.is_none()
+    }
+
+    /// Count, per `GraphNode`, how many HIP kernel launches that node
+    /// dispatches. The returned vector has `graph.nodes.len()` entries;
+    /// each is the running launch-index base for that node. Used to
+    /// translate per-node kernel kinds into indices into the captured
+    /// graph's flat node array.
+    fn launch_index_spans(&self) -> LaunchSpans {
+        let mut spans = LaunchSpans::default();
+        let mut idx = 0usize;
+        for node in &self.graph.nodes {
+            match node {
+                GraphNode::Embedding { .. } => idx += 1,
+                GraphNode::RmsNorm { .. } => idx += 1,
+                GraphNode::Gemm { .. } => idx += 1,
+                GraphNode::Rope { .. } => {
+                    // Two launches: Q then K.
+                    spans.rope.push(idx);
+                    spans.rope.push(idx + 1);
+                    idx += 2;
+                }
+                GraphNode::KvCacheAppend { .. } => {
+                    spans.kv_write.push(idx);
+                    idx += 1;
+                }
+                GraphNode::Attention { .. } => {
+                    spans.attention.push(idx);
+                    idx += 1;
+                }
+                GraphNode::ResidualAdd { .. } => idx += 1,
+                GraphNode::GateUpSwiGLU { .. } => {
+                    // Un-fused path (default): 2 × q4_k_q8_inline +
+                    // 1 × swiglu = 3 launches. Fused path: 1 launch.
+                    // Dynamic hook: 1 launch.
+                    let has_dyn = self
+                        .gate_up_dynamic
+                        .as_ref()
+                        .map(|h| h.hidden_dim > 0 && h.ffn_dim > 0)
+                        .unwrap_or(false);
+                    if has_dyn || self.fused_gate_up {
+                        idx += 1;
+                    } else {
+                        idx += 3;
+                    }
+                }
+                GraphNode::SwiGLU { .. } => idx += 1,
+                GraphNode::FusedGemmResidual { .. } => idx += 1,
+            }
+        }
+        spans.total_launches = idx;
+        spans
+    }
+
+    /// Capture the decode forward pass into a HIP-graph.
+    ///
+    /// Called from `execute_decode` on the first eligible call. Runs
+    /// the same dispatch path that the legacy code takes, but wrapped
+    /// in `hipStreamBeginCapture` / `hipStreamEndCapture`. After the
+    /// capture the function instantiates the graph, extracts the
+    /// updatable node handles, and (crucially) launches the exec
+    /// once to actually produce the current token's output (capture
+    /// itself is observation-only).
+    fn capture_decode_graph(&mut self, token_id: u32, pos: usize) -> HipResult<Vec<f32>> {
+        // 1) Seed the token-ids buffer BEFORE entering capture. The
+        //    `copy_from_host` inside `hipStreamBeginCapture` would be
+        //    recorded with a stale host-stack source pointer.
+        let tok_bytes = token_id.to_le_bytes();
+        self.buffers
+            .get_mut(&self.graph.token_ids_buffer)
+            .expect("token-ids buffer missing")
+            .copy_from_host(&tok_bytes)?;
+
+        // 2) Start capture.
+        let stream = self.stream.raw();
+        let rc = unsafe { hipStreamBeginCapture(stream, hipStreamCaptureModeGlobal) };
+        check(rc, "hipStreamBeginCapture")?;
+
+        // 3) Dispatch every graph node. These calls record into the
+        //    capture instead of actually launching. Any error mid-
+        //    capture MUST still call EndCapture; we defer via a
+        //    per-call ok/err tracker.
+        let mut dispatch_err: Option<HipError> = None;
+        for i in 0..self.graph.nodes.len() {
+            if let Err(e) = self.dispatch_node(i, pos) {
+                dispatch_err = Some(e);
+                break;
+            }
+        }
+
+        // 4) End capture, even on dispatch error, to bring the stream
+        //    back to normal mode.
+        let mut graph: hipGraph_t = std::ptr::null_mut();
+        let rc_end = unsafe { hipStreamEndCapture(stream, &mut graph) };
+        if let Some(e) = dispatch_err {
+            if !graph.is_null() {
+                unsafe {
+                    let _ = hipGraphDestroy(graph);
+                }
+            }
+            return Err(e);
+        }
+        check(rc_end, "hipStreamEndCapture")?;
+        if graph.is_null() {
+            return Err(HipError {
+                code: -1,
+                message: "EndCapture returned null graph".into(),
+                context: "hipStreamEndCapture".into(),
+            });
+        }
+
+        // 5) Enumerate captured nodes in topological order.
+        let mut n_nodes: usize = 0;
+        let rc = unsafe { hipGraphGetNodes(graph, std::ptr::null_mut(), &mut n_nodes) };
+        check(rc, "hipGraphGetNodes (count)")?;
+        let mut nodes: Vec<hipGraphNode_t> = vec![std::ptr::null_mut(); n_nodes];
+        let rc = unsafe { hipGraphGetNodes(graph, nodes.as_mut_ptr(), &mut n_nodes) };
+        check(rc, "hipGraphGetNodes (data)")?;
+        nodes.truncate(n_nodes);
+
+        // 6) Match per-node kernel-kinds against the captured nodes by
+        //    index. The spans are built from the builder graph + our
+        //    dispatch rules, and topological order of a single-stream
+        //    capture equals capture order.
+        let spans = self.launch_index_spans();
+        if spans.total_launches != n_nodes {
+            // Node count mismatch — defensively bail out. The actual
+            // HIP-Graph node count may include one copyBuffer or
+            // similar we didn't account for. Falling back to the
+            // legacy path keeps correctness.
+            unsafe {
+                let _ = hipGraphDestroy(graph);
+            }
+            return Err(HipError {
+                code: -1,
+                message: format!(
+                    "HIP-Graph capture: expected {} kernel nodes, got {} — falling back to legacy dispatch",
+                    spans.total_launches, n_nodes
+                ),
+                context: "launch_index_spans".into(),
+            });
+        }
+
+        let rope_nodes: Vec<_> = spans.rope.iter().map(|&i| nodes[i]).collect();
+        let kv_write_nodes: Vec<_> = spans.kv_write.iter().map(|&i| nodes[i]).collect();
+        let attention_nodes: Vec<_> = spans.attention.iter().map(|&i| nodes[i]).collect();
+
+        // 7) Instantiate.
+        let mut exec: hipGraphExec_t = std::ptr::null_mut();
+        let mut err_node: hipGraphNode_t = std::ptr::null_mut();
+        let rc = unsafe {
+            hipGraphInstantiate(&mut exec, graph, &mut err_node, std::ptr::null_mut(), 0)
+        };
+        if rc != HIP_SUCCESS {
+            unsafe {
+                let _ = hipGraphDestroy(graph);
+            }
+            return Err(HipError {
+                code: rc,
+                message: format!("hipGraphInstantiate failed (err_node={:?})", err_node),
+                context: "capture".into(),
+            });
+        }
+
+        // 8) Build the cache. Slot values get overwritten each token;
+        //    initial seeding here means the first patch-replay sees
+        //    the right values.
+        let cache = HipGraphDecodeCache {
+            graph,
+            exec,
+            kv_pos_slot: Box::new(pos as i32),
+            seq_len_slot: Box::new((pos + 1) as i32),
+            rope_nodes,
+            kv_write_nodes,
+            attention_nodes,
+        };
+        self.hip_graph = Some(cache);
+
+        // 9) Capture did NOT execute the kernels — launch the exec
+        //    now to produce this token's output.
+        self.replay_decode_graph(token_id, pos)
+    }
+
+    /// Per-token replay path: patch the three variable params, launch
+    /// the exec, sync, read logits.
+    fn replay_decode_graph(&mut self, token_id: u32, pos: usize) -> HipResult<Vec<f32>> {
+        // Token-id memcpy outside the graph.
+        let tok_bytes = token_id.to_le_bytes();
+        self.buffers
+            .get_mut(&self.graph.token_ids_buffer)
+            .expect("token-ids buffer missing")
+            .copy_from_host(&tok_bytes)?;
+
+        // Update persistent slots. Because SetParams is a copy-in
+        // operation, the slot pointers only need to be valid for the
+        // duration of each SetParams call — but using stable heap
+        // slots keeps the pointer arithmetic simple and mirrors how
+        // llama.cpp / nvcc-style graph replays tend to be written.
+        let cache = self
+            .hip_graph
+            .as_mut()
+            .expect("replay_decode_graph called with no cache");
+        *cache.kv_pos_slot = pos as i32;
+        *cache.seq_len_slot = (pos + 1) as i32;
+
+        let kv_pos_ptr: *mut c_void = &mut *cache.kv_pos_slot as *mut i32 as *mut c_void;
+        let seq_len_ptr: *mut c_void = &mut *cache.seq_len_slot as *mut i32 as *mut c_void;
+
+        // Helper to patch one node. Reads the HIP-owned params, builds
+        // a local copy with one pointer swapped, then writes it back
+        // with SetParams. All pointer math lives for exactly one
+        // SetParams call.
+        let patch_one = |exec: hipGraphExec_t,
+                         node: hipGraphNode_t,
+                         n_args: usize,
+                         arg_idx: usize,
+                         new_ptr: *mut c_void|
+         -> HipResult<()> {
+            let mut p = hipKernelNodeParams::default();
+            let rc = unsafe { hipGraphKernelNodeGetParams(node, &mut p) };
+            check(rc, "hipGraphKernelNodeGetParams")?;
+            // Copy the HIP-owned pointer array into our own stack-
+            // local Vec so we can swap a single entry without
+            // mutating HIP-owned memory.
+            let mut new_args: Vec<*mut c_void> = Vec::with_capacity(n_args);
+            for i in 0..n_args {
+                let p_i = unsafe { *p.kernelParams.add(i) };
+                new_args.push(p_i);
+            }
+            new_args[arg_idx] = new_ptr;
+            let new_params = hipKernelNodeParams {
+                kernelParams: new_args.as_mut_ptr(),
+                ..p
+            };
+            let rc = unsafe { hipGraphExecKernelNodeSetParams(exec, node, &new_params) };
+            check(rc, "hipGraphExecKernelNodeSetParams")?;
+            Ok(())
+        };
+
+        for &node in &cache.rope_nodes {
+            patch_one(cache.exec, node, ROPE_N_ARGS, ROPE_POS_ARG_IDX, kv_pos_ptr)?;
+        }
+        for &node in &cache.kv_write_nodes {
+            patch_one(
+                cache.exec,
+                node,
+                KV_WRITE_N_ARGS,
+                KV_WRITE_POS_ARG_IDX,
+                kv_pos_ptr,
+            )?;
+        }
+        for &node in &cache.attention_nodes {
+            patch_one(
+                cache.exec,
+                node,
+                ATTENTION_N_ARGS,
+                ATTENTION_SEQ_LEN_ARG_IDX,
+                seq_len_ptr,
+            )?;
+        }
+
+        // Launch the exec and read logits.
+        let stream = self.stream.raw();
+        let rc = unsafe { hipGraphLaunch(cache.exec, stream) };
+        check(rc, "hipGraphLaunch")?;
+        self.stream.synchronize()?;
+
+        let logits = self.read_buffer(self.graph.logits_buffer, self.graph.config.vocab_size)?;
+        self.flush_event_pool()?;
+        for (i, v) in logits.iter().enumerate() {
+            if !v.is_finite() {
+                return Err(HipError {
+                    code: -1,
+                    message: format!("replay logits[{i}] = {v} (non-finite)"),
+                    context: "replay_decode_graph".into(),
+                });
+            }
+        }
+        Ok(logits)
+    }
+}
+
+#[derive(Default)]
+struct LaunchSpans {
+    rope: Vec<usize>,
+    kv_write: Vec<usize>,
+    attention: Vec<usize>,
+    total_launches: usize,
 }

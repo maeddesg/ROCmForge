@@ -388,6 +388,15 @@ name = "v1_sudot4_kernel_test"
 path = "tests_v1/sudot4_kernel_test.rs"
 required-features = ["v1", "gpu"]
 
+# HIP-Graph decode integration (2026-04-23 — Option C).
+# Capture once, replay with per-token SetParams for kv_pos + seq_len.
+# Tests: legacy vs graph output parity, perf non-regression, prefill
+# untouched, ROCMFORGE_DISABLE_HIP_GRAPH=1 toggle.
+[[test]]
+name = "v1_hip_graph_integration_test"
+path = "tests_v1/hip_graph_integration_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

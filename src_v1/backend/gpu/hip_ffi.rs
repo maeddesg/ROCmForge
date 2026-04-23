@@ -25,6 +25,52 @@ pub type hipStream_t = *mut c_void; // struct ihipStream_t*
 pub type hipEvent_t = *mut c_void; // struct ihipEvent_t*
 pub type hipModule_t = *mut c_void; // struct ihipModule_t*
 pub type hipFunction_t = *mut c_void; // struct ihipModuleSymbol_t*
+pub type hipGraph_t = *mut c_void; // struct ihipGraph*
+pub type hipGraphExec_t = *mut c_void; // struct hipGraphExec*
+pub type hipGraphNode_t = *mut c_void; // struct hipGraphNode*
+
+/// Minimal `dim3` mirror — HIP wire format is three u32 fields.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct hip_dim3 {
+    pub x: u32,
+    pub y: u32,
+    pub z: u32,
+}
+
+/// Mirror of `hipKernelNodeParams` (hip_runtime_api.h).
+/// Matches the field order the HIP headers use — verified against
+/// ROCm 7.2.2 for gfx1201. Layout must not change without re-verifying
+/// against the header.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct hipKernelNodeParams {
+    pub blockDim: hip_dim3,
+    pub extra: *mut *mut c_void,
+    pub func: *mut c_void,
+    pub gridDim: hip_dim3,
+    pub kernelParams: *mut *mut c_void,
+    pub sharedMemBytes: u32,
+}
+
+impl Default for hipKernelNodeParams {
+    fn default() -> Self {
+        Self {
+            blockDim: hip_dim3 { x: 0, y: 0, z: 0 },
+            extra: std::ptr::null_mut(),
+            func: std::ptr::null_mut(),
+            gridDim: hip_dim3 { x: 0, y: 0, z: 0 },
+            kernelParams: std::ptr::null_mut(),
+            sharedMemBytes: 0,
+        }
+    }
+}
+
+/// `hipStreamCaptureMode` — hip_runtime_api.h.
+pub type hipStreamCaptureMode = c_int;
+pub const hipStreamCaptureModeGlobal: hipStreamCaptureMode = 0;
+pub const hipStreamCaptureModeThreadLocal: hipStreamCaptureMode = 1;
+pub const hipStreamCaptureModeRelaxed: hipStreamCaptureMode = 2;
 
 // --- Enum / constant mirrors ------------------------------------------------
 //
@@ -59,12 +105,7 @@ extern "C" {
     // Memory.
     pub fn hipMalloc(ptr: *mut *mut c_void, size: usize) -> hipError_t;
     pub fn hipFree(ptr: *mut c_void) -> hipError_t;
-    pub fn hipMemcpy(
-        dst: *mut c_void,
-        src: *const c_void,
-        size: usize,
-        kind: c_int,
-    ) -> hipError_t;
+    pub fn hipMemcpy(dst: *mut c_void, src: *const c_void, size: usize, kind: c_int) -> hipError_t;
     pub fn hipMemcpyAsync(
         dst: *mut c_void,
         src: *const c_void,
@@ -87,11 +128,7 @@ extern "C" {
     pub fn hipEventCreate(event: *mut hipEvent_t) -> hipError_t;
     pub fn hipEventRecord(event: hipEvent_t, stream: hipStream_t) -> hipError_t;
     pub fn hipEventSynchronize(event: hipEvent_t) -> hipError_t;
-    pub fn hipEventElapsedTime(
-        ms: *mut f32,
-        start: hipEvent_t,
-        stop: hipEvent_t,
-    ) -> hipError_t;
+    pub fn hipEventElapsedTime(ms: *mut f32, start: hipEvent_t, stop: hipEvent_t) -> hipError_t;
     pub fn hipEventDestroy(event: hipEvent_t) -> hipError_t;
 
     // Error strings.
@@ -101,10 +138,7 @@ extern "C" {
     // Dynamic module loading (Phase-2 step 2.1.3 Block B) — takes a
     // fatbinary / code-object buffer produced by an out-of-process
     // `hipcc` invocation and binds it into the current context.
-    pub fn hipModuleLoadData(
-        module: *mut hipModule_t,
-        image: *const c_void,
-    ) -> hipError_t;
+    pub fn hipModuleLoadData(module: *mut hipModule_t, image: *const c_void) -> hipError_t;
 
     pub fn hipModuleGetFunction(
         function: *mut hipFunction_t,
@@ -128,6 +162,54 @@ extern "C" {
     ) -> hipError_t;
 
     pub fn hipModuleUnload(module: hipModule_t) -> hipError_t;
+
+    // --- HIP-Graph (capture + execute) — added for the dispatch-
+    // overhead elimination follow-up (2026-04-23). API verified on
+    // ROCm 7.2.2 with the standalone `hip_graph_api_probe.cpp`.
+
+    pub fn hipStreamBeginCapture(stream: hipStream_t, mode: hipStreamCaptureMode) -> hipError_t;
+
+    pub fn hipStreamEndCapture(stream: hipStream_t, pGraph: *mut hipGraph_t) -> hipError_t;
+
+    pub fn hipGraphInstantiate(
+        pGraphExec: *mut hipGraphExec_t,
+        graph: hipGraph_t,
+        pErrorNode: *mut hipGraphNode_t,
+        pLogBuffer: *mut c_char,
+        bufferSize: usize,
+    ) -> hipError_t;
+
+    pub fn hipGraphLaunch(exec: hipGraphExec_t, stream: hipStream_t) -> hipError_t;
+
+    pub fn hipGraphDestroy(graph: hipGraph_t) -> hipError_t;
+    pub fn hipGraphExecDestroy(exec: hipGraphExec_t) -> hipError_t;
+
+    /// Returns topologically ordered nodes. `*numNodes` is set to the
+    /// actual count; if `nodes == nullptr` only the count is returned.
+    pub fn hipGraphGetNodes(
+        graph: hipGraph_t,
+        nodes: *mut hipGraphNode_t,
+        numNodes: *mut usize,
+    ) -> hipError_t;
+
+    /// Retrieves the kernel-node parameters as the graph currently
+    /// holds them. The `kernelParams` pointer inside the returned
+    /// struct references HIP-owned memory that stays valid for the
+    /// lifetime of the graph.
+    pub fn hipGraphKernelNodeGetParams(
+        node: hipGraphNode_t,
+        pNodeParams: *mut hipKernelNodeParams,
+    ) -> hipError_t;
+
+    /// Updates the parameters of an instantiated exec's kernel node
+    /// in place. HIP copies the `kernelParams` values during the call
+    /// — the caller only needs the passed memory valid for the
+    /// duration of this one call.
+    pub fn hipGraphExecKernelNodeSetParams(
+        hGraphExec: hipGraphExec_t,
+        node: hipGraphNode_t,
+        pNodeParams: *const hipKernelNodeParams,
+    ) -> hipError_t;
 }
 
 // --- Device-info helpers (linked from hip_kernels_v1/libv1_device_info.a) --
@@ -138,11 +220,7 @@ extern "C" {
 // or a NUL-terminated char buffer.
 
 extern "C" {
-    pub fn rf_v1_device_get_name(
-        device_id: c_int,
-        out_name: *mut c_char,
-        cap: c_int,
-    ) -> c_int;
+    pub fn rf_v1_device_get_name(device_id: c_int, out_name: *mut c_char, cap: c_int) -> c_int;
 
     pub fn rf_v1_device_get_gcn_arch_name(
         device_id: c_int,
