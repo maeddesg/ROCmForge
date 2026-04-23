@@ -7,13 +7,13 @@
 
 use std::time::Instant;
 
+use super::super::backend::gpu::error::HipResult;
+use super::super::core::model_loader::LoadedModel;
+use super::super::graph::{BufferPlan, ComputationGraph, GraphExecutor};
 use super::gguf::GGUFFile;
 use super::model_config::ModelConfig;
 use super::sampling::{sample_token, SamplingConfig};
 use super::tokenizer::Tokenizer;
-use super::super::backend::gpu::error::HipResult;
-use super::super::core::model_loader::LoadedModel;
-use super::super::graph::{BufferPlan, ComputationGraph, GraphExecutor};
 
 /// One generation call's metrics and output. Used by both the CLI and
 /// the 15-prompt report.
@@ -135,7 +135,9 @@ impl<'m> InferencePipeline<'m> {
             // the end of prefill, which can be a magnitude-different
             // regime from steady-state decode.
             if step + 1 < MIN_CALIBRATION_STEPS {
-                last_logits = self.executor.execute_decode(next, prompt_tokens.len() + step)?;
+                last_logits = self
+                    .executor
+                    .execute_decode(next, prompt_tokens.len() + step)?;
             }
         }
         // Drop the prefill-tail step so the band reflects decode
@@ -189,12 +191,13 @@ impl<'m> InferencePipeline<'m> {
             });
         }
 
-        // 2) Prefill — sequential decode over prompt tokens.
+        // 2) Prefill — execute_prefill routes to the WMMA-batched
+        //    path when the prompt is long enough (≥ WMMA_PREFILL_MIN_SEQ_LEN
+        //    tokens), otherwise falls back to the sequential
+        //    decode-loop. Both populate the KV cache identically;
+        //    the dispatch is transparent to callers.
         let prefill_start = Instant::now();
-        let mut last_logits = Vec::new();
-        for (i, &tok) in prompt_tokens.iter().enumerate() {
-            last_logits = self.executor.execute_decode(tok, i)?;
-        }
+        let mut last_logits = self.executor.execute_prefill(&prompt_tokens, 0)?;
         let prefill_ms = prefill_start.elapsed().as_secs_f64() * 1000.0;
 
         // 3) Decode loop.
@@ -222,8 +225,7 @@ impl<'m> InferencePipeline<'m> {
                     node_id: super::super::monitor::OUTPUT_HIDDEN,
                     signal: super::super::monitor::PrecisionRevisionSignal {
                         affected_node: super::super::monitor::OUTPUT_HIDDEN,
-                        current_precision:
-                            super::super::introspection::PrecisionHint::Fp16Scales,
+                        current_precision: super::super::introspection::PrecisionHint::Fp16Scales,
                         recommended_precision:
                             super::super::introspection::PrecisionHint::Fp16Scales,
                         reason,
@@ -236,9 +238,7 @@ impl<'m> InferencePipeline<'m> {
                 );
                 self.monitor.revision_log.push(event);
             }
-            if self.monitor.should_check()
-                && !self.monitor.expected_ranges.is_empty()
-            {
+            if self.monitor.should_check() && !self.monitor.expected_ranges.is_empty() {
                 let hidden = self.executor.read_hidden_state()?;
                 let node = super::super::monitor::OUTPUT_HIDDEN;
                 if let Some(signal) = self.monitor.check_hidden_state(node, &hidden) {
@@ -246,14 +246,14 @@ impl<'m> InferencePipeline<'m> {
                         "[monitor] token {} — drift at {:?}: {:?}",
                         step, node, signal.reason
                     );
-                    self.monitor.revision_log.push(
-                        super::super::monitor::RevisionEvent {
+                    self.monitor
+                        .revision_log
+                        .push(super::super::monitor::RevisionEvent {
                             token_index: step as u64,
                             node_id: node,
                             signal,
                             resolved: false,
-                        },
-                    );
+                        });
                 }
                 self.monitor.reset_check_counter();
             }

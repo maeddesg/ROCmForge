@@ -25,9 +25,11 @@
 use std::collections::HashMap;
 use std::ffi::c_void;
 
+use super::super::backend::gpu::attention::rocmforge_launch_attention_prefill;
 use super::super::backend::gpu::attention::{
     rocmforge_launch_attention_decode, rocmforge_launch_kv_cache_append,
 };
+use super::super::backend::gpu::elementwise::rocmforge_launch_rope_batched;
 use super::super::backend::gpu::elementwise::{
     rocmforge_launch_embedding_lookup, rocmforge_launch_residual_add_inplace,
     rocmforge_launch_rms_norm, rocmforge_launch_rms_norm_batched, rocmforge_launch_rope,
@@ -40,7 +42,13 @@ use super::super::backend::gpu::gemv::{
     rocmforge_launch_gemv_q4_k_standard, rocmforge_launch_gemv_q6_k_standard,
     rocmforge_launch_gemv_q8_0_standard,
 };
-use super::super::backend::gpu::hip_ffi::{hipMemcpy, hipMemcpyDeviceToHost};
+use super::super::backend::gpu::hip_ffi::{
+    hipMemcpy, hipMemcpyDeviceToDevice, hipMemcpyDeviceToHost,
+};
+use super::super::backend::gpu::wmma::{
+    rocmforge_launch_wmma_gemm_q4_0_fp16, rocmforge_launch_wmma_gemm_q4_k_fp16,
+    rocmforge_launch_wmma_gemm_q6_k_fp16, rocmforge_launch_wmma_gemm_q8_0_fp16,
+};
 use super::super::backend::gpu::wrappers::{HipBuffer, HipStream};
 use super::super::core::gguf::GGUFFile;
 use super::super::core::model_loader::LoadedModel;
@@ -405,8 +413,12 @@ impl<'m> GraphExecutor<'m> {
 
     /// Run prefill + decode: prefill seeds the KV cache with
     /// `token_ids[..]`, then returns the logits for the *last* token.
-    /// Implemented as a loop over `execute_decode` — a true
-    /// WMMA-batched prefill is Phase-2.
+    ///
+    /// Phase-2 Schritt 2.1.5: when the prompt is long enough for
+    /// WMMA to pay off, dispatches the batched WMMA-based prefill
+    /// (see [`execute_prefill_wmma`]). Otherwise falls back to the
+    /// Phase-1 decode-loop — a correct but slow `O(seq_len ×
+    /// decode_cost)` implementation.
     pub fn execute_prefill(&mut self, token_ids: &[u32], pos_offset: usize) -> HipResult<Vec<f32>> {
         if token_ids.is_empty() {
             return Err(HipError {
@@ -415,11 +427,66 @@ impl<'m> GraphExecutor<'m> {
                 context: "prefill".into(),
             });
         }
+        if self.should_use_wmma_prefill(token_ids.len()) {
+            match self.execute_prefill_wmma(token_ids, pos_offset) {
+                Ok(logits) => return Ok(logits),
+                Err(e) => {
+                    // Hard policy: if WMMA prefill is eligible but fails,
+                    // propagate the error instead of silently producing
+                    // bogus output via the decode-loop fallback. A
+                    // runtime-env opt-out is available via
+                    // ROCMFORGE_DISABLE_WMMA_PREFILL.
+                    if std::env::var("ROCMFORGE_DISABLE_WMMA_PREFILL")
+                        .ok()
+                        .as_deref()
+                        != Some("1")
+                    {
+                        return Err(e);
+                    }
+                    tracing::warn!(
+                        error = %e.message,
+                        "WMMA prefill failed; falling back to decode loop (env override)"
+                    );
+                }
+            }
+        }
+        self.execute_prefill_decode_loop(token_ids, pos_offset)
+    }
+
+    /// Phase-1 decode-loop prefill. Retained as an explicit entry
+    /// point so tests can force the decode path even when the prompt
+    /// is long enough for WMMA, and as the fallback when
+    /// `should_use_wmma_prefill` returns false (short prompts).
+    pub fn execute_prefill_decode_loop(
+        &mut self,
+        token_ids: &[u32],
+        pos_offset: usize,
+    ) -> HipResult<Vec<f32>> {
         let mut last = Vec::new();
         for (i, &tok) in token_ids.iter().enumerate() {
             last = self.execute_decode(tok, pos_offset + i)?;
         }
         Ok(last)
+    }
+
+    /// Decide whether a prompt of length `seq_len` should go through
+    /// the WMMA-batched prefill.
+    ///
+    /// Rules:
+    ///   * `ROCMFORGE_DISABLE_WMMA_PREFILL=1` → always false
+    ///   * `seq_len < WMMA_PREFILL_MIN_SEQ_LEN (16)` → decode-loop
+    ///   * Otherwise → WMMA. Kernel-shape constraints (e.g. Q4_K's
+    ///     M must be a multiple of 64) are enforced in the dispatch
+    ///     path via padding to `padded_m = round_up(seq_len, 64)`.
+    pub fn should_use_wmma_prefill(&self, seq_len: usize) -> bool {
+        if std::env::var("ROCMFORGE_DISABLE_WMMA_PREFILL")
+            .ok()
+            .as_deref()
+            == Some("1")
+        {
+            return false;
+        }
+        seq_len >= WMMA_PREFILL_MIN_SEQ_LEN
     }
 
     // Kernel dispatch ---------------------------------------------------
@@ -1208,5 +1275,542 @@ impl<'m> GraphExecutor<'m> {
             });
         }
         Ok(())
+    }
+}
+
+// ─── WMMA-batched prefill (Phase 2 step 2.1.5) ──────────────────────────────
+
+/// Minimum seq_len to use WMMA prefill. Below this, padding to
+/// `WMMA_M_TILE` (64) wastes more work than the decode-loop path.
+/// 16 is a conservative bar — at seq_len=16 the pad factor is 4×
+/// but WMMA still wins because each GEMM is a single tile instead
+/// of 16 GEMV dispatches.
+pub const WMMA_PREFILL_MIN_SEQ_LEN: usize = 16;
+
+/// WMMA row-tile used by all four Phase-1 dequant emitters
+/// (`docs/v1.0/dequant_ir_spec.md §5.2`). `M`, `N` and `K` must each
+/// be a multiple of 64 (and K a multiple of the format's
+/// `elements_per_block` — enforced by the launcher itself).
+const WMMA_M_TILE: usize = 64;
+
+/// Per-node transient buffer allocation for one prefill call.
+///
+/// Decodes re-use `self.buffers` (sized for M=1) across tokens. The
+/// WMMA-prefill path can't: its buffers are sized for
+/// `padded_m × elem_count` and are freed at the end of the call.
+/// Keeping them in a separate `HashMap` means the decode path's
+/// buffer pool stays untouched — decode after prefill sees the
+/// exact same buffers it saw before prefill.
+struct PrefillBuffers {
+    buffers: HashMap<BufferId, HipBuffer>,
+    padded_m: usize,
+    seq_len: usize,
+}
+
+impl PrefillBuffers {
+    fn allocate(plan: &BufferPlan, seq_len: usize, padded_m: usize) -> HipResult<Self> {
+        let mut buffers = HashMap::with_capacity(plan.specs.len());
+        for (&id, spec) in &plan.specs {
+            let bytes = spec.bytes(padded_m).max(4);
+            buffers.insert(id, HipBuffer::new(bytes)?);
+        }
+        Ok(Self {
+            buffers,
+            padded_m,
+            seq_len,
+        })
+    }
+
+    fn ptr(&self, id: BufferId) -> *const c_void {
+        self.buffers[&id].as_ptr()
+    }
+
+    fn mut_ptr(&mut self, id: BufferId) -> *mut c_void {
+        self.buffers
+            .get_mut(&id)
+            .expect("prefill buffer")
+            .as_mut_ptr()
+    }
+}
+
+impl<'m> GraphExecutor<'m> {
+    /// WMMA-batched prefill. Seeds the KV cache with `token_ids[..]`
+    /// over the positions `[pos_offset, pos_offset + token_ids.len())`
+    /// and returns the logits for the *last* token.
+    ///
+    /// Every matrix multiply runs as a WMMA GEMM with `M = padded_m`
+    /// (next multiple of 64). Elementwise ops (RMSNorm, RoPE,
+    /// residual, SwiGLU, embedding) use their existing `*_batched`
+    /// variants. Attention uses `rocmforge_launch_attention_prefill`
+    /// (causal, FP32, O(seq²) — the Phase-1 scaffold).
+    ///
+    /// Caller contract:
+    ///   * `token_ids.len() >= WMMA_PREFILL_MIN_SEQ_LEN`
+    ///   * Every `Gemm` weight in the graph is Q4_0 / Q4_K / Q6_K / Q8_0
+    ///     (FP16 WMMA). Unsupported formats → `hipErrorInvalidValue`
+    ///     with a descriptive message.
+    ///   * All Gemm bias fields are `None` (Phase-1 WMMA path doesn't
+    ///     fold bias).
+    ///
+    /// Failure modes any test should verify:
+    ///   * Unsupported weight format → explicit error, no silent
+    ///     wrong-math.
+    ///   * KV cache too small for `pos_offset + seq_len` → error from
+    ///     the first `kv_cache_append` whose pos exceeds `head_stride / head_dim`.
+    pub fn execute_prefill_wmma(
+        &mut self,
+        token_ids: &[u32],
+        pos_offset: usize,
+    ) -> HipResult<Vec<f32>> {
+        if token_ids.is_empty() {
+            return Err(HipError {
+                code: -1,
+                message: "execute_prefill_wmma: empty token_ids".into(),
+                context: "prefill".into(),
+            });
+        }
+        let seq_len = token_ids.len();
+        let padded_m = ((seq_len + WMMA_M_TILE - 1) / WMMA_M_TILE) * WMMA_M_TILE;
+
+        // Upload token_ids to a prefill-only u32 buffer. The graph's
+        // `token_ids_buffer` is reused from the decode pool so we
+        // don't disturb it; use the prefill pool's copy instead.
+        let mut prefill = PrefillBuffers::allocate(&self.plan, seq_len, padded_m)?;
+        let token_buf_id = self.graph.token_ids_buffer;
+        let token_bytes = unsafe {
+            std::slice::from_raw_parts(token_ids.as_ptr() as *const u8, token_ids.len() * 4)
+        };
+        prefill
+            .buffers
+            .get_mut(&token_buf_id)
+            .expect("token ids buffer")
+            .copy_from_host(token_bytes)?;
+
+        // Walk every node with padded-M dispatch.
+        let n_nodes = self.graph.nodes.len();
+        for node_idx in 0..n_nodes {
+            self.dispatch_prefill_node(node_idx, &mut prefill, pos_offset)?;
+        }
+
+        // Read back the last token's logits. Layout:
+        // logits_buffer = [padded_m × vocab_size] f32. We want row
+        // `seq_len - 1`.
+        let vocab = self.graph.config.vocab_size;
+        let row_bytes = vocab * 4;
+        let last_row_offset = (seq_len - 1) * row_bytes;
+        let logits_ptr = prefill.ptr(self.graph.logits_buffer) as *const u8;
+        let mut host = vec![0u8; row_bytes];
+        let rc = unsafe {
+            hipMemcpy(
+                host.as_mut_ptr() as *mut c_void,
+                logits_ptr.add(last_row_offset) as *const c_void,
+                row_bytes,
+                hipMemcpyDeviceToHost,
+            )
+        };
+        check(rc, "prefill logits readback")?;
+        self.stream.synchronize()?;
+
+        let logits: Vec<f32> = host
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        for (i, v) in logits.iter().enumerate() {
+            if !v.is_finite() {
+                return Err(HipError {
+                    code: -1,
+                    message: format!("prefill logits[{i}] = {v} (non-finite)"),
+                    context: "execute_prefill_wmma".into(),
+                });
+            }
+        }
+        Ok(logits)
+    }
+
+    fn dispatch_prefill_node(
+        &mut self,
+        node_idx: usize,
+        prefill: &mut PrefillBuffers,
+        pos_offset: usize,
+    ) -> HipResult<()> {
+        // Snapshot the node reference. See the decode-path comment
+        // in `dispatch_node` — we read constants only.
+        let node = &self.graph.nodes[node_idx] as *const GraphNode;
+        let node = unsafe { &*node };
+        let seq_len = prefill.seq_len as i32;
+        let padded_m = prefill.padded_m;
+
+        match node {
+            GraphNode::Embedding { input, output, .. } => {
+                let table_ptr = self.embedding_fp32.as_ptr();
+                let in_ptr = prefill.ptr(*input);
+                let out_ptr = prefill.mut_ptr(*output);
+                let rc = unsafe {
+                    rocmforge_launch_embedding_lookup(
+                        in_ptr as *const u32,
+                        table_ptr as *const f32,
+                        out_ptr as *mut f32,
+                        seq_len,
+                        self.graph.config.hidden_dim as i32,
+                        self.stream.raw(),
+                    )
+                };
+                check(rc, "prefill embedding")?;
+            }
+            GraphNode::RmsNorm {
+                weight,
+                input,
+                output,
+                eps,
+                dim,
+                num_rows,
+            } => {
+                let w_ptr = self.weight_ptr(weight);
+                let in_ptr = prefill.ptr(*input);
+                let out_ptr = prefill.mut_ptr(*output);
+                // Main norm has num_rows=1 in the graph → prefill uses
+                // seq_len rows. QK-norm has num_rows=n_heads/n_kv_heads
+                // → prefill uses seq_len × num_rows rows.
+                let total_rows = (*num_rows * padded_m) as i32;
+                let rc = unsafe {
+                    rocmforge_launch_rms_norm_batched(
+                        in_ptr as *const f32,
+                        w_ptr as *const f32,
+                        out_ptr as *mut f32,
+                        *dim as i32,
+                        *eps,
+                        total_rows,
+                        self.stream.raw(),
+                    )
+                };
+                check(rc, "prefill rms_norm")?;
+            }
+            GraphNode::Gemm {
+                weight,
+                bias,
+                input,
+                output,
+                out_dim,
+                in_dim,
+            } => {
+                if bias.is_some() {
+                    return Err(HipError {
+                        code: -1,
+                        message: "prefill WMMA: Gemm bias not yet supported".into(),
+                        context: "prefill gemm".into(),
+                    });
+                }
+                let in_ptr = prefill.ptr(*input);
+                let out_ptr = prefill.mut_ptr(*output);
+                self.dispatch_prefill_wmma_gemm(
+                    weight,
+                    in_ptr as *const f32,
+                    out_ptr as *mut f32,
+                    padded_m,
+                    *out_dim,
+                    *in_dim,
+                )?;
+            }
+            GraphNode::Rope {
+                q_buffer,
+                k_buffer,
+                rope_freqs,
+                n_heads,
+                n_kv_heads,
+                head_dim,
+                theta_base,
+            } => {
+                let freq_ptr = rope_freqs
+                    .as_ref()
+                    .map(|w| self.weight_ptr(w) as *const f32)
+                    .unwrap_or(std::ptr::null());
+                let q_ptr = prefill.mut_ptr(*q_buffer);
+                let k_ptr = prefill.mut_ptr(*k_buffer);
+                let rc = unsafe {
+                    rocmforge_launch_rope_batched(
+                        q_ptr as *mut f32,
+                        pos_offset as i32,
+                        *n_heads as i32,
+                        *head_dim as i32,
+                        *theta_base,
+                        seq_len,
+                        freq_ptr,
+                        self.stream.raw(),
+                    )
+                };
+                check(rc, "prefill rope Q")?;
+                let rc = unsafe {
+                    rocmforge_launch_rope_batched(
+                        k_ptr as *mut f32,
+                        pos_offset as i32,
+                        *n_kv_heads as i32,
+                        *head_dim as i32,
+                        *theta_base,
+                        seq_len,
+                        freq_ptr,
+                        self.stream.raw(),
+                    )
+                };
+                check(rc, "prefill rope K")?;
+            }
+            GraphNode::KvCacheAppend {
+                k_buffer,
+                v_buffer,
+                layer_idx,
+            } => {
+                // Loop seq_len times — simple but adds 2 × seq_len
+                // dispatches per layer. For a 33-token Qwen3-8B prompt
+                // that's 33 × 2 × 36 = 2376 extra dispatches, ~2 ms
+                // total at 1 µs/dispatch. Worth a batched kernel in a
+                // follow-up if prefill becomes the next bottleneck.
+                let k_base = prefill.ptr(*k_buffer) as *const u8;
+                let v_base = prefill.ptr(*v_buffer) as *const u8;
+                let k_cache = self.k_cache[*layer_idx].as_mut_ptr();
+                let v_cache = self.v_cache[*layer_idx].as_mut_ptr();
+                let row_stride_k =
+                    (self.kv_layout.num_kv_heads * self.kv_layout.head_dim * 4) as isize;
+                for i in 0..prefill.seq_len {
+                    let pos = pos_offset + i;
+                    let k_row = unsafe { k_base.offset(i as isize * row_stride_k) };
+                    let v_row = unsafe { v_base.offset(i as isize * row_stride_k) };
+                    let rc = unsafe {
+                        rocmforge_launch_kv_cache_append(
+                            k_cache as *mut f32,
+                            v_cache as *mut f32,
+                            k_row as *const f32,
+                            v_row as *const f32,
+                            self.kv_layout.num_kv_heads as i32,
+                            self.kv_layout.head_dim as i32,
+                            pos as i32,
+                            self.kv_layout.head_stride as i32,
+                            self.stream.raw(),
+                        )
+                    };
+                    check(rc, "prefill kv_cache_append")?;
+                }
+            }
+            GraphNode::Attention {
+                q_buffer,
+                output,
+                layer_idx: _,
+                n_heads,
+                n_kv_heads,
+                head_dim,
+            } => {
+                // attention_prefill runs on fresh Q/K/V in transient
+                // buffers — it does NOT read from the KV cache. The
+                // cache is populated by the preceding KvCacheAppend
+                // node and is *only* needed for subsequent decode.
+                // The prefill kernel is therefore self-contained.
+                //
+                // But: the graph's `Attention` node only exposes
+                // `q_buffer`, not k/v. Find them via the preceding
+                // `KvCacheAppend` node's buffers.
+                let (k_id, v_id) = self.find_kv_buffers_for_attention(node_idx)?;
+                let q_ptr = prefill.ptr(*q_buffer);
+                let k_ptr = prefill.ptr(k_id);
+                let v_ptr = prefill.ptr(v_id);
+                let out_ptr = prefill.mut_ptr(*output);
+                let scale = 1.0f32 / (*head_dim as f32).sqrt();
+                let rc = unsafe {
+                    rocmforge_launch_attention_prefill(
+                        q_ptr as *const f32,
+                        k_ptr as *const f32,
+                        v_ptr as *const f32,
+                        out_ptr as *mut f32,
+                        seq_len,
+                        *n_heads as i32,
+                        *n_kv_heads as i32,
+                        *head_dim as i32,
+                        scale,
+                        self.stream.raw(),
+                    )
+                };
+                check(rc, "prefill attention")?;
+            }
+            GraphNode::ResidualAdd { a, b } => {
+                let a_ptr = prefill.mut_ptr(*a);
+                let b_ptr = prefill.ptr(*b);
+                let per_row = self.plan.specs[a].elem_count as i32;
+                let n = per_row * padded_m as i32;
+                let rc = unsafe {
+                    rocmforge_launch_residual_add_inplace(
+                        a_ptr as *mut f32,
+                        b_ptr as *const f32,
+                        n,
+                        self.stream.raw(),
+                    )
+                };
+                check(rc, "prefill residual_add")?;
+            }
+            GraphNode::GateUpSwiGLU {
+                gate_weight,
+                up_weight,
+                input,
+                output,
+                ffn_dim,
+                hidden_dim,
+            } => {
+                // Unfuse for prefill (§5.3): two WMMAs + SwiGLU.
+                // The scratch buffers come out of the regular transient
+                // pool — we allocate them fresh since they aren't
+                // BufferIds in the plan.
+                let scratch_bytes = padded_m * *ffn_dim * 4;
+                let mut gate_scratch = HipBuffer::new(scratch_bytes)?;
+                let mut up_scratch = HipBuffer::new(scratch_bytes)?;
+                let in_ptr = prefill.ptr(*input) as *const f32;
+
+                self.dispatch_prefill_wmma_gemm(
+                    gate_weight,
+                    in_ptr,
+                    gate_scratch.as_mut_ptr() as *mut f32,
+                    padded_m,
+                    *ffn_dim,
+                    *hidden_dim,
+                )?;
+                self.dispatch_prefill_wmma_gemm(
+                    up_weight,
+                    in_ptr,
+                    up_scratch.as_mut_ptr() as *mut f32,
+                    padded_m,
+                    *ffn_dim,
+                    *hidden_dim,
+                )?;
+
+                let out_ptr = prefill.mut_ptr(*output);
+                let n = (padded_m * *ffn_dim) as i32;
+                let rc = unsafe {
+                    rocmforge_launch_swiglu(
+                        gate_scratch.as_ptr() as *const f32,
+                        up_scratch.as_ptr() as *const f32,
+                        out_ptr as *mut f32,
+                        n,
+                        self.stream.raw(),
+                    )
+                };
+                check(rc, "prefill swiglu")?;
+            }
+            GraphNode::SwiGLU {
+                gate_buffer,
+                up_buffer,
+                output,
+            } => {
+                let g_ptr = prefill.ptr(*gate_buffer);
+                let u_ptr = prefill.ptr(*up_buffer);
+                let o_ptr = prefill.mut_ptr(*output);
+                let per_row = self.plan.specs[output].elem_count as i32;
+                let n = per_row * padded_m as i32;
+                let rc = unsafe {
+                    rocmforge_launch_swiglu(
+                        g_ptr as *const f32,
+                        u_ptr as *const f32,
+                        o_ptr as *mut f32,
+                        n,
+                        self.stream.raw(),
+                    )
+                };
+                check(rc, "prefill swiglu")?;
+            }
+            GraphNode::FusedGemmResidual {
+                weight,
+                input,
+                residual,
+                out_dim,
+                in_dim,
+            } => {
+                // Unfuse: WMMA writes to a scratch, residual_add
+                // folds it into `residual` in-place.
+                let scratch_bytes = padded_m * *out_dim * 4;
+                let mut scratch = HipBuffer::new(scratch_bytes)?;
+                let in_ptr = prefill.ptr(*input) as *const f32;
+                self.dispatch_prefill_wmma_gemm(
+                    weight,
+                    in_ptr,
+                    scratch.as_mut_ptr() as *mut f32,
+                    padded_m,
+                    *out_dim,
+                    *in_dim,
+                )?;
+                let res_ptr = prefill.mut_ptr(*residual);
+                let n = (padded_m * *out_dim) as i32;
+                let rc = unsafe {
+                    rocmforge_launch_residual_add_inplace(
+                        res_ptr as *mut f32,
+                        scratch.as_ptr() as *const f32,
+                        n,
+                        self.stream.raw(),
+                    )
+                };
+                check(rc, "prefill fused_residual")?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Pick the matching WMMA launcher based on the weight's quant
+    /// format. All four Phase-1 kernels share the same argument
+    /// order `(input, weights, output, M, N, K, stream)`.
+    fn dispatch_prefill_wmma_gemm(
+        &self,
+        weight: &WeightRef,
+        input: *const f32,
+        output: *mut f32,
+        m: usize,
+        n: usize,
+        k: usize,
+    ) -> HipResult<()> {
+        let weights = self.weight_ptr(weight) as *const u8;
+        let m_i = m as i32;
+        let n_i = n as i32;
+        let k_i = k as i32;
+        let stream = self.stream.raw();
+        let rc = unsafe {
+            match weight.format {
+                GgmlType::Q4_K => rocmforge_launch_wmma_gemm_q4_k_fp16(
+                    input, weights, output, m_i, n_i, k_i, stream,
+                ),
+                GgmlType::Q6_K => rocmforge_launch_wmma_gemm_q6_k_fp16(
+                    input, weights, output, m_i, n_i, k_i, stream,
+                ),
+                GgmlType::Q4_0 => rocmforge_launch_wmma_gemm_q4_0_fp16(
+                    input, weights, output, m_i, n_i, k_i, stream,
+                ),
+                GgmlType::Q8_0 => rocmforge_launch_wmma_gemm_q8_0_fp16(
+                    input, weights, output, m_i, n_i, k_i, stream,
+                ),
+                other => {
+                    return Err(HipError {
+                        code: -1,
+                        message: format!("prefill WMMA: unsupported weight format {other:?}"),
+                        context: "wmma_gemm".into(),
+                    })
+                }
+            }
+        };
+        check(rc, "prefill wmma_gemm")
+    }
+
+    /// Find the `(k_buffer, v_buffer)` that feed into the Attention
+    /// node at `attention_idx`. Walks backwards to the preceding
+    /// `KvCacheAppend`, which holds both references.
+    fn find_kv_buffers_for_attention(
+        &self,
+        attention_idx: usize,
+    ) -> HipResult<(BufferId, BufferId)> {
+        for i in (0..attention_idx).rev() {
+            if let GraphNode::KvCacheAppend {
+                k_buffer, v_buffer, ..
+            } = &self.graph.nodes[i]
+            {
+                return Ok((*k_buffer, *v_buffer));
+            }
+        }
+        Err(HipError {
+            code: -1,
+            message: format!(
+                "prefill: no KvCacheAppend found before Attention at node {attention_idx}"
+            ),
+            context: "find_kv_buffers".into(),
+        })
     }
 }

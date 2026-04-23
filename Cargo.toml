@@ -332,6 +332,17 @@ name = "v1_ga_block_e_test"
 path = "tests_v1/ga_block_e_test.rs"
 required-features = ["v1", "gpu"]
 
+# v1.0 Phase-2 Schritt 2.1.5 — WMMA-batched prefill.
+# execute_prefill_wmma walks the graph with seq_len > 1, dispatching
+# WMMA GEMMs + batched elementwise + attention_prefill. Tests cover
+# parity against the decode-loop, KV cache coherence, short-prompt
+# fallback, performance (≥3× speedup), and end-to-end generate().
+# Gated on ROCMFORGE_RUN_REAL_MODEL_GPU_TESTS + Qwen3-8B-Q4_K_M at ~/models.
+[[test]]
+name = "v1_prefill_wmma_test"
+path = "tests_v1/prefill_wmma_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
