@@ -147,7 +147,8 @@ void rocmforge_dequant_q4_0_parity(
     output[block_id * 32 + elem] = val;
 }
 
-"#.to_string()
+"#
+    .to_string()
 }
 
 // --- Q4_1 ------------------------------------------------------------
@@ -180,7 +181,8 @@ void rocmforge_dequant_q4_1_parity(
     output[block_id * 32 + elem] = val;
 }
 
-"#.to_string()
+"#
+    .to_string()
 }
 
 // --- Q8_0 ------------------------------------------------------------
@@ -206,7 +208,8 @@ void rocmforge_dequant_q8_0_parity(
     output[block_id * 32 + elem] = val;
 }
 
-"#.to_string()
+"#
+    .to_string()
 }
 
 // --- Q4_K ------------------------------------------------------------
@@ -264,7 +267,8 @@ void rocmforge_dequant_q4_k_parity(
     output[block_id * 256 + elem] = val;
 }
 
-"#.to_string()
+"#
+    .to_string()
 }
 
 // --- Q6_K ------------------------------------------------------------
@@ -335,7 +339,8 @@ void rocmforge_dequant_q6_k_parity(
     output[block_id * 256 + elem] = val;
 }
 
-"#.to_string()
+"#
+    .to_string()
 }
 
 // --- Launcher helpers (C) --------------------------------------------
@@ -383,7 +388,8 @@ extern "C" hipError_t rocmforge_launch_dequant_q6_k_parity(
     rocmforge_dequant_q6_k_parity<<<grid, block, 0, stream>>>(d_blocks, d_output, n_blocks);
     return hipGetLastError();
 }
-"#.to_string()
+"#
+    .to_string()
 }
 
 // ─── WMMA-GEMM kernels (Phase 1 Schritt 1.7) ──────────────────────────────
@@ -440,7 +446,8 @@ __device__ __forceinline__ void rf_v1_wmma_set_ieee_denormal_mode() {
 // TILE_M=64, TILE_N=64, K_CHUNK=32, 128 threads (4 waves) per block.
 fn emit_q4_0_wmma_fp16() -> String {
     let mut s = String::from(WMMA_FILE_HEADER);
-    s.push_str(r#"// Q4_0 FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q4_0.
+    s.push_str(
+        r#"// Q4_0 FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q4_0.
 // Layout copied verbatim from hip_kernels/wmma/wmma_gemm_q4_0.hip so
 // gfx1201 A/B fragment offsets and LDS coalescing stay known-good.
 
@@ -605,7 +612,8 @@ extern "C" hipError_t rocmforge_launch_wmma_gemm_q4_0_fp16(
         input, weights, output, M, N, K);
     return hipGetLastError();
 }
-"#);
+"#,
+    );
     s
 }
 
@@ -642,7 +650,8 @@ pub fn emit_all_wmma_kernels() -> String {
 // get_scale_min_k4 6-bit unpack without any /64.
 fn emit_q4_k_wmma_fp16() -> String {
     let mut s = String::from(WMMA_FILE_HEADER);
-    s.push_str(r#"// Q4_K FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q4_K.
+    s.push_str(
+        r#"// Q4_K FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q4_K.
 // Layout copied verbatim from hip_kernels/wmma/wmma_gemm_q4_k.hip.
 
 #define TILE_M             64
@@ -820,7 +829,8 @@ extern "C" hipError_t rocmforge_launch_wmma_gemm_q4_k_fp16(
         input, weights, output, M, N, K);
     return hipGetLastError();
 }
-"#);
+"#,
+    );
     s
 }
 
@@ -829,7 +839,8 @@ extern "C" hipError_t rocmforge_launch_wmma_gemm_q4_k_fp16(
 // qh layout (4 elements per qh byte at strides of 32 within each half).
 fn emit_q6_k_wmma_fp16() -> String {
     let mut s = String::from(WMMA_FILE_HEADER);
-    s.push_str(r#"// Q6_K FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q6_K.
+    s.push_str(
+        r#"// Q6_K FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q6_K.
 // Layout copied verbatim from hip_kernels/wmma/wmma_gemm_q6_k.hip.
 
 #define TILE_M             64
@@ -1014,7 +1025,8 @@ extern "C" hipError_t rocmforge_launch_wmma_gemm_q6_k_fp16(
         input, weights, output, M, N, K);
     return hipGetLastError();
 }
-"#);
+"#,
+    );
     s
 }
 
@@ -1023,7 +1035,8 @@ extern "C" hipError_t rocmforge_launch_wmma_gemm_q6_k_fp16(
 // tile geometry; dequant is trivial (signed int8 × FP16 scale).
 fn emit_q8_0_wmma_fp16() -> String {
     let mut s = String::from(WMMA_FILE_HEADER);
-    s.push_str(r#"// Q8_0 FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q8_0.
+    s.push_str(
+        r#"// Q8_0 FP16 WMMA GEMM — D[M×N] = A[M×K] * W[N×K] with W in Q8_0.
 // No v0.x reference; tile geometry follows Q4_0. Q8_0 block is 34 B for
 // 32 elements: FP16 d @ 0, signed int8 qs[32] @ 2.
 
@@ -1180,7 +1193,8 @@ extern "C" hipError_t rocmforge_launch_wmma_gemm_q8_0_fp16(
         input, weights, output, M, N, K);
     return hipGetLastError();
 }
-"#);
+"#,
+    );
     s
 }
 
@@ -1267,8 +1281,8 @@ __device__ __forceinline__ uint32_t rf_v1_fp32x4_to_fp8x4_e4m3(
 /// block header(s) and write `lds_b[k * TILE_N + col]` as an FP8 byte
 /// for every element the thread owns.
 fn emit_wmma_fp8_kernel(
-    format_tag: &str,      // "q4_0", "q4_k", …
-    k_chunk_divisor: usize, // e.g. Q4_K_ELEMS_PER_BLOCK = 256, Q4_0 = 32
+    format_tag: &str,        // "q4_0", "q4_k", …
+    k_chunk_divisor: usize,  // e.g. Q4_K_ELEMS_PER_BLOCK = 256, Q4_0 = 32
     block_size_define: &str, // e.g. "Q4_0_BLOCK_BYTES"
     block_size_value: usize,
     dequant_block: &str,
@@ -1693,7 +1707,8 @@ __device__ __forceinline__ void rf_v1_gemv_set_ieee_denormal_mode() {
 /// Q4_0 standard GEMV — 1:1 port of v0.x `gemv_q4_0_f32_wave_parallel_kernel`.
 fn emit_q4_0_gemv_standard() -> String {
     let mut s = String::from(GEMV_FILE_HEADER);
-    s.push_str(r#"// Q4_0 standard GEMV: output[N] = W[N×K] * input[K], W in Q4_0.
+    s.push_str(
+        r#"// Q4_0 standard GEMV: output[N] = W[N×K] * input[K], W in Q4_0.
 // Layout copied verbatim from hip_kernels/quant/q4_0_gemv.hip
 // (gemv_q4_0_f32_wave_parallel_kernel, lines 73–120).
 //
@@ -1795,7 +1810,8 @@ extern "C" hipError_t rocmforge_launch_gemv_q4_0_standard(
         weights, input, output, n_rows, ncols_dst);
     return hipGetLastError();
 }
-"#);
+"#,
+    );
     s
 }
 
@@ -1807,7 +1823,8 @@ extern "C" hipError_t rocmforge_launch_gemv_q4_0_standard(
 // Shared-memory staging for input when K × 4 ≤ 32 KiB.
 fn emit_q4_k_gemv_standard() -> String {
     let mut s = String::from(GEMV_FILE_HEADER);
-    s.push_str(r#"// Q4_K standard GEMV. Multi-row: 1 wave = 4 output cols.
+    s.push_str(
+        r#"// Q4_K standard GEMV. Multi-row: 1 wave = 4 output cols.
 // value = (d · scale_j) · nibble − (dmin · min_j), NO /64.
 
 #define WARP_SIZE            32
@@ -1953,7 +1970,8 @@ extern "C" hipError_t rocmforge_launch_gemv_q4_k_standard(
         weights, input, output, n_rows, ncols_dst);
     return hipGetLastError();
 }
-"#);
+"#,
+    );
     s
 }
 
@@ -2116,7 +2134,8 @@ extern "C" hipError_t rocmforge_launch_gemv_q6_k_standard(
 // Signed int8 quants, FP16 d. 1 wave = 1 output column.
 fn emit_q8_0_gemv_standard() -> String {
     let mut s = String::from(GEMV_FILE_HEADER);
-    s.push_str(r#"// Q8_0 standard GEMV. Wave-parallel like Q4_0.
+    s.push_str(
+        r#"// Q8_0 standard GEMV. Wave-parallel like Q4_0.
 // value = d * int8(qs), 34-byte block holds 32 signed elements.
 
 #define WARP_SIZE         32
@@ -2199,7 +2218,8 @@ extern "C" hipError_t rocmforge_launch_gemv_q8_0_standard(
         weights, input, output, n_rows, ncols_dst);
     return hipGetLastError();
 }
-"#);
+"#,
+    );
     s
 }
 
@@ -2219,7 +2239,8 @@ extern "C" hipError_t rocmforge_launch_gemv_q8_0_standard(
 // race).
 fn emit_q4_k_gemv_q8_inline() -> String {
     let mut s = String::from(GEMV_FILE_HEADER);
-    s.push_str(r#"// Q4_K GEMV with Q8-inline activation. Dual accumulator per sub-block.
+    s.push_str(
+        r#"// Q4_K GEMV with Q8-inline activation. Dual accumulator per sub-block.
 
 #define WARP_SIZE                 32
 #define Q4_K_BLOCK_BYTES          144
@@ -2431,7 +2452,8 @@ extern "C" hipError_t rocmforge_launch_gemv_q4_k_q8_inline(
         weights, input, output, n_rows, ncols_dst);
     return hipGetLastError();
 }
-"#);
+"#,
+    );
     s
 }
 
@@ -2840,28 +2862,34 @@ extern "C" hipError_t rocmforge_launch_gemv_q4_k_gate_up_swiglu(
     s
 }
 
-// ─── Parametric gate_up_swiglu for the GA (Phase 2 step 2.1.3 Block B) ─────
+// ─── Parametric gate_up_swiglu for the GA (Phase 2 step 2.1.3) ─────────────
 //
 // Same algorithm as `emit_q4_k_gemv_gate_up_swiglu`, but with
-// `Q4_K_FIXED_WAVES` lifted from a hard-coded 8 into a runtime
-// parameter. Block B keeps the search space to one axis (num_waves)
-// so the whole compile → load → launch pipeline can be proven
-// end-to-end; the remaining tile-config dimensions (`tile_m`,
-// `lds_strategy`, `unroll`, FP8 GEMV) fall to the next session.
-//
-// The parametric kernel uses `extern "C" __global__` so
+// `Q4_K_FIXED_WAVES` (Block B) and `Q4_K_MULTI_ROW_COLS` (Block D)
+// lifted from hard-coded `#define`s into runtime parameters. The
+// parametric kernel uses `extern "C" __global__` so
 // `hipModuleGetFunction` can look it up by its unmangled name. The
-// name includes `num_waves` so distinct configs get distinct symbols
-// and the CompileCache can hash on the same info.
+// name includes the axis values so distinct configs get distinct
+// symbols and the CompileCache can hash on the same info.
 
-/// Generate the unmangled `__global__` symbol for the parametric
-/// kernel. Callers pass this string to `HipModule::get_function`.
+/// Generate the unmangled `__global__` symbol for the 1-D parametric
+/// kernel (num_waves only, multi_row_cols baked at 4). Retained for
+/// Block B and Block C call sites.
 pub fn ga_gate_up_swiglu_symbol(num_waves: u32) -> String {
     format!("rf_v1_ga_gate_up_swiglu_w{num_waves}_kernel")
 }
 
+/// 2-D parametric symbol (Block D): both `num_waves` and
+/// `multi_row_cols` encoded. Separate from the 1-D symbol so the two
+/// kernel families can coexist in the same process (hipModule symbol
+/// space is per-module but CompileCache may pool them).
+pub fn ga_gate_up_swiglu_symbol_2d(num_waves: u32, multi_row_cols: u32) -> String {
+    format!("rf_v1_ga_gate_up_swiglu_w{num_waves}_c{multi_row_cols}_kernel")
+}
+
 /// Emit a gate_up_swiglu GEMV HIP source with `num_waves` warps per
-/// threadblock. Returns `(source, symbol)` — the symbol is what
+/// threadblock (multi_row_cols fixed at 4 — Block B / Block C scope).
+/// Returns `(source, symbol)` — the symbol is what
 /// `HipModule::get_function` looks up.
 ///
 /// `num_waves` must be one of {1, 2, 4, 8}. Other values aren't
@@ -2869,18 +2897,47 @@ pub fn ga_gate_up_swiglu_symbol(num_waves: u32) -> String {
 /// upstream — the Rust-side sanitiser clamps to legal values first.
 pub fn emit_q4_k_gemv_gate_up_swiglu_parametric(num_waves: u32) -> (String, String) {
     let symbol = ga_gate_up_swiglu_symbol(num_waves);
+    let src = emit_gate_up_swiglu_source(num_waves, 4, &symbol);
+    (src, symbol)
+}
+
+/// 2-D parametric emit (Block D): both `num_waves` and
+/// `multi_row_cols` are runtime parameters. Returns `(source,
+/// symbol)` with the 2-D symbol format `..._w{N}_c{C}_kernel`.
+///
+/// Legal combinations the sanitiser allows:
+///   * `num_waves ∈ {1, 2, 4, 8}`
+///   * `multi_row_cols ∈ {1, 2, 4, 8}`
+///
+/// Grid constraint: `(num_waves × multi_row_cols)` must divide the
+/// output column count at the launch shape. The host-side
+/// `GateUpSwigluGeometry::grid_x` rounds up to cover partial tiles.
+pub fn emit_q4_k_gemv_gate_up_swiglu_parametric_2d(
+    num_waves: u32,
+    multi_row_cols: u32,
+) -> (String, String) {
+    let symbol = ga_gate_up_swiglu_symbol_2d(num_waves, multi_row_cols);
+    let src = emit_gate_up_swiglu_source(num_waves, multi_row_cols, &symbol);
+    (src, symbol)
+}
+
+/// Internal HIP-source emitter shared by the 1-D and 2-D parametric
+/// wrappers. Keeps the kernel body in one place; the two wrappers
+/// differ only in which symbol format they use.
+fn emit_gate_up_swiglu_source(num_waves: u32, multi_row_cols: u32, symbol: &str) -> String {
     let mut s = String::from(GEMV_FILE_HEADER);
     s.push_str(&format!(
-        r#"// Q4_K fused Gate+Up+SwiGLU (Phase 2 step 2.1.3 Block B —
-// num_waves parametric). Identical algorithm to the static Phase-1
-// kernel; only Q4_K_FIXED_WAVES and the symbol name change per config.
+        r#"// Q4_K fused Gate+Up+SwiGLU (Phase 2 step 2.1.3 — parametric
+// num_waves + multi_row_cols). Identical algorithm to the static
+// Phase-1 kernel; only the two #defines and the symbol name change
+// per config.
 
 #define WARP_SIZE              32
 #define Q4_K_BLOCK_BYTES       144
 #define Q4_K_ELEMS_PER_BLOCK   256
 #define Q4_K_SUB_BLOCKS        8
 #define Q4_K_SUB_BLOCK_ELEMS   32
-#define Q4_K_MULTI_ROW_COLS    4
+#define Q4_K_MULTI_ROW_COLS    {multi_row_cols}
 #define Q4_K_FIXED_WAVES       {num_waves}
 #define Q4_K_THREADS_PER_BLOCK (Q4_K_FIXED_WAVES * WARP_SIZE)
 #define Q4_K_SHARED_MEM_LIMIT  (48 * 1024)
@@ -2973,8 +3030,9 @@ __global__ void {symbol}(
         }}
     }}
 
-    float gate_sums[Q4_K_MULTI_ROW_COLS] = {{0.0f, 0.0f, 0.0f, 0.0f}};
-    float up_sums[Q4_K_MULTI_ROW_COLS]   = {{0.0f, 0.0f, 0.0f, 0.0f}};
+    // Value-initialised zero — works for any Q4_K_MULTI_ROW_COLS.
+    float gate_sums[Q4_K_MULTI_ROW_COLS] = {{}};
+    float up_sums[Q4_K_MULTI_ROW_COLS]   = {{}};
 
     for (int sb = lane_id; sb < super_blocks_per_row; sb += WARP_SIZE) {{
         const float* in_base = s_input + sb * Q4_K_ELEMS_PER_BLOCK;
@@ -3009,8 +3067,7 @@ __global__ void {symbol}(
 }}
 "#
     ));
-
-    (s, symbol)
+    s
 }
 
 // ─── Elementwise kernels (Phase 1 Schritt 1.9 Block A) ─────────────────────
@@ -3036,7 +3093,8 @@ pub fn emit_all_elementwise_files() -> Vec<(&'static str, String)> {
 
 fn emit_elementwise_block_a() -> String {
     let mut s = String::new();
-    s.push_str(r#"// Auto-generated by src_v1/ir/codegen_gpu.rs (Phase 1.9 Block A).
+    s.push_str(
+        r#"// Auto-generated by src_v1/ir/codegen_gpu.rs (Phase 1.9 Block A).
 // Embedding lookup, RMSNorm, Residual add — all FP32.
 
 #include <hip/hip_runtime.h>
@@ -3306,7 +3364,8 @@ extern "C" hipError_t rocmforge_launch_swiglu(
     rf_v1_swiglu_kernel<<<blocks, threads, 0, stream>>>(gate, up, out, N);
     return hipGetLastError();
 }
-"#);
+"#,
+    );
     s
 }
 
@@ -3472,7 +3531,8 @@ extern "C" hipError_t rocmforge_launch_rope_batched(
         x, start_pos, num_heads, head_dim, theta_base, seq_len, freq_scale);
     return hipGetLastError();
 }
-"#.to_string()
+"#
+    .to_string()
 }
 
 // ─── Attention + KV-cache (Phase 1 Schritt 1.9 Block C) ─────────────────────
@@ -3778,5 +3838,6 @@ extern "C" hipError_t rocmforge_launch_kv_cache_append(
         k_cache, v_cache, k_new, v_new, num_kv_heads, head_dim, pos, head_stride);
     return hipGetLastError();
 }
-"#.to_string()
+"#
+    .to_string()
 }

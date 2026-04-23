@@ -20,8 +20,8 @@ use std::marker::PhantomData;
 
 use super::error::{check, HipResult};
 use super::hip_ffi::{
-    hipFunction_t, hipModuleGetFunction, hipModuleLaunchKernel, hipModuleLoadData,
-    hipModuleUnload, hipModule_t,
+    hipFunction_t, hipModuleGetFunction, hipModuleLaunchKernel, hipModuleLoadData, hipModuleUnload,
+    hipModule_t,
 };
 use super::wrappers::HipStream;
 
@@ -98,21 +98,38 @@ impl<'m> HipFunction<'m> {
         stream: &HipStream,
         args: &mut [*mut c_void],
     ) -> HipResult<()> {
-        let rc = unsafe {
-            hipModuleLaunchKernel(
-                self.function,
-                grid.0,
-                grid.1,
-                grid.2,
-                block.0,
-                block.1,
-                block.2,
-                shared_mem_bytes,
-                stream.raw(),
-                args.as_mut_ptr(),
-                std::ptr::null_mut(),
-            )
-        };
+        unsafe { self.launch_raw(grid, block, shared_mem_bytes, stream.raw(), args) }
+    }
+
+    /// Raw-stream variant. Used when the caller already holds a
+    /// `hipStream_t` and not a `&HipStream` wrapper — e.g. the graph
+    /// executor, which keeps a `HipStream` as a field but hands raw
+    /// stream handles to its FFI call sites.
+    ///
+    /// # Safety
+    /// `stream` must be a live `hipStream_t` for the duration of the
+    /// launch (until the kernel completes or the stream is synced).
+    pub unsafe fn launch_raw(
+        &self,
+        grid: (u32, u32, u32),
+        block: (u32, u32, u32),
+        shared_mem_bytes: u32,
+        stream: super::hip_ffi::hipStream_t,
+        args: &mut [*mut c_void],
+    ) -> HipResult<()> {
+        let rc = hipModuleLaunchKernel(
+            self.function,
+            grid.0,
+            grid.1,
+            grid.2,
+            block.0,
+            block.1,
+            block.2,
+            shared_mem_bytes,
+            stream,
+            args.as_mut_ptr(),
+            std::ptr::null_mut(),
+        );
         check(rc, "hipModuleLaunchKernel")
     }
 

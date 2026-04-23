@@ -45,12 +45,14 @@ use super::super::backend::gpu::wrappers::{HipBuffer, HipStream};
 use super::super::core::gguf::GGUFFile;
 use super::super::core::model_loader::LoadedModel;
 use super::super::core::tensor_info::{GgmlType, TensorRole};
-use super::super::ir::interpreter::dequant_block;
+use super::super::ga::dynamic::DynamicKernel;
 use super::super::ir::formats::{q4_0, q4_k, q6_k, q8_0};
+use super::super::ir::interpreter::dequant_block;
+use super::super::runtime::{KernelId, OpType, Runtime, ShapeKey, VariantId};
 use super::buffer_plan::{BufferPlan, KvCacheLayout};
 use super::nodes::{BufferId, GraphNode, WeightRef};
 use super::ComputationGraph;
-use super::super::runtime::{KernelId, OpType, Runtime, ShapeKey, VariantId};
+use std::sync::Arc;
 
 /// Executor state: owns the graph, a reference to the loaded model
 /// (weights + arena), one device buffer per BufferId, one FP32 K and V
@@ -95,6 +97,30 @@ pub struct GraphExecutor<'m> {
     /// Bandit-convergence (`runtime.all_exploiting() == true`) we
     /// skip event recording entirely.
     event_pool: Option<super::super::runtime::EventPool>,
+
+    /// GA-tuned `gate_up_swiglu` kernel (Phase 2 step 2.1.3 Block D).
+    /// When present and the node shape matches the hook's expected
+    /// `(ffn_dim, hidden_dim)`, `dispatch_gate_up_swiglu` uses this
+    /// dynamic kernel instead of the static
+    /// `rocmforge_launch_gemv_q4_k_gate_up_swiglu` launcher.
+    /// The static launcher remains the fallback — every FFN node
+    /// whose shape doesn't match still takes the Phase-1 path.
+    gate_up_dynamic: Option<DynamicGateUpHook>,
+}
+
+/// One GA-compiled dynamic kernel bound to a specific
+/// gate_up_swiglu shape. Held `Arc` so the same compiled module can
+/// be shared across executors when a GA winner applies to multiple
+/// models at runtime.
+pub struct DynamicGateUpHook {
+    /// GA-compiled kernel — unloaded when the `Arc` drops to zero.
+    pub kernel: Arc<DynamicKernel>,
+    /// Model's `hidden_dim` the kernel was tuned for (the K-dim of
+    /// the GEMV). A node whose `hidden_dim` ≠ this is rejected —
+    /// grid-X math bakes both dims into the launch geometry.
+    pub hidden_dim: usize,
+    /// Model's `ffn_dim` the kernel was tuned for (the N-dim).
+    pub ffn_dim: usize,
 }
 
 impl<'m> GraphExecutor<'m> {
@@ -156,11 +182,8 @@ impl<'m> GraphExecutor<'m> {
                 let mut buf = HipBuffer::new(bytes.len())?;
                 buf.copy_from_host(bytes)?;
                 let _ = (&graph, &plan); // silence unused-warning in this branch
-                let trace =
-                    std::env::var("ROCMFORGE_TRACE").ok().as_deref() == Some("1");
-                let nan_guard =
-                    std::env::var("ROCMFORGE_NAN_GUARD").ok().as_deref()
-                        == Some("1");
+                let trace = std::env::var("ROCMFORGE_TRACE").ok().as_deref() == Some("1");
+                let nan_guard = std::env::var("ROCMFORGE_NAN_GUARD").ok().as_deref() == Some("1");
                 return Ok(Self {
                     graph,
                     plan,
@@ -175,14 +198,13 @@ impl<'m> GraphExecutor<'m> {
                     nan_guard,
                     runtime: None,
                     event_pool: None,
+                    gate_up_dynamic: None,
                 });
             }
             other => {
                 return Err(HipError {
                     code: -1,
-                    message: format!(
-                        "embedding table format {other} not supported in Phase 1"
-                    ),
+                    message: format!("embedding table format {other} not supported in Phase 1"),
                     context: "executor init".into(),
                 })
             }
@@ -207,13 +229,13 @@ impl<'m> GraphExecutor<'m> {
         for row in 0..vocab {
             for blk in 0..blocks_per_row {
                 let offset = (row * blocks_per_row + blk) * bb;
-                let block_bytes = gguf
-                    .tensor_data(embed_tensor, offset + bb)
-                    .map_err(|e| HipError {
-                        code: -1,
-                        message: format!("tensor_data: {e}"),
-                        context: "embed block".into(),
-                    })?;
+                let block_bytes =
+                    gguf.tensor_data(embed_tensor, offset + bb)
+                        .map_err(|e| HipError {
+                            code: -1,
+                            message: format!("tensor_data: {e}"),
+                            context: "embed block".into(),
+                        })?;
                 let block = &block_bytes[offset..offset + bb];
                 let elems = dequant_block(&fmt, block).map_err(|e| HipError {
                     code: -1,
@@ -225,10 +247,7 @@ impl<'m> GraphExecutor<'m> {
         }
         let mut embedding_fp32 = HipBuffer::new(fp32_table.len() * 4)?;
         let bytes = unsafe {
-            std::slice::from_raw_parts(
-                fp32_table.as_ptr() as *const u8,
-                fp32_table.len() * 4,
-            )
+            std::slice::from_raw_parts(fp32_table.as_ptr() as *const u8, fp32_table.len() * 4)
         };
         embedding_fp32.copy_from_host(bytes)?;
 
@@ -249,7 +268,26 @@ impl<'m> GraphExecutor<'m> {
             nan_guard,
             runtime: None,
             event_pool: None,
+            gate_up_dynamic: None,
         })
+    }
+
+    /// Install a GA-compiled dynamic kernel for `gate_up_swiglu`
+    /// (Phase 2 step 2.1.3 Block D). The kernel is only used when a
+    /// graph node's `(hidden_dim, ffn_dim)` matches `hidden_dim` and
+    /// `ffn_dim` here — the grid math bakes both dimensions in, so a
+    /// shape-mismatched dispatch would produce wrong results.
+    ///
+    /// Passing `None` clears the hook; the executor reverts to the
+    /// static Phase-1 launcher.
+    pub fn set_gate_up_swiglu_dynamic_kernel(&mut self, hook: Option<DynamicGateUpHook>) {
+        self.gate_up_dynamic = hook;
+    }
+
+    /// Read-only view on the currently installed GA-tuned kernel, if
+    /// any. Tests use this to verify that `set_*` wired correctly.
+    pub fn gate_up_swiglu_dynamic_kernel(&self) -> Option<&DynamicGateUpHook> {
+        self.gate_up_dynamic.as_ref()
     }
 
     /// Attach a Self-Tuning Runtime. The executor then routes all
@@ -259,12 +297,17 @@ impl<'m> GraphExecutor<'m> {
     pub fn attach_runtime(&mut self, mut runtime: Runtime) {
         for node in &self.graph.nodes {
             if let GraphNode::Gemm {
-                weight, out_dim, in_dim, ..
+                weight,
+                out_dim,
+                in_dim,
+                ..
             } = node
             {
-                runtime
-                    .registry
-                    .register_gemv_shape(weight.format, *out_dim as u32, *in_dim as u32);
+                runtime.registry.register_gemv_shape(
+                    weight.format,
+                    *out_dim as u32,
+                    *in_dim as u32,
+                );
             }
         }
         // Rebuild the Bandit map so the shapes we just registered get
@@ -305,8 +348,7 @@ impl<'m> GraphExecutor<'m> {
     /// Caller must also reset its own position counter to 0 — this
     /// method just zero-fills the cache buffers.
     pub fn reset_kv_cache(&mut self) -> HipResult<()> {
-        let per_cache_bytes =
-            self.kv_layout.num_kv_heads * self.kv_layout.head_stride * 4;
+        let per_cache_bytes = self.kv_layout.num_kv_heads * self.kv_layout.head_stride * 4;
         let zeros = vec![0u8; per_cache_bytes];
         for buf in &mut self.k_cache {
             buf.copy_from_host(&zeros)?;
@@ -365,11 +407,7 @@ impl<'m> GraphExecutor<'m> {
     /// `token_ids[..]`, then returns the logits for the *last* token.
     /// Implemented as a loop over `execute_decode` — a true
     /// WMMA-batched prefill is Phase-2.
-    pub fn execute_prefill(
-        &mut self,
-        token_ids: &[u32],
-        pos_offset: usize,
-    ) -> HipResult<Vec<f32>> {
+    pub fn execute_prefill(&mut self, token_ids: &[u32], pos_offset: usize) -> HipResult<Vec<f32>> {
         if token_ids.is_empty() {
             return Err(HipError {
                 code: -1,
@@ -394,7 +432,11 @@ impl<'m> GraphExecutor<'m> {
         // SAFETY: we don't touch `self.graph` mutably during dispatch.
         let node = unsafe { &*node };
         match node {
-            GraphNode::Embedding { table: _table, input, output } => {
+            GraphNode::Embedding {
+                table: _table,
+                input,
+                output,
+            } => {
                 // Use the pre-dequantised FP32 table prepared in `new`.
                 let table_ptr = self.embedding_fp32.as_ptr();
                 let in_ptr = self.buf_ptr(*input);
@@ -448,11 +490,24 @@ impl<'m> GraphExecutor<'m> {
                 };
                 check(rc, "rms_norm")?;
             }
-            GraphNode::Gemm { weight, input, output, out_dim, in_dim, .. } => {
+            GraphNode::Gemm {
+                weight,
+                input,
+                output,
+                out_dim,
+                in_dim,
+                ..
+            } => {
                 self.dispatch_gemv(weight, *input, *output, *out_dim, *in_dim)?;
             }
             GraphNode::Rope {
-                q_buffer, k_buffer, rope_freqs, n_heads, n_kv_heads, head_dim, theta_base,
+                q_buffer,
+                k_buffer,
+                rope_freqs,
+                n_heads,
+                n_kv_heads,
+                head_dim,
+                theta_base,
             } => {
                 let freq_ptr = rope_freqs
                     .as_ref()
@@ -487,7 +542,11 @@ impl<'m> GraphExecutor<'m> {
                 };
                 check(rc, "rope K")?;
             }
-            GraphNode::KvCacheAppend { k_buffer, v_buffer, layer_idx } => {
+            GraphNode::KvCacheAppend {
+                k_buffer,
+                v_buffer,
+                layer_idx,
+            } => {
                 let k_new = self.buf_ptr(*k_buffer);
                 let v_new = self.buf_ptr(*v_buffer);
                 let k_cache = self.k_cache[*layer_idx].as_mut_ptr();
@@ -508,7 +567,12 @@ impl<'m> GraphExecutor<'m> {
                 check(rc, "kv_cache_append")?;
             }
             GraphNode::Attention {
-                q_buffer, output, layer_idx, n_heads, n_kv_heads, head_dim,
+                q_buffer,
+                output,
+                layer_idx,
+                n_heads,
+                n_kv_heads,
+                head_dim,
             } => {
                 let q_ptr = self.buf_ptr(*q_buffer);
                 let out_ptr = self.buf_mut_ptr(*output);
@@ -547,7 +611,12 @@ impl<'m> GraphExecutor<'m> {
                 check(rc, "residual_add")?;
             }
             GraphNode::GateUpSwiGLU {
-                gate_weight, up_weight, input, output, ffn_dim, hidden_dim,
+                gate_weight,
+                up_weight,
+                input,
+                output,
+                ffn_dim,
+                hidden_dim,
             } => {
                 self.dispatch_gate_up_swiglu(
                     gate_weight,
@@ -558,7 +627,11 @@ impl<'m> GraphExecutor<'m> {
                     *hidden_dim,
                 )?;
             }
-            GraphNode::SwiGLU { gate_buffer, up_buffer, output } => {
+            GraphNode::SwiGLU {
+                gate_buffer,
+                up_buffer,
+                output,
+            } => {
                 let g_ptr = self.buf_ptr(*gate_buffer);
                 let u_ptr = self.buf_ptr(*up_buffer);
                 let o_ptr = self.buf_mut_ptr(*output);
@@ -584,9 +657,7 @@ impl<'m> GraphExecutor<'m> {
                 // Saves one dispatch + one VRAM round-trip vs. the
                 // unfused `Gemm → ResidualAdd` pair. See
                 // `hip_kernels_v1/gemv/gemv_q4_k_q8_inline_residual.hip`.
-                self.dispatch_fused_gemm_residual(
-                    weight, *input, *residual, *out_dim, *in_dim,
-                )?;
+                self.dispatch_fused_gemm_residual(weight, *input, *residual, *out_dim, *in_dim)?;
             }
         }
         // No per-node stream sync: HIP guarantees in-order
@@ -714,11 +785,13 @@ impl<'m> GraphExecutor<'m> {
             message: format!("no variant registered for {shape:?}"),
             context: "dispatch_gemv_tuned".into(),
         })?;
-        let kernel = runtime.kernel_for(&shape, variant_id).ok_or_else(|| HipError {
-            code: -1,
-            message: format!("variant {variant_id:?} has no kernel for {shape:?}"),
-            context: "dispatch_gemv_tuned".into(),
-        })?;
+        let kernel = runtime
+            .kernel_for(&shape, variant_id)
+            .ok_or_else(|| HipError {
+                code: -1,
+                message: format!("variant {variant_id:?} has no kernel for {shape:?}"),
+                context: "dispatch_gemv_tuned".into(),
+            })?;
 
         // Only record events while the Bandit is still learning the
         // shape's optimum. After convergence the arms stop moving
@@ -875,6 +948,46 @@ impl<'m> GraphExecutor<'m> {
         // allocating fresh `HipBuffer`s. This path is slower but fully
         // correct and exercises the SwiGLU kernel we added this block.
         if gate_weight.format == GgmlType::Q4_K && up_weight.format == GgmlType::Q4_K {
+            // Block D: if a GA-tuned dynamic kernel is installed for
+            // this exact shape, dispatch through it instead of the
+            // static Phase-1 launcher. Mismatched shapes fall through
+            // to the static path — the grid math depends on both
+            // dimensions, so using the wrong kernel would silently
+            // corrupt the output.
+            let use_dynamic = self
+                .gate_up_dynamic
+                .as_ref()
+                .map(|h| h.hidden_dim == hidden_dim && h.ffn_dim == ffn_dim)
+                .unwrap_or(false);
+            if use_dynamic {
+                let gate_ptr = self.weight_ptr(gate_weight);
+                let up_ptr = self.weight_ptr(up_weight);
+                let in_ptr = self.buf_ptr(input);
+                let out_ptr = self.buf_mut_ptr(output);
+                let stream_raw = self.stream.raw();
+                // Clone the Arc<DynamicKernel> to drop the borrow on
+                // self before mutably-borrowing to launch. Arc-clone
+                // is a ref-count bump, no heap work.
+                let kernel = self
+                    .gate_up_dynamic
+                    .as_ref()
+                    .expect("checked above")
+                    .kernel
+                    .clone();
+                unsafe {
+                    kernel.launch_gate_up_swiglu_raw(
+                        gate_ptr,
+                        up_ptr,
+                        in_ptr,
+                        out_ptr,
+                        hidden_dim as i32,
+                        ffn_dim as i32,
+                        stream_raw,
+                    )
+                }?;
+                return Ok(());
+            }
+
             let gate_ptr = self.weight_ptr(gate_weight);
             let up_ptr = self.weight_ptr(up_weight);
             let in_ptr = self.buf_ptr(input);
@@ -1069,18 +1182,14 @@ impl<'m> GraphExecutor<'m> {
             let outs = n.outputs();
             (n.kind(), outs.first().copied())
         };
-        let Some(out_id) = out_buf else { return Ok(()); };
+        let Some(out_id) = out_buf else {
+            return Ok(());
+        };
         let elems = self.plan.specs[&out_id].elem_count;
         let sample = self.read_buffer(out_id, elems)?;
         let (min, max, any_nan) = sample.iter().fold(
             (f32::INFINITY, f32::NEG_INFINITY, false),
-            |(mn, mx, nan), &v| {
-                (
-                    mn.min(v),
-                    mx.max(v),
-                    nan | !v.is_finite(),
-                )
-            },
+            |(mn, mx, nan), &v| (mn.min(v), mx.max(v), nan | !v.is_finite()),
         );
         if self.trace {
             eprintln!(

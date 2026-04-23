@@ -312,6 +312,17 @@ name = "v1_ga_block_c_test"
 path = "tests_v1/ga_block_c_test.rs"
 required-features = ["v1", "gpu"]
 
+# v1.0 Phase-2 Schritt 2.1.3 Block D — 2-D GA + Executor-integration.
+# Mini-GA (Pop 12, Gen 8, Seed 42) over (num_waves, multi_row_cols)
+# on the gate_up_swiglu GEMV (K=4096, N=14336 real bench shape).
+# Adds DynamicGateUpHook for the graph executor and an end-to-end
+# decode test (ROCMFORGE_RUN_REAL_MODEL_GPU_TESTS=1 + Qwen3-8B-Q4_K_M
+# GGUF at ~/models).
+[[test]]
+name = "v1_ga_block_d_test"
+path = "tests_v1/ga_block_d_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

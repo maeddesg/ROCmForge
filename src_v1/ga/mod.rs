@@ -22,6 +22,8 @@
 
 #[cfg(feature = "gpu")]
 pub mod block_c;
+#[cfg(feature = "gpu")]
+pub mod block_d;
 pub mod compile;
 #[cfg(feature = "gpu")]
 pub mod dynamic;
@@ -46,6 +48,12 @@ pub use block_c::{
     bench_dynamic_gate_up, block_c_default_config, fixed_genome, parity_dynamic_gate_up,
     random_num_waves_only, stability_dynamic_gate_up, BlockCCandidate, BlockCResult, BlockCWinner,
     DynamicKernelCache, DynamicStabilityResult, BLOCK_C_NUM_WAVES_VALUES,
+};
+#[cfg(feature = "gpu")]
+pub use block_d::{
+    block_d_default_config, make_gate_up_hook, random_block_d_genome, BlockDCandidate,
+    BlockDGenome, BlockDResult, BlockDWinner, DynamicKernelCache2D, BLOCK_D_MULTI_ROW_COLS_VALUES,
+    BLOCK_D_NUM_WAVES_VALUES,
 };
 pub use engine::{GaConfig, GaResult, GenerationResults, KernelGa, KernelGenomeScored};
 pub use fitness::{evaluate_toy_fitness, FitnessResult};

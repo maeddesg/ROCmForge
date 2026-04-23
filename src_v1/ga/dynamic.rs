@@ -29,13 +29,20 @@ pub struct GateUpSwigluGeometry {
 
 impl GateUpSwigluGeometry {
     /// Values baked into the Block-B parametric kernel. `num_waves`
-    /// varies per GA candidate; everything else is fixed for now
-    /// (these dimensions move into the parametric axis in later
-    /// blocks).
+    /// varies per GA candidate; `multi_row_cols` defaults to 4.
+    /// Kept as a thin wrapper over [`for_config`] for Block C call
+    /// sites.
     pub fn for_num_waves(num_waves: u32) -> Self {
+        Self::for_config(num_waves, 4)
+    }
+
+    /// Block D: both axes parametric. Allows any `num_waves` +
+    /// `multi_row_cols` combination the sanitiser blessed. The
+    /// warp size is fixed at 32 (gfx1201).
+    pub fn for_config(num_waves: u32, multi_row_cols: u32) -> Self {
         Self {
             num_waves,
-            multi_row_cols: 4,
+            multi_row_cols,
             warp_size: 32,
         }
     }
@@ -121,6 +128,43 @@ impl DynamicKernel {
         ncols_dst: i32,
         stream: &HipStream,
     ) -> HipResult<()> {
+        unsafe {
+            self.launch_gate_up_swiglu_raw(
+                weights_gate.as_ptr(),
+                weights_up.as_ptr(),
+                input.as_ptr(),
+                swiglu_out.as_mut_ptr(),
+                n_rows,
+                ncols_dst,
+                stream.raw(),
+            )
+        }
+    }
+
+    /// Raw-pointer variant of [`launch_gate_up_swiglu`] for call
+    /// sites that hold device pointers directly rather than
+    /// `HipBuffer` refs (e.g. the `GraphExecutor`, which manages
+    /// per-BufferId `HipBuffer`s and passes raw pointers around
+    /// during dispatch).
+    ///
+    /// # Safety
+    /// All four pointer arguments must reference valid device memory
+    /// of at least the sizes the kernel expects:
+    ///   * `weights_gate` / `weights_up`: `ncols_dst * (n_rows / 256) * 144` bytes
+    ///   * `input`: `n_rows * 4` bytes
+    ///   * `swiglu_out`: `ncols_dst * 4` bytes
+    /// The `stream` must outlive the kernel launch (callers should
+    /// sync or wait on the stream before freeing it).
+    pub unsafe fn launch_gate_up_swiglu_raw(
+        &self,
+        weights_gate: *const c_void,
+        weights_up: *const c_void,
+        input: *const c_void,
+        swiglu_out: *mut c_void,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: crate::v1::backend::gpu::hip_ffi::hipStream_t,
+    ) -> HipResult<()> {
         let func = self.function()?;
 
         // Argument addresses — `hipModuleLaunchKernel` expects an
@@ -130,10 +174,10 @@ impl DynamicKernel {
         //
         // The kernel sees the args by copy (pass-by-value), but the
         // `kernelParams` array needs `&arg` for each arg.
-        let gate_ptr = weights_gate.as_ptr();
-        let up_ptr = weights_up.as_ptr();
-        let in_ptr = input.as_ptr();
-        let out_ptr = swiglu_out.as_mut_ptr();
+        let gate_ptr = weights_gate;
+        let up_ptr = weights_up;
+        let in_ptr = input;
+        let out_ptr = swiglu_out;
 
         let mut args: [*mut c_void; 6] = [
             &gate_ptr as *const _ as *mut c_void,
@@ -148,6 +192,6 @@ impl DynamicKernel {
         let block = (self.geometry.threads_per_block(), 1u32, 1u32);
         let shared = self.geometry.shared_mem_bytes(n_rows as u32);
 
-        func.launch(grid, block, shared, stream, &mut args)
+        func.launch_raw(grid, block, shared, stream, &mut args)
     }
 }
