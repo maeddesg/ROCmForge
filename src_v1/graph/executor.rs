@@ -137,6 +137,47 @@ pub struct GraphExecutor<'m> {
     /// var at construction; tests can flip it via
     /// `set_fused_gate_up`.
     fused_gate_up: bool,
+
+    /// Flat `BufferId → device pointer` lookup for the decode hot
+    /// path. Populated once at the end of `new()`; HipBuffer device
+    /// pointers don't move for the lifetime of the buffer (hipMalloc
+    /// returns a stable VA), so caching is safe. Indexed by
+    /// `BufferId.0 as usize`. Entries for ids the plan doesn't
+    /// mention stay `null`. Replaces the `self.buffers[&id]`
+    /// HashMap lookup on every node dispatch.
+    buffer_ptrs: Vec<*mut c_void>,
+
+    /// Per-graph-node cache of resolved weight pointers and the
+    /// Bandit-committed kernel choice. Populated lazily by
+    /// `compile_fast_dispatch()` once `runtime.all_exploiting()`
+    /// holds — i.e. once the Bandit has stopped flipping its
+    /// selections. `None` → legacy path (HashMap lookups + Bandit
+    /// query per call).
+    ///
+    /// Indexed by `node_idx`; length == `graph.nodes.len()` when
+    /// populated. Invalidated (set to `None`) whenever a config
+    /// field that would change the dispatched kernel changes —
+    /// `set_gate_up_swiglu_dynamic_kernel`, `set_fused_gate_up`.
+    node_fast_cache: Option<Vec<NodeFastEntry>>,
+}
+
+/// Per-node cache entry for the fast dispatch path. All pointers
+/// resolved once; the hot-path dispatch just reads them directly.
+#[derive(Debug, Clone, Copy)]
+struct NodeFastEntry {
+    /// Primary weight ptr (Gemm.weight, RmsNorm.weight,
+    /// FusedGemmResidual.weight, GateUpSwiGLU.gate_weight).
+    /// `null` when the node has no weight.
+    weight_primary: *const c_void,
+    /// Secondary weight ptr — GateUpSwiGLU.up_weight only.
+    /// `null` otherwise.
+    weight_secondary: *const c_void,
+    /// RoPE-freqs pointer for Rope nodes (optional). `null` when
+    /// using standard RoPE.
+    rope_freqs: *const c_void,
+    /// Bandit-committed kernel for Gemm / FusedGemmResidual nodes.
+    /// `None` → fall back to the runtime's dynamic select_variant.
+    committed_kernel: Option<KernelId>,
 }
 
 /// Precision of the WMMA kernel dispatched during batched prefill.
@@ -240,6 +281,7 @@ impl<'m> GraphExecutor<'m> {
                 let _ = (&graph, &plan); // silence unused-warning in this branch
                 let trace = std::env::var("ROCMFORGE_TRACE").ok().as_deref() == Some("1");
                 let nan_guard = std::env::var("ROCMFORGE_NAN_GUARD").ok().as_deref() == Some("1");
+                let buffer_ptrs = build_buffer_ptrs_cache(&buffers);
                 return Ok(Self {
                     graph,
                     plan,
@@ -260,6 +302,8 @@ impl<'m> GraphExecutor<'m> {
                     up_scratch: None,
                     fused_gate_up: std::env::var("ROCMFORGE_FUSED_GATE_UP").ok().as_deref()
                         == Some("1"),
+                    buffer_ptrs,
+                    node_fast_cache: None,
                 });
             }
             other => {
@@ -314,6 +358,7 @@ impl<'m> GraphExecutor<'m> {
 
         let trace = std::env::var("ROCMFORGE_TRACE").ok().as_deref() == Some("1");
         let nan_guard = std::env::var("ROCMFORGE_NAN_GUARD").ok().as_deref() == Some("1");
+        let buffer_ptrs = build_buffer_ptrs_cache(&buffers);
 
         Ok(Self {
             graph,
@@ -334,6 +379,8 @@ impl<'m> GraphExecutor<'m> {
             gate_scratch: None,
             up_scratch: None,
             fused_gate_up: std::env::var("ROCMFORGE_FUSED_GATE_UP").ok().as_deref() == Some("1"),
+            buffer_ptrs,
+            node_fast_cache: None,
         })
     }
 
@@ -342,10 +389,75 @@ impl<'m> GraphExecutor<'m> {
     /// follow-up is the un-fused path.
     pub fn set_fused_gate_up(&mut self, fused: bool) {
         self.fused_gate_up = fused;
+        self.invalidate_fast_dispatch();
     }
 
     pub fn fused_gate_up(&self) -> bool {
         self.fused_gate_up
+    }
+
+    /// Drop the per-node fast-dispatch cache. Called whenever a
+    /// config field that influences kernel selection changes
+    /// (`fused_gate_up`, `gate_up_dynamic`). After the next
+    /// `execute_decode`, if the Bandit has converged the cache is
+    /// rebuilt.
+    fn invalidate_fast_dispatch(&mut self) {
+        self.node_fast_cache = None;
+    }
+
+    /// Build the per-node fast-dispatch cache. Called lazily at
+    /// `execute_decode` entry once the Bandit has committed on
+    /// every registered shape. Caches:
+    ///   * `committed_kernel`: the `KernelId` the Bandit currently
+    ///     exploits for this Gemm/FusedGemmResidual node — eliminates
+    ///     two HashMap lookups per Gemm dispatch.
+    ///   * `weight_primary` / `weight_secondary` / `rope_freqs`:
+    ///     reserved for a future per-node weight pointer cache.
+    ///     Populated as null here; a follow-up pass will wire them
+    ///     through the dispatch match arms.
+    ///
+    /// Returns `Ok(true)` when the cache was built; `Ok(false)` when
+    /// the Bandit isn't ready yet (legacy path stays active).
+    fn compile_fast_dispatch(&mut self) -> HipResult<bool> {
+        if std::env::var("ROCMFORGE_LEGACY_DISPATCH").ok().as_deref() == Some("1") {
+            return Ok(false);
+        }
+        let runtime = match self.runtime.as_ref() {
+            Some(r) if r.all_exploiting() => r,
+            _ => return Ok(false),
+        };
+
+        let mut cache: Vec<NodeFastEntry> = Vec::with_capacity(self.graph.nodes.len());
+        for node in &self.graph.nodes {
+            let mut entry = NodeFastEntry {
+                weight_primary: std::ptr::null(),
+                weight_secondary: std::ptr::null(),
+                rope_freqs: std::ptr::null(),
+                committed_kernel: None,
+            };
+            if let GraphNode::Gemm {
+                weight,
+                out_dim,
+                in_dim,
+                ..
+            } = node
+            {
+                let shape = ShapeKey {
+                    op_type: OpType::Gemv,
+                    format: weight.format,
+                    n: *out_dim as u32,
+                    k: *in_dim as u32,
+                };
+                if let Some(variant_id) = runtime.select_variant(&shape) {
+                    if let Some(kernel) = runtime.kernel_for(&shape, variant_id) {
+                        entry.committed_kernel = Some(kernel);
+                    }
+                }
+            }
+            cache.push(entry);
+        }
+        self.node_fast_cache = Some(cache);
+        Ok(true)
     }
 
     /// Override the prefill WMMA precision at runtime. Tests use
@@ -370,6 +482,7 @@ impl<'m> GraphExecutor<'m> {
     /// static Phase-1 launcher.
     pub fn set_gate_up_swiglu_dynamic_kernel(&mut self, hook: Option<DynamicGateUpHook>) {
         self.gate_up_dynamic = hook;
+        self.invalidate_fast_dispatch();
     }
 
     /// Read-only view on the currently installed GA-tuned kernel, if
@@ -456,6 +569,14 @@ impl<'m> GraphExecutor<'m> {
             .get_mut(&self.graph.token_ids_buffer)
             .expect("token-ids buffer missing")
             .copy_from_host(&tok_bytes)?;
+
+        // Lazy fast-dispatch cache build. Once the Bandit has
+        // converged on every shape, cache the committed KernelId
+        // per Gemm node so the hot path skips two HashMap lookups
+        // per Gemm launch (runtime.select_variant + kernel_for).
+        if self.node_fast_cache.is_none() {
+            let _ = self.compile_fast_dispatch()?;
+        }
 
         // Walk the graph.
         // Iterate over indexes so we can mutably borrow `self.buffers`
@@ -645,7 +766,7 @@ impl<'m> GraphExecutor<'m> {
                 in_dim,
                 ..
             } => {
-                self.dispatch_gemv(weight, *input, *output, *out_dim, *in_dim)?;
+                self.dispatch_gemv(weight, *input, *output, *out_dim, *in_dim, Some(node_idx))?;
             }
             GraphNode::Rope {
                 q_buffer,
@@ -827,6 +948,7 @@ impl<'m> GraphExecutor<'m> {
         output: BufferId,
         out_dim: usize,
         in_dim: usize,
+        node_idx: Option<usize>,
     ) -> HipResult<()> {
         // Path 1 — Bandit attached: ask which kernel to launch,
         // time the launch + sync, and feed the time back. The Bandit
@@ -834,7 +956,7 @@ impl<'m> GraphExecutor<'m> {
         // replaces this with HIP-event timing batched at token end
         // so the extra sync goes away.
         if self.runtime.is_some() {
-            return self.dispatch_gemv_tuned(weight, input, output, out_dim, in_dim);
+            return self.dispatch_gemv_tuned(weight, input, output, out_dim, in_dim, node_idx);
         }
 
         // Path 2 — no Bandit: straight to the fixed `_standard`
@@ -916,35 +1038,59 @@ impl<'m> GraphExecutor<'m> {
         output: BufferId,
         out_dim: usize,
         in_dim: usize,
+        node_idx: Option<usize>,
     ) -> HipResult<()> {
-        let shape = ShapeKey {
-            op_type: OpType::Gemv,
-            format: weight.format,
-            n: out_dim as u32,
-            k: in_dim as u32,
-        };
-        let runtime = self
-            .runtime
-            .as_ref()
-            .expect("dispatch_gemv_tuned requires an attached runtime");
-        let variant_id = runtime.select_variant(&shape).ok_or_else(|| HipError {
-            code: -1,
-            message: format!("no variant registered for {shape:?}"),
-            context: "dispatch_gemv_tuned".into(),
-        })?;
-        let kernel = runtime
-            .kernel_for(&shape, variant_id)
-            .ok_or_else(|| HipError {
-                code: -1,
-                message: format!("variant {variant_id:?} has no kernel for {shape:?}"),
-                context: "dispatch_gemv_tuned".into(),
-            })?;
-
-        // Only record events while the Bandit is still learning the
-        // shape's optimum. After convergence the arms stop moving
-        // and new measurements add no information — skipping them
-        // lets the GPU run without any CPU-visible interruption.
-        let want_timing = !runtime.all_exploiting();
+        // Fast path: if the per-node fast-dispatch cache is built
+        // (which only happens once the Bandit has committed on
+        // every shape), we can use the pre-resolved KernelId and
+        // skip the two HashMap lookups + the all_exploiting() check
+        // the legacy path does. ShapeKey / variant_id are also
+        // unused in this branch; bandit lifetime-state is stable.
+        let cached_kernel = node_idx
+            .and_then(|idx| {
+                self.node_fast_cache
+                    .as_ref()
+                    .map(|c| c[idx].committed_kernel)
+            })
+            .flatten();
+        // Fall back to the legacy runtime query when no cache is
+        // available (Bandit still exploring, or hot-path was
+        // invalidated by a setter).
+        let (kernel, want_timing, shape_for_timing, variant_for_timing) =
+            if let Some(k) = cached_kernel {
+                // Cache is only populated when runtime.all_exploiting()
+                // holds → no timing is needed here by definition.
+                (k, false, None, None)
+            } else {
+                let shape = ShapeKey {
+                    op_type: OpType::Gemv,
+                    format: weight.format,
+                    n: out_dim as u32,
+                    k: in_dim as u32,
+                };
+                let runtime = self
+                    .runtime
+                    .as_ref()
+                    .expect("dispatch_gemv_tuned requires an attached runtime");
+                let variant_id = runtime.select_variant(&shape).ok_or_else(|| HipError {
+                    code: -1,
+                    message: format!("no variant registered for {shape:?}"),
+                    context: "dispatch_gemv_tuned".into(),
+                })?;
+                let kernel = runtime
+                    .kernel_for(&shape, variant_id)
+                    .ok_or_else(|| HipError {
+                        code: -1,
+                        message: format!("variant {variant_id:?} has no kernel for {shape:?}"),
+                        context: "dispatch_gemv_tuned".into(),
+                    })?;
+                // Only record events while the Bandit is still learning the
+                // shape's optimum. After convergence the arms stop moving
+                // and new measurements add no information — skipping them
+                // lets the GPU run without any CPU-visible interruption.
+                let want_timing = !runtime.all_exploiting();
+                (kernel, want_timing, Some(shape), Some(variant_id))
+            };
 
         let w_ptr = self.weight_ptr(weight);
         let in_ptr = self.buf_ptr(input);
@@ -952,6 +1098,20 @@ impl<'m> GraphExecutor<'m> {
         let stream_raw = self.stream.raw();
 
         let pair_idx = if want_timing {
+            // `shape_for_timing` and `variant_for_timing` are populated
+            // together with `want_timing = true` in the legacy path
+            // above; unwrap is safe because the fast path sets
+            // want_timing=false.
+            let (shape, variant_id) = match (shape_for_timing, variant_for_timing) {
+                (Some(s), Some(v)) => (s, v),
+                _ => {
+                    return Err(HipError {
+                        code: -1,
+                        message: "timing requested without shape/variant".into(),
+                        context: "dispatch_gemv_tuned".into(),
+                    })
+                }
+            };
             if let Some(pool) = self.event_pool.as_mut() {
                 pool.record_start(&self.stream, shape, variant_id)?
             } else {
@@ -1352,11 +1512,26 @@ impl<'m> GraphExecutor<'m> {
     // Helpers -----------------------------------------------------------
 
     fn buf_ptr(&self, id: BufferId) -> *const c_void {
-        self.buffers[&id].as_ptr()
+        // Fast path: indexed array lookup (populated at new() time).
+        // Dispatch-optimisation follow-up 2026-04-23 — replaces the
+        // per-call HashMap lookup that cost ~100 ns × 3 buffers per
+        // node × 600 nodes = ~180 µs per decode token.
+        let idx = id.0 as usize;
+        debug_assert!(
+            idx < self.buffer_ptrs.len(),
+            "BufferId {idx} out of range (cache len {})",
+            self.buffer_ptrs.len()
+        );
+        // SAFETY: in-bounds (debug-asserted); entries initialised in
+        // `build_buffer_ptrs_cache`. Non-registered ids stay `null`,
+        // which a subsequent kernel launch will refuse.
+        unsafe { *self.buffer_ptrs.get_unchecked(idx) as *const c_void }
     }
 
     fn buf_mut_ptr(&mut self, id: BufferId) -> *mut c_void {
-        self.buffers.get_mut(&id).expect("buffer").as_mut_ptr()
+        let idx = id.0 as usize;
+        debug_assert!(idx < self.buffer_ptrs.len());
+        unsafe { *self.buffer_ptrs.get_unchecked(idx) }
     }
 
     fn weight_ptr(&self, w: &WeightRef) -> *const c_void {
@@ -1992,4 +2167,20 @@ impl<'m> GraphExecutor<'m> {
             context: "find_kv_buffers".into(),
         })
     }
+}
+
+/// Construct the `BufferId → *mut c_void` lookup table used by the
+/// decode hot-path. Length = max `BufferId.0` + 1 across `buffers`;
+/// entries for unregistered ids stay null. Called once after the
+/// `buffers` HashMap is populated in `new()`.
+fn build_buffer_ptrs_cache(buffers: &HashMap<BufferId, HipBuffer>) -> Vec<*mut c_void> {
+    let max_id = buffers.keys().map(|id| id.0).max().unwrap_or(0);
+    let mut cache = vec![std::ptr::null_mut::<c_void>(); (max_id as usize) + 1];
+    for (id, buf) in buffers {
+        // HipBuffer::as_ptr() returns *const c_void; the decode
+        // path casts back to *mut where needed (buf_mut_ptr).
+        // Store as *mut so the cache is uniform.
+        cache[id.0 as usize] = buf.as_ptr() as *mut c_void;
+    }
+    cache
 }

@@ -370,6 +370,15 @@ name = "v1_q6k_q8_inline_test"
 path = "tests_v1/q6k_q8_inline_test.rs"
 required-features = ["v1", "gpu"]
 
+# Dispatch-optimisation follow-up (2026-04-23).
+# O(1) BufferId -> *mut c_void array + per-node Bandit-committed
+# kernel cache. ROCMFORGE_LEGACY_DISPATCH=1 toggles back to the
+# pre-follow-up HashMap + runtime-query path for A/B regression.
+[[test]]
+name = "v1_dispatch_optimization_test"
+path = "tests_v1/dispatch_optimization_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
