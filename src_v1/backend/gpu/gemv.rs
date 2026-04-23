@@ -57,6 +57,24 @@ extern "C" {
     ) -> hipError_t;
 }
 
+#[link(name = "v1_gemv_q4_k_q8_inline_sudot4", kind = "static")]
+extern "C" {
+    /// Q4_K Q8-inline GEMV using the `v_dot4_i32_iu8`
+    /// (`__builtin_amdgcn_sudot4`) intrinsic for the inner
+    /// 4-lane integer dot product. Same shape constraints as
+    /// `rocmforge_launch_gemv_q4_k_q8_inline`; the only differences
+    /// sit in the sub-block MAC-loop which is ~8× fewer VALU
+    /// instructions per element.
+    pub fn rocmforge_launch_gemv_q4_k_q8_inline_sudot4(
+        weights: *const u8,
+        input: *const f32,
+        output: *mut f32,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
 #[link(name = "v1_gemv_q6_k_q8_inline", kind = "static")]
 extern "C" {
     /// Phase-2 Schritt 2.1.4 — Q6_K GEMV with Q8-inline activation.

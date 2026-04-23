@@ -39,8 +39,9 @@ use super::super::backend::gpu::error::{check, HipError, HipResult};
 use super::super::backend::gpu::gemv::{
     rocmforge_launch_gemv_q4_0_standard, rocmforge_launch_gemv_q4_k_gate_up_swiglu,
     rocmforge_launch_gemv_q4_k_q8_inline, rocmforge_launch_gemv_q4_k_q8_inline_residual,
-    rocmforge_launch_gemv_q4_k_standard, rocmforge_launch_gemv_q6_k_q8_inline,
-    rocmforge_launch_gemv_q6_k_standard, rocmforge_launch_gemv_q8_0_standard,
+    rocmforge_launch_gemv_q4_k_q8_inline_sudot4, rocmforge_launch_gemv_q4_k_standard,
+    rocmforge_launch_gemv_q6_k_q8_inline, rocmforge_launch_gemv_q6_k_standard,
+    rocmforge_launch_gemv_q8_0_standard,
 };
 use super::super::backend::gpu::hip_ffi::{
     hipMemcpy, hipMemcpyDeviceToDevice, hipMemcpyDeviceToHost,
@@ -1140,6 +1141,14 @@ impl<'m> GraphExecutor<'m> {
                     stream_raw,
                 ),
                 KernelId::GemvQ4KQ8Inline => rocmforge_launch_gemv_q4_k_q8_inline(
+                    w_ptr as *const u8,
+                    in_ptr as *const f32,
+                    out_ptr as *mut f32,
+                    in_dim as i32,
+                    out_dim as i32,
+                    stream_raw,
+                ),
+                KernelId::GemvQ4KQ8InlineSudot4 => rocmforge_launch_gemv_q4_k_q8_inline_sudot4(
                     w_ptr as *const u8,
                     in_ptr as *const f32,
                     out_ptr as *mut f32,

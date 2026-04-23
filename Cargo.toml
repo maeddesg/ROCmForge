@@ -379,6 +379,15 @@ name = "v1_dispatch_optimization_test"
 path = "tests_v1/dispatch_optimization_test.rs"
 required-features = ["v1", "gpu"]
 
+# Q4_K sudot4 kernel upgrade. Replaces the 32 scalar int8 MACs per
+# sub-block with 8 × `__builtin_amdgcn_sudot4` (gfx1201 v_dot4_i32_iu8).
+# Registered as a third Bandit variant for Q4_K shapes; the runtime
+# picks it if it wins the timing.
+[[test]]
+name = "v1_sudot4_kernel_test"
+path = "tests_v1/sudot4_kernel_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

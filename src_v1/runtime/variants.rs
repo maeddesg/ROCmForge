@@ -47,6 +47,10 @@ pub enum KernelId {
     GemvQ80Standard,
     // GEMV specialised paths.
     GemvQ4KQ8Inline,
+    /// Q4_K Q8-inline GEMV with the `v_dot4_i32_iu8` intrinsic
+    /// (phase-2 follow-up). Same algorithm as GemvQ4KQ8Inline but
+    /// collapses 32 MACs/sub-block into 8 sudot4 calls.
+    GemvQ4KQ8InlineSudot4,
     /// Q6_K Q8-inline GEMV (Phase 2 step 2.1.4). Second variant for
     /// Q6_K shapes so the Bandit can pick it over the standard kernel.
     GemvQ6KQ8Inline,
@@ -135,6 +139,11 @@ impl VariantRegistry {
             GgmlType::Q4_K => {
                 self.register(shape, "q4_k_standard", KernelId::GemvQ4KStandard);
                 self.register(shape, "q4_k_q8_inline", KernelId::GemvQ4KQ8Inline);
+                self.register(
+                    shape,
+                    "q4_k_q8_inline_sudot4",
+                    KernelId::GemvQ4KQ8InlineSudot4,
+                );
             }
             GgmlType::Q6_K => {
                 self.register(shape, "q6_k_standard", KernelId::GemvQ6KStandard);
