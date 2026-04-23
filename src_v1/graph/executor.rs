@@ -122,6 +122,21 @@ pub struct GraphExecutor<'m> {
     /// from Block A. Read by `dispatch_prefill_wmma_gemm`. The env
     /// var `ROCMFORGE_PREFILL_FP8=1` flips the initial default.
     prefill_precision: PrefillPrecision,
+
+    /// Decode-path scratch for the un-fused gate_up path (post-2.1.5
+    /// follow-up). Two FP32 `[ffn_dim]` buffers sized on first use.
+    /// The fused `gemv_q4_k_gate_up_swiglu` kernel hits only 20 %
+    /// BW (rocprof deep-dive 2026-04-23); splitting into 2× Q4_K
+    /// GEMV + SwiGLU lifts the BW to the 442 GB/s that the
+    /// `q4_k_q8_inline_residual` kernel already shows on the same
+    /// hardware, at the cost of 2 × `ffn_dim × 4 B` VRAM scratch.
+    /// Opt-back to the fused path via `ROCMFORGE_FUSED_GATE_UP=1`.
+    gate_scratch: Option<HipBuffer>,
+    up_scratch: Option<HipBuffer>,
+    /// Runtime toggle — mirrors the `ROCMFORGE_FUSED_GATE_UP` env
+    /// var at construction; tests can flip it via
+    /// `set_fused_gate_up`.
+    fused_gate_up: bool,
 }
 
 /// Precision of the WMMA kernel dispatched during batched prefill.
@@ -241,6 +256,10 @@ impl<'m> GraphExecutor<'m> {
                     event_pool: None,
                     gate_up_dynamic: None,
                     prefill_precision: PrefillPrecision::from_env(),
+                    gate_scratch: None,
+                    up_scratch: None,
+                    fused_gate_up: std::env::var("ROCMFORGE_FUSED_GATE_UP").ok().as_deref()
+                        == Some("1"),
                 });
             }
             other => {
@@ -312,7 +331,21 @@ impl<'m> GraphExecutor<'m> {
             event_pool: None,
             gate_up_dynamic: None,
             prefill_precision: PrefillPrecision::from_env(),
+            gate_scratch: None,
+            up_scratch: None,
+            fused_gate_up: std::env::var("ROCMFORGE_FUSED_GATE_UP").ok().as_deref() == Some("1"),
         })
+    }
+
+    /// Force the fused (pre-un-fusing) `gate_up_swiglu` kernel. Used
+    /// by the A/B-regression tests; the default after the post-2.1.5
+    /// follow-up is the un-fused path.
+    pub fn set_fused_gate_up(&mut self, fused: bool) {
+        self.fused_gate_up = fused;
+    }
+
+    pub fn fused_gate_up(&self) -> bool {
+        self.fused_gate_up
     }
 
     /// Override the prefill WMMA precision at runtime. Tests use
@@ -1102,27 +1135,106 @@ impl<'m> GraphExecutor<'m> {
                 return Ok(());
             }
 
-            let gate_ptr = self.weight_ptr(gate_weight);
-            let up_ptr = self.weight_ptr(up_weight);
-            let in_ptr = self.buf_ptr(input);
-            let out_ptr = self.buf_mut_ptr(output);
-            // NOTE: the fused Q4_K gate+up+swiglu kernel outputs
-            // `ffn_dim` values for the swiglu mid-activation (actually
-            // `ffn_dim` is our "N" there — it's the output column
-            // count). That matches the `ffn_mid` buffer sizing in the
-            // planner.
+            // ── Fused path (legacy) ──────────────────────────────
+            // The fused `gemv_q4_k_gate_up_swiglu` kernel hits only
+            // 20 % of the 640 GB/s peak BW on gfx1201 (rocprof
+            // deep-dive 2026-04-23, 65 % of decode time sits here).
+            // Ship as opt-in via ROCMFORGE_FUSED_GATE_UP=1 for A/B.
+            if self.fused_gate_up {
+                let gate_ptr = self.weight_ptr(gate_weight);
+                let up_ptr = self.weight_ptr(up_weight);
+                let in_ptr = self.buf_ptr(input);
+                let out_ptr = self.buf_mut_ptr(output);
+                let rc = unsafe {
+                    rocmforge_launch_gemv_q4_k_gate_up_swiglu(
+                        gate_ptr as *const u8,
+                        up_ptr as *const u8,
+                        in_ptr as *const f32,
+                        out_ptr as *mut f32,
+                        hidden_dim as i32,
+                        ffn_dim as i32,
+                        self.stream.raw(),
+                    )
+                };
+                check(rc, "gemv_q4_k_gate_up_swiglu")?;
+                return Ok(());
+            }
+
+            // ── Un-fused path (default post-2.1.5 follow-up) ─────
+            // 2× q4_k_q8_inline + 1× swiglu. The standalone
+            // q4_k_q8_inline_residual kernel already runs at
+            // 442 GB/s (69 % of peak) on similar shapes, so
+            // splitting recovers ~3× on the hottest decode kernel
+            // at the cost of 2 × ffn_dim × 4 B VRAM scratch.
+
+            // Ensure scratch buffers exist at this ffn_dim. Lazy
+            // alloc because the graph-build ffn_dim is constant
+            // for a given model — allocate once, reuse for every
+            // layer for every token.
+            let scratch_bytes = ffn_dim * 4;
+            let need_alloc = self
+                .gate_scratch
+                .as_ref()
+                .map(|b| b.size() < scratch_bytes)
+                .unwrap_or(true);
+            if need_alloc {
+                self.gate_scratch = Some(HipBuffer::new(scratch_bytes)?);
+                self.up_scratch = Some(HipBuffer::new(scratch_bytes)?);
+            }
+
+            let gate_w_ptr = self.weight_ptr(gate_weight) as *const u8;
+            let up_w_ptr = self.weight_ptr(up_weight) as *const u8;
+            let in_ptr = self.buf_ptr(input) as *const f32;
+            let out_ptr = self.buf_mut_ptr(output) as *mut f32;
+            let gate_scratch_ptr = self
+                .gate_scratch
+                .as_mut()
+                .expect("gate scratch alloc'd")
+                .as_mut_ptr() as *mut f32;
+            let up_scratch_ptr = self
+                .up_scratch
+                .as_mut()
+                .expect("up scratch alloc'd")
+                .as_mut_ptr() as *mut f32;
+            let stream_raw = self.stream.raw();
+
+            // 1. Gate projection
             let rc = unsafe {
-                rocmforge_launch_gemv_q4_k_gate_up_swiglu(
-                    gate_ptr as *const u8,
-                    up_ptr as *const u8,
-                    in_ptr as *const f32,
-                    out_ptr as *mut f32,
+                rocmforge_launch_gemv_q4_k_q8_inline(
+                    gate_w_ptr,
+                    in_ptr,
+                    gate_scratch_ptr,
                     hidden_dim as i32,
                     ffn_dim as i32,
-                    self.stream.raw(),
+                    stream_raw,
                 )
             };
-            check(rc, "gemv_q4_k_gate_up_swiglu")?;
+            check(rc, "unfused gate_up: gate GEMV")?;
+
+            // 2. Up projection
+            let rc = unsafe {
+                rocmforge_launch_gemv_q4_k_q8_inline(
+                    up_w_ptr,
+                    in_ptr,
+                    up_scratch_ptr,
+                    hidden_dim as i32,
+                    ffn_dim as i32,
+                    stream_raw,
+                )
+            };
+            check(rc, "unfused gate_up: up GEMV")?;
+
+            // 3. SwiGLU — silu(gate) * up → output
+            let rc = unsafe {
+                rocmforge_launch_swiglu(
+                    gate_scratch_ptr as *const f32,
+                    up_scratch_ptr as *const f32,
+                    out_ptr,
+                    ffn_dim as i32,
+                    stream_raw,
+                )
+            };
+            check(rc, "unfused gate_up: swiglu")?;
             return Ok(());
         }
 

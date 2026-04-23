@@ -353,6 +353,15 @@ name = "v1_prefill_fp8_test"
 path = "tests_v1/prefill_fp8_test.rs"
 required-features = ["v1", "gpu"]
 
+# Post-2.1.5 follow-up — un-fused gate_up_swiglu on decode path.
+# Replaces the fused 20 %-BW kernel with 2× q4_k_q8_inline + swiglu.
+# rocprof baseline: gate_up_swiglu = 65 % of decode time @ 20 % BW.
+# Projected: 437 µs → ~90 µs, decode 40 tok/s → ~77-89 tok/s.
+[[test]]
+name = "v1_unfused_gate_up_test"
+path = "tests_v1/unfused_gate_up_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
