@@ -8,13 +8,14 @@ mod gpu_build {
     /// or use the `ROCMFORGE_GPU_ARCH` env variable as an override.
     fn detect_gpu_arch() -> Option<String> {
         if let Ok(arch) = env::var("ROCMFORGE_GPU_ARCH") {
-            println!("cargo:warning=Using GPU arch from ROCMFORGE_GPU_ARCH: {}", arch);
+            println!(
+                "cargo:warning=Using GPU arch from ROCMFORGE_GPU_ARCH: {}",
+                arch
+            );
             return Some(arch);
         }
 
-        let output = std::process::Command::new("rocminfo")
-            .output()
-            .ok()?;
+        let output = std::process::Command::new("rocminfo").output().ok()?;
 
         if !output.status.success() {
             return None;
@@ -91,10 +92,15 @@ mod gpu_build {
                 .arg("-c")
                 .arg("-fPIC")
                 .arg("-O3")
-                .arg(format!("--offload-arch={}", detect_gpu_arch().unwrap_or_else(|| {
-                    println!("cargo:warning=Could not detect GPU arch, falling back to gfx1100");
-                    "gfx1100".to_string()
-                })))
+                .arg(format!(
+                    "--offload-arch={}",
+                    detect_gpu_arch().unwrap_or_else(|| {
+                        println!(
+                            "cargo:warning=Could not detect GPU arch, falling back to gfx1100"
+                        );
+                        "gfx1100".to_string()
+                    })
+                ))
                 .arg(format!("-I{}", hip_include.display()))
                 .status();
 
@@ -213,7 +219,10 @@ mod gpu_build {
                             ("libwmma_gemm_16x16.a", "wmma_gemm_16x16"),
                             ("libwmma_gemm_tiled.a", "wmma_gemm_tiled"),
                             ("libwmma_gemm_q4_0.a", "wmma_gemm_q4_0"),
-                            ("libwmma_gemm_q4_0_fused_gate_up.a", "wmma_gemm_q4_0_fused_gate_up"),
+                            (
+                                "libwmma_gemm_q4_0_fused_gate_up.a",
+                                "wmma_gemm_q4_0_fused_gate_up",
+                            ),
                             ("libwmma_gemm_q4_1.a", "wmma_gemm_q4_1"),
                             ("libwmma_gemm_q4_k.a", "wmma_gemm_q4_k"),
                             ("libwmma_gemm_q6_k.a", "wmma_gemm_q6_k"),
@@ -384,6 +393,7 @@ mod gpu_build {
             "v1_gemv_q8_0_standard",
             "v1_gemv_q4_k_q8_inline",
             "v1_gemv_q4_k_q8_inline_residual",
+            "v1_gemv_q6_k_q8_inline",
             "v1_gemv_q4_k_gate_up_swiglu",
             "v1_elementwise_block_a",
             "v1_rope",

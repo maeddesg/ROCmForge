@@ -57,6 +57,24 @@ extern "C" {
     ) -> hipError_t;
 }
 
+#[link(name = "v1_gemv_q6_k_q8_inline", kind = "static")]
+extern "C" {
+    /// Phase-2 Schritt 2.1.4 — Q6_K GEMV with Q8-inline activation.
+    /// Per-16-element sub-blocks (sub-scale indexed), integer dot
+    /// products with a per-super-block `d * scale_sub * (q6 - 32)`
+    /// reconstruction. Activation is cooperatively quantised into
+    /// LDS per call just like the Q4_K variant. `n_rows` must be a
+    /// multiple of 256.
+    pub fn rocmforge_launch_gemv_q6_k_q8_inline(
+        weights: *const u8,
+        input: *const f32,
+        output: *mut f32,
+        n_rows: i32,
+        ncols_dst: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
 #[link(name = "v1_gemv_q8_0_standard", kind = "static")]
 extern "C" {
     /// Launch the Q8_0 standard GEMV. `n_rows` must be a multiple of 32.

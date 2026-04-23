@@ -47,6 +47,9 @@ pub enum KernelId {
     GemvQ80Standard,
     // GEMV specialised paths.
     GemvQ4KQ8Inline,
+    /// Q6_K Q8-inline GEMV (Phase 2 step 2.1.4). Second variant for
+    /// Q6_K shapes so the Bandit can pick it over the standard kernel.
+    GemvQ6KQ8Inline,
     // WMMA GEMM variants (registered for Phase-1 completeness; wired
     // into batched prefill in Phase-2).
     WmmaQ40Fp16,
@@ -113,12 +116,18 @@ impl VariantRegistry {
     ///
     /// For GEMV shapes we register:
     ///   * Q4_K: `standard` + `q8_inline`       (2 variants → Bandit)
-    ///   * Q4_0 / Q6_K / Q8_0: `standard` only  (1 variant → no Bandit)
+    ///   * Q6_K: `standard` + `q8_inline` (2 variants, Bandit active)
+    ///   * Q4_0 / Q8_0: `standard` only  (1 variant → no Bandit)
     ///
     /// WMMA variants are registered globally by `register_wmma_shape`
     /// once the graph exposes the prefill shapes (Phase 2).
     pub fn register_gemv_shape(&mut self, format: GgmlType, n: u32, k: u32) {
-        let shape = ShapeKey { op_type: OpType::Gemv, format, n, k };
+        let shape = ShapeKey {
+            op_type: OpType::Gemv,
+            format,
+            n,
+            k,
+        };
         match format {
             GgmlType::Q4_0 => {
                 self.register(shape, "q4_0_standard", KernelId::GemvQ40Standard);
@@ -129,6 +138,7 @@ impl VariantRegistry {
             }
             GgmlType::Q6_K => {
                 self.register(shape, "q6_k_standard", KernelId::GemvQ6KStandard);
+                self.register(shape, "q6_k_q8_inline", KernelId::GemvQ6KQ8Inline);
             }
             GgmlType::Q8_0 => {
                 self.register(shape, "q8_0_standard", KernelId::GemvQ80Standard);
@@ -145,7 +155,12 @@ impl VariantRegistry {
     /// Phase 1 does sequential decode for prefill, so this is wired
     /// up but not yet called on the hot path.
     pub fn register_wmma_shape(&mut self, format: GgmlType, n: u32, k: u32) {
-        let shape = ShapeKey { op_type: OpType::Wmma, format, n, k };
+        let shape = ShapeKey {
+            op_type: OpType::Wmma,
+            format,
+            n,
+            k,
+        };
         match format {
             GgmlType::Q4_0 => {
                 self.register(shape, "q4_0_wmma_fp16", KernelId::WmmaQ40Fp16);
