@@ -323,6 +323,15 @@ name = "v1_ga_block_d_test"
 path = "tests_v1/ga_block_d_test.rs"
 required-features = ["v1", "gpu"]
 
+# v1.0 Phase-2 Schritt 2.1.3 Block E — Performance-Analyse +
+# Regression-Check. Four-run benchmark (static 100 tok / static 50 tok
+# / hook w8c4 / hook GA-winner) + sync-count P0 gate + 5-prompt
+# smoke on both paths. Gated on ROCMFORGE_RUN_REAL_MODEL_GPU_TESTS.
+[[test]]
+name = "v1_ga_block_e_test"
+path = "tests_v1/ga_block_e_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
