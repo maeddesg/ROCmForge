@@ -1,0 +1,56 @@
+=== HIP Graph Escalation Test ===
+GPU:     AMD Radeon RX 9070 XT (arch=gfx1201)
+ROCm:    runtime=70253.21 driver=70253.21
+
+=== L0 Baseline (scale-only, fresh buffers) ===
+  L0   1 layers (  17 kernels):  OK
+  L0   4 layers (  68 kernels):  OK
+  L0  16 layers ( 272 kernels):  OK
+  L0  36 layers ( 612 kernels):  OK
+Level 0: ALL PASSED
+
+=== L1 Multi-kernel (8 types, fresh buffers) ===
+  L1   1 layers (~  17 kernels):  OK
+  L1   4 layers (~  68 kernels):  OK
+  L1  16 layers (~ 272 kernels):  OK
+  L1  36 layers (~ 612 kernels):  OK
+Level 1: ALL PASSED
+
+=== L2 Multi-kernel + buffer aliasing ===
+  L2   1 layers (~  17 kernels):  OK
+  L2   4 layers (~  68 kernels):  OK
+  L2  16 layers (~ 272 kernels):  OK
+  L2  36 layers (~ 612 kernels):  OK
+Level 2: ALL PASSED
+
+=== L3 L2 + 100× replay ===
+  L3   1 layers × 100 replays:   OK
+  L3   4 layers × 100 replays:   OK
+  L3  16 layers × 100 replays:   OK
+  L3  36 layers × 100 replays:   OK
+Level 3: ALL PASSED
+
+=== L4 L3 + large weight buffers ===
+  L4   1 layers × weight-referenced × 10 replays:  OK
+  L4   4 layers × weight-referenced × 10 replays:  OK
+  L4  16 layers × weight-referenced × 10 replays:  OK
+  L4  36 layers × weight-referenced × 10 replays:  OK
+Level 4: ALL PASSED
+
+=== L5 L4 + real GEMV kernel ===
+  L5   1 layers × real GEMV:  OK
+  L5   4 layers × real GEMV:  OK
+  L5  16 layers × real GEMV:  OK
+  L5  36 layers × real GEMV:  OK
+Level 5: ALL PASSED
+
+=== L6 Everything (closest ROCmForge MRE) ===
+  L6   1 layers × full-combo × 100 replays:  OK
+  L6   4 layers × full-combo × 100 replays:  OK
+  L6  16 layers × full-combo × 100 replays:  OK
+  L6  36 layers × full-combo × 100 replays:  OK
+Level 6: ALL PASSED
+
+=== RESULT ===
+NO CRASH at any escalation level up to 36 layers × 100 replays × full-combo.
+HIP-Graph is USABLE on gfx1201 for ROCmForge's decode path.
