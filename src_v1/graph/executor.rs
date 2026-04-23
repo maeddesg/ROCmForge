@@ -46,8 +46,10 @@ use super::super::backend::gpu::hip_ffi::{
     hipMemcpy, hipMemcpyDeviceToDevice, hipMemcpyDeviceToHost,
 };
 use super::super::backend::gpu::wmma::{
-    rocmforge_launch_wmma_gemm_q4_0_fp16, rocmforge_launch_wmma_gemm_q4_k_fp16,
-    rocmforge_launch_wmma_gemm_q6_k_fp16, rocmforge_launch_wmma_gemm_q8_0_fp16,
+    rocmforge_launch_wmma_gemm_q4_0_fp16, rocmforge_launch_wmma_gemm_q4_0_fp8,
+    rocmforge_launch_wmma_gemm_q4_k_fp16, rocmforge_launch_wmma_gemm_q4_k_fp8,
+    rocmforge_launch_wmma_gemm_q6_k_fp16, rocmforge_launch_wmma_gemm_q6_k_fp8,
+    rocmforge_launch_wmma_gemm_q8_0_fp16, rocmforge_launch_wmma_gemm_q8_0_fp8,
 };
 use super::super::backend::gpu::wrappers::{HipBuffer, HipStream};
 use super::super::core::gguf::GGUFFile;
@@ -114,6 +116,37 @@ pub struct GraphExecutor<'m> {
     /// The static launcher remains the fallback — every FFN node
     /// whose shape doesn't match still takes the Phase-1 path.
     gate_up_dynamic: Option<DynamicGateUpHook>,
+
+    /// Prefill-path WMMA precision (Phase 2 step 2.1.5 FP8 follow-up).
+    /// Default `Fp16`; `Fp8` enables the FP8-pair-packed kernels
+    /// from Block A. Read by `dispatch_prefill_wmma_gemm`. The env
+    /// var `ROCMFORGE_PREFILL_FP8=1` flips the initial default.
+    prefill_precision: PrefillPrecision,
+}
+
+/// Precision of the WMMA kernel dispatched during batched prefill.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrefillPrecision {
+    /// Level-1: FP16 accumulate, FP16 tiles. Default.
+    Fp16,
+    /// Level-0: FP8 E4M3 pair-packed tiles. ~2× throughput target;
+    /// numerical error grows vs FP16 but greedy top-1 typically
+    /// matches because pair-packing preserves ordering on Q4_K
+    /// super-blocks after the Block-A fix.
+    Fp8,
+}
+
+impl PrefillPrecision {
+    /// Read the default precision from the environment. Set once at
+    /// executor construction; [`GraphExecutor::set_prefill_precision`]
+    /// overrides it at runtime.
+    pub fn from_env() -> Self {
+        if std::env::var("ROCMFORGE_PREFILL_FP8").ok().as_deref() == Some("1") {
+            Self::Fp8
+        } else {
+            Self::Fp16
+        }
+    }
 }
 
 /// One GA-compiled dynamic kernel bound to a specific
@@ -207,6 +240,7 @@ impl<'m> GraphExecutor<'m> {
                     runtime: None,
                     event_pool: None,
                     gate_up_dynamic: None,
+                    prefill_precision: PrefillPrecision::from_env(),
                 });
             }
             other => {
@@ -277,7 +311,20 @@ impl<'m> GraphExecutor<'m> {
             runtime: None,
             event_pool: None,
             gate_up_dynamic: None,
+            prefill_precision: PrefillPrecision::from_env(),
         })
+    }
+
+    /// Override the prefill WMMA precision at runtime. Tests use
+    /// this to toggle FP8 / FP16 on the same loaded pipeline.
+    pub fn set_prefill_precision(&mut self, p: PrefillPrecision) {
+        self.prefill_precision = p;
+    }
+
+    /// Current prefill WMMA precision — reflects env default plus
+    /// any `set_prefill_precision` override.
+    pub fn prefill_precision(&self) -> PrefillPrecision {
+        self.prefill_precision
     }
 
     /// Install a GA-compiled dynamic kernel for `gate_up_swiglu`
@@ -1765,20 +1812,32 @@ impl<'m> GraphExecutor<'m> {
         let k_i = k as i32;
         let stream = self.stream.raw();
         let rc = unsafe {
-            match weight.format {
-                GgmlType::Q4_K => rocmforge_launch_wmma_gemm_q4_k_fp16(
+            match (weight.format, self.prefill_precision) {
+                (GgmlType::Q4_K, PrefillPrecision::Fp16) => rocmforge_launch_wmma_gemm_q4_k_fp16(
                     input, weights, output, m_i, n_i, k_i, stream,
                 ),
-                GgmlType::Q6_K => rocmforge_launch_wmma_gemm_q6_k_fp16(
+                (GgmlType::Q4_K, PrefillPrecision::Fp8) => rocmforge_launch_wmma_gemm_q4_k_fp8(
                     input, weights, output, m_i, n_i, k_i, stream,
                 ),
-                GgmlType::Q4_0 => rocmforge_launch_wmma_gemm_q4_0_fp16(
+                (GgmlType::Q6_K, PrefillPrecision::Fp16) => rocmforge_launch_wmma_gemm_q6_k_fp16(
                     input, weights, output, m_i, n_i, k_i, stream,
                 ),
-                GgmlType::Q8_0 => rocmforge_launch_wmma_gemm_q8_0_fp16(
+                (GgmlType::Q6_K, PrefillPrecision::Fp8) => rocmforge_launch_wmma_gemm_q6_k_fp8(
                     input, weights, output, m_i, n_i, k_i, stream,
                 ),
-                other => {
+                (GgmlType::Q4_0, PrefillPrecision::Fp16) => rocmforge_launch_wmma_gemm_q4_0_fp16(
+                    input, weights, output, m_i, n_i, k_i, stream,
+                ),
+                (GgmlType::Q4_0, PrefillPrecision::Fp8) => rocmforge_launch_wmma_gemm_q4_0_fp8(
+                    input, weights, output, m_i, n_i, k_i, stream,
+                ),
+                (GgmlType::Q8_0, PrefillPrecision::Fp16) => rocmforge_launch_wmma_gemm_q8_0_fp16(
+                    input, weights, output, m_i, n_i, k_i, stream,
+                ),
+                (GgmlType::Q8_0, PrefillPrecision::Fp8) => rocmforge_launch_wmma_gemm_q8_0_fp8(
+                    input, weights, output, m_i, n_i, k_i, stream,
+                ),
+                (other, _) => {
                     return Err(HipError {
                         code: -1,
                         message: format!("prefill WMMA: unsupported weight format {other:?}"),
