@@ -1,0 +1,31 @@
+=== HIP Graph Crash-Threshold Smoke Test ===
+GPU:     AMD Radeon RX 9070 XT (arch=gfx1201)
+ROCm:    runtime=70253.21 driver=70253.21
+Compile: --offload-arch=gfx1201
+
+--- Phase 1: Exponential Search ---
+N=   1:  OK     result=2.000000e+00  (expected 2.000000e+00)
+N=   2:  OK     result=4.000000e+00  (expected 4.000000e+00)
+N=   4:  OK     result=1.600000e+01  (expected 1.600000e+01)
+N=   8:  OK     result=2.560000e+02  (expected 2.560000e+02)
+N=  16:  OK     result=6.553600e+04  (expected 6.553600e+04)
+N=  32:  OK     result=4.294967e+09  (expected 4.294967e+09)
+N=  64:  OK     result=1.844674e+19  (expected 1.844674e+19)
+N= 128:  OK     result=inf  (expected inf — 2^N overflows float32)
+N= 256:  OK     result=inf  (expected inf — 2^N overflows float32)
+N= 512:  OK     result=inf  (expected inf — 2^N overflows float32)
+N=1024:  OK     result=inf  (expected inf — 2^N overflows float32)
+
+--- Phase 1 completed without a failure up to N=1024 ---
+
+=== RESULT ===
+No crash threshold found in range [1, 1024].
+Last OK: N=1024
+(HIP-Graph may have been fixed on this build, or the
+ crash threshold is higher than 1024.)
+
+--- Bonus: Heterogeneous Kernel Graph (scale + add_one) ---
+Testing heterogeneous graph at N=64 ...
+Heterogeneous N=64: OK  (same threshold behaviour as homogeneous)
+
+(Done.)
