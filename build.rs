@@ -404,6 +404,7 @@ mod gpu_build {
             "v1_quantize_q8_1",
             "v1_quantize_q8_1_mmq",
             "v1_wmma_i32_smoke",
+            "v1_mmq_q4_k_minimal",
             "v1_elementwise_block_a",
             "v1_rope",
             "v1_attention",

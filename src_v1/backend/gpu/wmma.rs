@@ -51,6 +51,20 @@ extern "C" {
     ) -> hipError_t;
 }
 
+#[link(name = "v1_mmq_q4_k_minimal", kind = "static")]
+extern "C" {
+    /// MMQ-Q4_K proof-of-concept: single tile M=N=16, K=256 (one Q4_K
+    /// super-block per row). Weights are raw Q4_K blocks, activations
+    /// are `BlockQ81Mmq` DS4-layout blocks. Output is 16×16 row-major
+    /// FP32.
+    pub fn rocmforge_launch_mmq_q4_k_minimal(
+        weights_q4_k: *const core::ffi::c_void,
+        activations_q8_1_mmq: *const core::ffi::c_void,
+        output: *mut f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
 #[link(name = "v1_wmma_q4_0_fp16", kind = "static")]
 extern "C" {
     /// Launch the Q4_0 FP16 WMMA GEMM. `M`/`N`/`K` multiples of
