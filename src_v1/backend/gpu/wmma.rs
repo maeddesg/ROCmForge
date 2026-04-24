@@ -10,6 +10,47 @@
 
 use super::hip_ffi::{hipError_t, hipStream_t};
 
+// ─── MMQ infrastructure (P0.2 Schritt 1) ────────────────────────────────────
+
+/// llama.cpp's `block_q8_1_mmq` DS4 layout — 4 × `half2` scale+sum
+/// pairs then 128 signed int8 quantised values. 144 bytes total,
+/// aligned to 4 bytes. Must be binary-identical to llama.cpp's type
+/// (see `~/tmp/llama.cpp/ggml/src/ggml-cuda/mmq.cuh:28-47`).
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct BlockQ81Mmq {
+    /// 4 × `half2(d, sum)` stored as u32 so the struct is POD-safe.
+    pub ds4: [u32; 4],
+    pub qs:  [i8;  128],
+}
+const _: () = assert!(std::mem::size_of::<BlockQ81Mmq>() == 144);
+
+#[link(name = "v1_quantize_q8_1_mmq", kind = "static")]
+extern "C" {
+    /// Quantise `n_elements` FP32 into `n_elements/128` `BlockQ81Mmq`
+    /// records (DS4 layout). `n_elements` must be a multiple of 128.
+    pub fn rocmforge_launch_quantize_q8_1_mmq(
+        input: *const f32,
+        output: *mut core::ffi::c_void,
+        n_elements: core::ffi::c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_wmma_i32_smoke", kind = "static")]
+extern "C" {
+    /// Integer-WMMA smoke test: one wave runs
+    /// `__builtin_amdgcn_wmma_i32_16x16x16_iu8_w32_gfx12` on a fixed
+    /// 16×16×16 int8 × int8 GEMM. Used to verify the intrinsic
+    /// compiles and produces the expected output for a known input.
+    pub fn rocmforge_launch_wmma_i32_smoke(
+        a: *const i8,
+        b: *const i8,
+        c: *mut core::ffi::c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
 #[link(name = "v1_wmma_q4_0_fp16", kind = "static")]
 extern "C" {
     /// Launch the Q4_0 FP16 WMMA GEMM. `M`/`N`/`K` multiples of

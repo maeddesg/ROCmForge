@@ -402,6 +402,8 @@ mod gpu_build {
             "v1_gemv_q4_k_mmvq_fused",
             "v1_gemv_q4_k_gate_up_swiglu",
             "v1_quantize_q8_1",
+            "v1_quantize_q8_1_mmq",
+            "v1_wmma_i32_smoke",
             "v1_elementwise_block_a",
             "v1_rope",
             "v1_attention",

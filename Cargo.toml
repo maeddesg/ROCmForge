@@ -497,6 +497,15 @@ name = "v1_wmma_tiled_test"
 path = "tests_v1/wmma_tiled_test.rs"
 required-features = ["v1", "gpu"]
 
+# P0.2 MMQ-Port Step 1 — integer WMMA smoke + block_q8_1_mmq quantiser.
+# Verifies the gfx1201 i32 WMMA intrinsic compiles and produces correct
+# output, plus that the 144-byte mmq activation format quantises
+# identically to a scalar CPU reference.
+[[test]]
+name = "v1_mmq_infra_test"
+path = "tests_v1/mmq_infra_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
