@@ -167,25 +167,27 @@ __global__ void rf_v1_mmq_q4_k_minimal_kernel(
             true, a_frag_call[1], true, b_frag_call[1], acc_sb[sb], true);
     }
 
-    // C layout per fragment: lane l holds col=(l&15), rows=(l>>4)*8..+7.
-    // "Col" maps to B-row (= M dimension), "row" to A-row (= N dimension).
-    const int m_col       = col_in_lane;          // 0..15, this lane's M
+    // Write-back interpretation (reverted to smoke-test convention):
+    //   slot = N-row offset within this lane's 8-N-row range
+    //   m_col = THIS lane's M-col (single)
+    // Diagnostic: tile<16,16,int>-convention write-back (slot = M-col,
+    // n_row = lane&15) was tried and gave WORSE results (all values in
+    // output row 0 collapsed to ~1000), so empirically the smoke-test
+    // convention is closer to what the int-WMMA intrinsic produces.
+    const int m_col       = lane & 15;            // 0..15, this lane's M
     const int n_row_start = (lane >> 4) * 8;      // 0 or 8, lane's N range
 
-    // Pull per-row scales/mins once (each lane owns a distinct N=n_row_start..+7).
-    // scales array (12 bytes) → int[3]; unpack_scales_q45_K builds the 8
-    // per-sub-block scales and 8 mins.
-    int     sc_packed[2]; // sc_packed[0] = sc0..sc3, [1] = sc4..sc7
-    int     mn_packed[2]; // mn_packed[0] = m0..m3,   [1] = m4..m7
+    // Per-row A-scales: each slot corresponds to a different N-row.
     float   d_A_arr[8];
     float   dmin_A_arr[8];
-    uint8_t sc_all[8][8]; // [n-slot][sub-block]
+    uint8_t sc_all[8][8];
     uint8_t mn_all[8][8];
     #pragma unroll
     for (int slot = 0; slot < 8; ++slot) {
         const int n = n_row_start + slot;
         d_A_arr[slot]    = __half2float(A[n].d);
         dmin_A_arr[slot] = __half2float(A[n].dmin);
+        int sc_packed[2], mn_packed[2];
         const int* sc32  = reinterpret_cast<const int*>(A[n].scales);
         sc_packed[0] = unpack_scales_q45_K(sc32, 0);
         sc_packed[1] = unpack_scales_q45_K(sc32, 1);
@@ -200,9 +202,7 @@ __global__ void rf_v1_mmq_q4_k_minimal_kernel(
         }
     }
 
-    // B's ds4 = (d_B, sum_B) per sub-block, for this lane's m_col row.
-    // Same split as above: sb=0..3 → B[2*m_col].ds4[sb],
-    //                      sb=4..7 → B[2*m_col+1].ds4[sb-4].
+    // B-scales: this lane has a single M-col; read 8 sub-block scales.
     float d_B_arr[8];
     float sum_B_arr[8];
     #pragma unroll
@@ -214,8 +214,6 @@ __global__ void rf_v1_mmq_q4_k_minimal_kernel(
         sum_B_arr[sb] = ds.y;
     }
 
-    // Combine the 8 sub-block int32 accumulators with their scales.
-    // Each lane writes 8 output cells (C[n_row_start..+7, m_col]).
     #pragma unroll
     for (int slot = 0; slot < 8; ++slot) {
         float out = 0.0f;
