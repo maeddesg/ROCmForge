@@ -381,6 +381,7 @@ mod gpu_build {
             "v1_dequant_parity",
             "v1_wmma_q4_0_fp16",
             "v1_wmma_q4_k_fp16",
+            "v1_wmma_q4_k_fp16_tiled",
             "v1_wmma_q6_k_fp16",
             "v1_wmma_q8_0_fp16",
             "v1_wmma_q4_0_fp8",

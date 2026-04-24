@@ -40,6 +40,33 @@ extern "C" {
     ) -> hipError_t;
 }
 
+#[link(name = "v1_wmma_q4_k_fp16_tiled", kind = "static")]
+extern "C" {
+    /// Template<64,64,32> instantiation — parity reference. Produces
+    /// bit-identical output to `rocmforge_launch_wmma_gemm_q4_k_fp16`.
+    pub fn rocmforge_launch_wmma_gemm_q4_k_fp16_tiled_64x64x32(
+        input: *const f32,
+        weights: *const u8,
+        output: *mut f32,
+        M: i32,
+        N: i32,
+        K: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    /// Template<128,128,32> instantiation — llama.cpp MMQ RDNA2+
+    /// equivalent. Requires M % 128 == 0 and N % 128 == 0.
+    pub fn rocmforge_launch_wmma_gemm_q4_k_fp16_tiled_128x128x32(
+        input: *const f32,
+        weights: *const u8,
+        output: *mut f32,
+        M: i32,
+        N: i32,
+        K: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
 #[link(name = "v1_wmma_q6_k_fp16", kind = "static")]
 extern "C" {
     /// Launch the Q6_K FP16 WMMA GEMM. `M`/`N`/`K` multiples of

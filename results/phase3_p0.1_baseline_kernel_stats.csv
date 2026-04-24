@@ -1,0 +1,19 @@
+"Name","Calls","TotalDurationNs","AverageNs","Percentage","MinNs","MaxNs","StdDev"
+"rf_v1_wmma_gemm_q4_k_fp16_kernel(float const*, unsigned char const*, float*, int, int, int)",216,245825710,1138081.990741,53.81,219003,2292833,780421.447195
+"rf_v1_attention_prefill_kernel(float const*, float const*, float const*, float*, int, int, int, int, float)",36,85214294,2367063.722222,18.65,2218832,2777480,107962.042205
+"rf_v1_wmma_gemm_q6_k_fp16_kernel(float const*, unsigned char const*, float*, int, int, int)",37,67142140,1814652.432432,14.70,226804,24043626,3878060.496932
+"rf_v1_kv_cache_append_kernel(float*, float*, float const*, float const*, int, int, int, int)",19548,24587332,1257.792715,5.38,1040,12521,286.286081
+"rf_v1_gemv_q4_k_standard_kernel(unsigned char const*, float const*, float*, int, int)",90,7911517,87905.744444,1.73,44761,157042,52308.629234
+"rf_v1_rms_norm_batched_kernel(float const*, float const*, float*, int, float, int)",217,5415284,24955.225806,1.19,1840,110561,24555.872786
+"rf_v1_swiglu_kernel(float const*, float const*, float*, int)",36,4345179,120699.416667,0.9512,114641,143882,4899.637691
+"rf_v1_mmvq_q4_k_q8_1_fused_kernel(block_q4_K const*, block_q4_K const*, block_q8_1 const*, float*, unsigned int, unsigned int, unsigned int)",36,3591529,99764.694444,0.7862,96201,102362,1228.593640
+"rf_v1_gemv_q6_k_standard_kernel(unsigned char const*, float const*, float*, int, int)",37,3476088,93948.324324,0.7609,20321,875892,141845.782755
+"rf_v1_residual_add_inplace_kernel(float*, float const*, int)",90,2178390,24204.333333,0.4768,1401,50241,12112.242233
+"rf_v1_attention_decode_kernel(float const*, float const*, float const*, float*, int, int, int, int, int, float)",36,1971789,54771.916667,0.4316,53441,63001,2006.480620
+"rf_v1_mmvq_q4_k_q8_1_residual_kernel(block_q4_K const*, block_q8_1 const*, float const*, float*, unsigned int, unsigned int, unsigned int)",54,1691946,31332.333333,0.3704,19800,82161,16119.688964
+"__amd_rocclr_copyBuffer",147,1476182,10042.054422,0.3231,2400,11720,2738.320805
+"rf_v1_rope_batched_kernel(float*, int, int, int, float, int, float const*)",72,1397774,19413.527778,0.3060,8360,35281,10859.842526
+"rf_v1_rms_norm_kernel(float const*, float const*, float*, int, float)",73,246004,3369.917808,0.0538,3121,4280,173.903849
+"rf_v1_quantize_q8_1_kernel(float const*, block_q8_1*, int)",90,185002,2055.577778,0.0405,1400,7401,1339.527008
+"rf_v1_rope_kernel(float*, int, int, int, float, float const*)",72,134563,1868.930556,0.0295,1640,2720,150.150190
+"rf_v1_embedding_lookup_kernel(unsigned int const*, float const*, float*, int, int)",2,43400,21700.000000,9.500e-03,10720,32680,15528.064915
