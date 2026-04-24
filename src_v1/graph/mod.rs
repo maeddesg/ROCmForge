@@ -10,7 +10,7 @@ pub mod builder;
 pub mod executor;
 pub mod nodes;
 
-pub use buffer_plan::{BufferPlan, BufferSpec, KvCacheLayout};
+pub use buffer_plan::{BufferPlan, BufferSpec, KvCacheLayout, KvPrecision};
 pub use builder::{BuildError, ComputationGraph, GraphBuildContext, GraphBuilder};
 #[cfg(feature = "gpu")]
 pub use executor::GraphExecutor;

@@ -64,3 +64,46 @@ extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 }
+
+#[link(name = "v1_kv_cache_fp8", kind = "static")]
+extern "C" {
+    /// Phase 2.2A — append to an FP8-E5M2 (bf8) KV cache. Inputs are
+    /// still FP32 (fresh K/V from QKV projection + RoPE); the kernel
+    /// converts per-element via `__builtin_amdgcn_cvt_pk_bf8_f32` and
+    /// writes a single byte per element.
+    ///
+    /// Caller must have allocated `k_cache` / `v_cache` with 1 byte per
+    /// element (`num_kv_heads × head_stride` bytes per cache) instead
+    /// of 4 bytes like the FP32 variant. `head_stride` is still in
+    /// **elements**, not bytes.
+    pub fn rocmforge_launch_kv_cache_append_fp8(
+        k_cache: *mut std::ffi::c_void,
+        v_cache: *mut std::ffi::c_void,
+        k_new: *const f32,
+        v_new: *const f32,
+        num_kv_heads: i32,
+        head_dim: i32,
+        pos: i32,
+        head_stride: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    /// Phase 2.2A — attention decode that reads bf8 KV cache.
+    /// Identical algorithm to `rocmforge_launch_attention_decode`
+    /// (FP32 online softmax) but with bf8 → FP32 conversion inline at
+    /// each K/V load. `head_dim` must be a multiple of 4 (enforced by
+    /// the launcher).
+    pub fn rocmforge_launch_attention_decode_fp8(
+        q: *const f32,
+        k_cache: *const std::ffi::c_void,
+        v_cache: *const std::ffi::c_void,
+        output: *mut f32,
+        num_heads: i32,
+        num_kv_heads: i32,
+        head_dim: i32,
+        seq_len: i32,
+        head_stride: i32,
+        scale: f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}

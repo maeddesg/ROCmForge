@@ -442,6 +442,23 @@ name = "v1_q6k_mmvq_test"
 path = "tests_v1/q6k_mmvq_test.rs"
 required-features = ["v1", "gpu"]
 
+# Phase 2.2A — FP8-E5M2 (bf8) KV-cache. Opt-in via ROCMFORGE_KV_FP8=1;
+# halves-then-halves-again the KV-cache footprint, enabling 4× context
+# at the same VRAM budget. Tests cover the bf8 roundtrip, append/read
+# layout, and attention parity vs FP32.
+[[test]]
+name = "v1_fp8_kv_cache_test"
+path = "tests_v1/fp8_kv_cache_test.rs"
+required-features = ["v1", "gpu"]
+
+# Phase 2.4 — multi-turn KV-cache persistence + streaming.
+# HARD GATE test: Alice-test (turn-2 must remember the name introduced
+# in turn-1). Gated on ROCMFORGE_RUN_REAL_MODEL_GPU_TESTS=1.
+[[test]]
+name = "v1_multi_turn_test"
+path = "tests_v1/multi_turn_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

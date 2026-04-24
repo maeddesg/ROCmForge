@@ -404,6 +404,7 @@ mod gpu_build {
             "v1_elementwise_block_a",
             "v1_rope",
             "v1_attention",
+            "v1_kv_cache_fp8",
         ] {
             let path = build_dir.join(format!("lib{lib}.a"));
             if path.exists() {

@@ -139,26 +139,76 @@ pub struct KvCacheLayout {
     pub num_kv_heads: usize,
     pub head_dim: usize,
     pub max_seq: usize,
-    /// Stride per head in floats (aligned). At least `max_seq * head_dim`.
+    /// Stride per head in **elements** (independent of precision).
+    /// At least `max_seq * head_dim`, aligned up.
     pub head_stride: usize,
+    pub precision: KvPrecision,
+}
+
+/// Phase 2.2A — KV-cache element precision. FP32 is the Phase-1 default
+/// (matches the existing `attention_decode` kernel). FP8-E5M2 (OCP bf8)
+/// halves-then-halves-again the cache footprint: 1 byte/element vs
+/// FP32's 4, enabling 4× the context at the same VRAM budget.
+///
+/// Runtime selection via `ROCMFORGE_KV_FP8=1`; defaults to FP32 so
+/// existing benchmarks keep the same numerical behaviour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KvPrecision {
+    Fp32,
+    Fp8E5M2,
+}
+
+impl KvPrecision {
+    pub fn from_env() -> Self {
+        if std::env::var("ROCMFORGE_KV_FP8").ok().as_deref() == Some("1") {
+            KvPrecision::Fp8E5M2
+        } else {
+            KvPrecision::Fp32
+        }
+    }
+
+    pub fn bytes_per_element(self) -> usize {
+        match self {
+            KvPrecision::Fp32 => 4,
+            KvPrecision::Fp8E5M2 => 1,
+        }
+    }
 }
 
 impl KvCacheLayout {
     pub fn from_config(cfg: &ModelConfig, max_seq: usize) -> Self {
+        Self::from_config_with_precision(cfg, max_seq, KvPrecision::Fp32)
+    }
+
+    pub fn from_config_with_precision(
+        cfg: &ModelConfig,
+        max_seq: usize,
+        precision: KvPrecision,
+    ) -> Self {
         let raw = max_seq * cfg.head_dim;
-        // 256-byte alignment => 64 floats.
+        // 256-byte alignment => 64 FP32 elements. We keep the stride
+        // expressed in **elements** so the same `head_stride` value
+        // works for both FP32 and bf8 variants; only `bytes_per_layer`
+        // multiplies by the element size.
         let head_stride = (raw + 63) / 64 * 64;
         Self {
             num_kv_heads: cfg.n_kv_heads,
             head_dim: cfg.head_dim,
             max_seq,
             head_stride,
+            precision,
         }
     }
 
     pub fn bytes_per_layer(&self) -> usize {
         // K and V separately.
-        2 * self.num_kv_heads * self.head_stride * 4
+        2 * self.num_kv_heads * self.head_stride * self.precision.bytes_per_element()
+    }
+
+    /// Bytes per single cache side (K or V), used by the per-layer
+    /// `HipBuffer::new` call in the executor.
+    pub fn bytes_per_side(&self) -> usize {
+        self.num_kv_heads * self.head_stride * self.precision.bytes_per_element()
     }
 }
 

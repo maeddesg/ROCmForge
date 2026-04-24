@@ -27,7 +27,8 @@ use std::ffi::c_void;
 
 use super::super::backend::gpu::attention::rocmforge_launch_attention_prefill;
 use super::super::backend::gpu::attention::{
-    rocmforge_launch_attention_decode, rocmforge_launch_kv_cache_append,
+    rocmforge_launch_attention_decode, rocmforge_launch_attention_decode_fp8,
+    rocmforge_launch_kv_cache_append, rocmforge_launch_kv_cache_append_fp8,
 };
 use super::super::backend::gpu::elementwise::rocmforge_launch_rope_batched;
 use super::super::backend::gpu::elementwise::{
@@ -67,7 +68,7 @@ use super::super::ga::dynamic::DynamicKernel;
 use super::super::ir::formats::{q4_0, q4_k, q6_k, q8_0};
 use super::super::ir::interpreter::dequant_block;
 use super::super::runtime::{KernelId, OpType, Runtime, ShapeKey, VariantId};
-use super::buffer_plan::{BufferPlan, KvCacheLayout};
+use super::buffer_plan::{BufferPlan, KvCacheLayout, KvPrecision};
 use super::nodes::{BufferId, GraphNode, WeightRef};
 use super::ComputationGraph;
 use std::sync::Arc;
@@ -272,7 +273,13 @@ impl<'m> GraphExecutor<'m> {
         max_seq: usize,
     ) -> HipResult<Self> {
         let stream = HipStream::new()?;
-        let kv_layout = KvCacheLayout::from_config(&graph.config, max_seq);
+        // Phase 2.2A — KV-cache precision is env-selected. FP32 by
+        // default (Phase 1 baseline); `ROCMFORGE_KV_FP8=1` switches to
+        // bf8, allocating ¼ of the FP32 cache size and dispatching the
+        // bf8-aware kv_cache_append + attention_decode kernel pair.
+        let kv_precision = KvPrecision::from_env();
+        let kv_layout = KvCacheLayout::from_config_with_precision(
+            &graph.config, max_seq, kv_precision);
 
         // Transient buffers — sized for one token (decode).
         let mut buffers: HashMap<BufferId, HipBuffer> = HashMap::new();
@@ -281,8 +288,9 @@ impl<'m> GraphExecutor<'m> {
             buffers.insert(id, HipBuffer::new(bytes)?);
         }
 
-        // KV cache — one allocation per (layer, K or V).
-        let per_cache = kv_layout.num_kv_heads * kv_layout.head_stride * 4;
+        // KV cache — one allocation per (layer, K or V). Buffer size
+        // scales with the precision (4 bytes/element for FP32, 1 for bf8).
+        let per_cache = kv_layout.bytes_per_side();
         let mut k_cache = Vec::with_capacity(graph.config.n_layers);
         let mut v_cache = Vec::with_capacity(graph.config.n_layers);
         for _ in 0..graph.config.n_layers {
@@ -734,7 +742,10 @@ impl<'m> GraphExecutor<'m> {
     /// Caller must also reset its own position counter to 0 — this
     /// method just zero-fills the cache buffers.
     pub fn reset_kv_cache(&mut self) -> HipResult<()> {
-        let per_cache_bytes = self.kv_layout.num_kv_heads * self.kv_layout.head_stride * 4;
+        // Precision-aware: bf8 buffers are 1/4 the size of FP32 buffers.
+        // Zero-filling is safe for both — FP8-E5M2 bit pattern 0x00 is
+        // positive zero, same as FP32 0x00000000.
+        let per_cache_bytes = self.kv_layout.bytes_per_side();
         let zeros = vec![0u8; per_cache_bytes];
         for buf in &mut self.k_cache {
             buf.copy_from_host(&zeros)?;
@@ -863,6 +874,18 @@ impl<'m> GraphExecutor<'m> {
                 message: "execute_prefill called with 0 tokens".into(),
                 context: "prefill".into(),
             });
+        }
+        // Phase 2.4 — multi-turn correctness gate. The WMMA prefill
+        // kernel computes causal attention ONLY over the new prompt
+        // tokens (`attention(q_new, k_new, v_new)`); it does not
+        // attend to the K/V cache populated by prior turns. For any
+        // follow-up turn the new tokens MUST attend to the cached
+        // conversation history, so we route those through the
+        // sequential decode-loop prefill path (uses `attention_decode`
+        // which reads the full cache). First-turn / single-shot
+        // prompts still get the WMMA fast path.
+        if pos_offset > 0 {
+            return self.execute_prefill_decode_loop(token_ids, pos_offset);
         }
         if self.should_use_wmma_prefill(token_ids.len()) {
             match self.execute_prefill_wmma(token_ids, pos_offset) {
@@ -1055,18 +1078,35 @@ impl<'m> GraphExecutor<'m> {
                 let v_new = self.buf_ptr(*v_buffer);
                 let k_cache = self.k_cache[*layer_idx].as_mut_ptr();
                 let v_cache = self.v_cache[*layer_idx].as_mut_ptr();
-                let rc = unsafe {
-                    rocmforge_launch_kv_cache_append(
-                        k_cache as *mut f32,
-                        v_cache as *mut f32,
-                        k_new as *const f32,
-                        v_new as *const f32,
-                        self.kv_layout.num_kv_heads as i32,
-                        self.kv_layout.head_dim as i32,
-                        pos as i32,
-                        self.kv_layout.head_stride as i32,
-                        self.stream.raw(),
-                    )
+                // Phase 2.2A — precision-aware dispatch. bf8 path writes
+                // one byte per element; FP32 path writes four.
+                let rc = match self.kv_layout.precision {
+                    KvPrecision::Fp32 => unsafe {
+                        rocmforge_launch_kv_cache_append(
+                            k_cache as *mut f32,
+                            v_cache as *mut f32,
+                            k_new as *const f32,
+                            v_new as *const f32,
+                            self.kv_layout.num_kv_heads as i32,
+                            self.kv_layout.head_dim as i32,
+                            pos as i32,
+                            self.kv_layout.head_stride as i32,
+                            self.stream.raw(),
+                        )
+                    },
+                    KvPrecision::Fp8E5M2 => unsafe {
+                        rocmforge_launch_kv_cache_append_fp8(
+                            k_cache,
+                            v_cache,
+                            k_new as *const f32,
+                            v_new as *const f32,
+                            self.kv_layout.num_kv_heads as i32,
+                            self.kv_layout.head_dim as i32,
+                            pos as i32,
+                            self.kv_layout.head_stride as i32,
+                            self.stream.raw(),
+                        )
+                    },
                 };
                 check(rc, "kv_cache_append")?;
             }
@@ -1083,20 +1123,37 @@ impl<'m> GraphExecutor<'m> {
                 let k_cache = self.k_cache[*layer_idx].as_ptr();
                 let v_cache = self.v_cache[*layer_idx].as_ptr();
                 let scale = 1.0f32 / (*head_dim as f32).sqrt();
-                let rc = unsafe {
-                    rocmforge_launch_attention_decode(
-                        q_ptr as *const f32,
-                        k_cache as *const f32,
-                        v_cache as *const f32,
-                        out_ptr as *mut f32,
-                        *n_heads as i32,
-                        *n_kv_heads as i32,
-                        *head_dim as i32,
-                        (pos + 1) as i32, // seq_len so far
-                        self.kv_layout.head_stride as i32,
-                        scale,
-                        self.stream.raw(),
-                    )
+                let rc = match self.kv_layout.precision {
+                    KvPrecision::Fp32 => unsafe {
+                        rocmforge_launch_attention_decode(
+                            q_ptr as *const f32,
+                            k_cache as *const f32,
+                            v_cache as *const f32,
+                            out_ptr as *mut f32,
+                            *n_heads as i32,
+                            *n_kv_heads as i32,
+                            *head_dim as i32,
+                            (pos + 1) as i32,
+                            self.kv_layout.head_stride as i32,
+                            scale,
+                            self.stream.raw(),
+                        )
+                    },
+                    KvPrecision::Fp8E5M2 => unsafe {
+                        rocmforge_launch_attention_decode_fp8(
+                            q_ptr as *const f32,
+                            k_cache,
+                            v_cache,
+                            out_ptr as *mut f32,
+                            *n_heads as i32,
+                            *n_kv_heads as i32,
+                            *head_dim as i32,
+                            (pos + 1) as i32,
+                            self.kv_layout.head_stride as i32,
+                            scale,
+                            self.stream.raw(),
+                        )
+                    },
                 };
                 check(rc, "attention_decode")?;
             }
@@ -2253,6 +2310,9 @@ impl<'m> GraphExecutor<'m> {
                 // that's 33 × 2 × 36 = 2376 extra dispatches, ~2 ms
                 // total at 1 µs/dispatch. Worth a batched kernel in a
                 // follow-up if prefill becomes the next bottleneck.
+                // The row stride always addresses FP32 source rows —
+                // k_base/v_base hold fresh K/V from the QKV projection
+                // and are independent of the KV-cache element size.
                 let k_base = prefill.ptr(*k_buffer) as *const u8;
                 let v_base = prefill.ptr(*v_buffer) as *const u8;
                 let k_cache = self.k_cache[*layer_idx].as_mut_ptr();
@@ -2263,18 +2323,33 @@ impl<'m> GraphExecutor<'m> {
                     let pos = pos_offset + i;
                     let k_row = unsafe { k_base.offset(i as isize * row_stride_k) };
                     let v_row = unsafe { v_base.offset(i as isize * row_stride_k) };
-                    let rc = unsafe {
-                        rocmforge_launch_kv_cache_append(
-                            k_cache as *mut f32,
-                            v_cache as *mut f32,
-                            k_row as *const f32,
-                            v_row as *const f32,
-                            self.kv_layout.num_kv_heads as i32,
-                            self.kv_layout.head_dim as i32,
-                            pos as i32,
-                            self.kv_layout.head_stride as i32,
-                            self.stream.raw(),
-                        )
+                    let rc = match self.kv_layout.precision {
+                        KvPrecision::Fp32 => unsafe {
+                            rocmforge_launch_kv_cache_append(
+                                k_cache as *mut f32,
+                                v_cache as *mut f32,
+                                k_row as *const f32,
+                                v_row as *const f32,
+                                self.kv_layout.num_kv_heads as i32,
+                                self.kv_layout.head_dim as i32,
+                                pos as i32,
+                                self.kv_layout.head_stride as i32,
+                                self.stream.raw(),
+                            )
+                        },
+                        KvPrecision::Fp8E5M2 => unsafe {
+                            rocmforge_launch_kv_cache_append_fp8(
+                                k_cache,
+                                v_cache,
+                                k_row as *const f32,
+                                v_row as *const f32,
+                                self.kv_layout.num_kv_heads as i32,
+                                self.kv_layout.head_dim as i32,
+                                pos as i32,
+                                self.kv_layout.head_stride as i32,
+                                self.stream.raw(),
+                            )
+                        },
                     };
                     check(rc, "prefill kv_cache_append")?;
                 }
