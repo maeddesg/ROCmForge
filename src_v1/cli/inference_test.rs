@@ -20,6 +20,29 @@ use crate::v1::core::model_loader::LoadedModel;
 use crate::v1::core::sampling::SamplingConfig;
 use crate::v1::core::tensor_info::{group_tensors_by_layer, parse_tensor_name, TensorInfo, TensorRole};
 use crate::v1::graph::{BufferPlan, GraphBuildContext, GraphBuilder};
+use crate::v1::introspection::ModelProfile;
+
+/// Pick a sampling config appropriate for the model. When the
+/// introspection scan flags the model as SNR-degraded
+/// (`snr_risk_score < 2.0`, e.g. Llama-3.1-Q4_K_M with its ~182
+/// special tokens dequantising below the noise floor), we add a
+/// greedy `repeat_penalty=1.1` to stop the Q4_K-induced repetition
+/// loops. High-SNR models stay on pure greedy for reproducible
+/// output.
+fn sampling_for(profile: &ModelProfile) -> SamplingConfig {
+    if profile.snr_risk_score < 2.0 {
+        eprintln!(
+            "  ⚠ SNR-Risk {:.3} — using greedy + repeat_penalty=1.1 for stability",
+            profile.snr_risk_score
+        );
+        SamplingConfig {
+            repeat_penalty: 1.1,
+            ..SamplingConfig::greedy()
+        }
+    } else {
+        SamplingConfig::greedy()
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct PromptSuite {
@@ -117,17 +140,20 @@ pub fn run(
     // signals; Phase 2 uses them for precision escalation.
     pipe.calibrate_monitor().map_err(|e| format!("calibrate: {e}"))?;
 
-    // Greedy with a light repeat-penalty. Pre-fix, greedy degenerated
-    // into number-soup after ~30 decode tokens because the RoPE pair
-    // layout was wrong — that bug is now resolved. A repeat_penalty
-    // of 1.05 still costs nothing on well-behaved decodes but catches
-    // the rare unfixed-loop case, so we keep it as a cheap safety net.
-    let sampling = SamplingConfig {
-        temperature: 0.0,
-        top_k: 0,
-        top_p: 1.0,
-        repeat_penalty: 1.05,
-        seed: 0,
+    // Sampling is profile-aware: high-SNR models (Qwen3) run pure
+    // greedy with the standing 1.05 safety-net penalty, low-SNR
+    // models (Llama-3.1-Q4_K_M at SNR 0.023) fall back to the
+    // sampling_for() path which escalates to repeat_penalty=1.1.
+    let sampling = if pipe.profile.snr_risk_score < 2.0 {
+        sampling_for(&pipe.profile)
+    } else {
+        SamplingConfig {
+            temperature: 0.0,
+            top_k: 0,
+            top_p: 1.0,
+            repeat_penalty: 1.05,
+            seed: 0,
+        }
     };
     let mut outcomes: Vec<PromptOutcome> = Vec::with_capacity(suite.prompts.len());
 
@@ -411,7 +437,7 @@ pub fn run_single_prompt(
     pipe.reset_conversation()
         .map_err(|e| format!("reset: {e}"))?;
 
-    let sampling = SamplingConfig::greedy();
+    let sampling = sampling_for(&pipe.profile);
 
     // Phase 2.4 — stream tokens live to stdout. Users see text as it
     // generates instead of waiting for the full output at the end.
@@ -546,7 +572,7 @@ pub fn run_interactive(
 
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
-    let sampling = SamplingConfig::greedy();
+    let sampling = sampling_for(&pipe.profile);
 
     loop {
         print!("> ");

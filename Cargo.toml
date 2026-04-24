@@ -459,6 +459,29 @@ name = "v1_multi_turn_test"
 path = "tests_v1/multi_turn_test.rs"
 required-features = ["v1", "gpu"]
 
+# Phase 3 pre-work — Llama-3.1-8B-Instruct-Q4_K_M validation. Multi-turn
+# Alice HARD GATE + repetition-stress with repeat_penalty=1.1.
+[[test]]
+name = "v1_llama31_validation_test"
+path = "tests_v1/llama31_validation_test.rs"
+required-features = ["v1", "gpu"]
+
+# Phase 3 pre-work — CPU-only root-cause probe for Llama-3.1-Q4_K_M
+# quality issue. Dumps GGUF metadata for (1) tied weights, (2) RoPE
+# freq_base, (3) GQA, (4) BOS. No GPU required.
+[[test]]
+name = "v1_llama31_root_cause_probe"
+path = "tests_v1/llama31_root_cause_probe.rs"
+required-features = ["v1", "gpu"]
+
+# C1 — Llama-3.1 chat-template special-token probe. Verifies that our
+# tokenizer encodes <|begin_of_text|>, <|start_header_id|>, <|eot_id|>
+# etc. as single token IDs (not split into sub-tokens).
+[[test]]
+name = "v1_llama31_token_probe"
+path = "tests_v1/llama31_token_probe.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
