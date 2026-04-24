@@ -62,9 +62,16 @@ __device__ __forceinline__ int pack_nibbles_to_int(int8_t n0, int8_t n1, int8_t 
          | (((int)(uint8_t)n2) << 16) | (((int)(uint8_t)n3) << 24);
 }
 
+// One Q4_K super-block covers 256 K-elements (8 sub-blocks × 32 each).
+// One block_q8_1_mmq covers 128 K-elements (4 sub-blocks × 32 each).
+// → Each M-row of activations needs TWO block_q8_1_mmq blocks to match
+//   one K=256 super-block:
+//     Q4_K sb 0..3 → B[2*row].ds4[sb],   B[2*row].qs[sb*32..]
+//     Q4_K sb 4..7 → B[2*row+1].ds4[sb-4], B[2*row+1].qs[(sb-4)*32..]
+
 __global__ void rf_v1_mmq_q4_k_minimal_kernel(
-    const block_q4_K_raw*      __restrict__ A,   // 16 weight rows, 1 super-block each (K=256)
-    const block_q8_1_mmq_ds4*  __restrict__ B,   // 16 activation rows, 1 super-block each
+    const block_q4_K_raw*      __restrict__ A,   // 16 weight rows, 1 super-block (K=256) each
+    const block_q8_1_mmq_ds4*  __restrict__ B,   // 32 activation blocks = 2 per M-row × 16 rows
     float*                     __restrict__ C)   // 16 N-rows × 16 M-cols output, row-major
 {
     const int lane      = threadIdx.x & 31;
@@ -104,7 +111,13 @@ __global__ void rf_v1_mmq_q4_k_minimal_kernel(
             int8_t v[8];
             #pragma unroll
             for (int w = 0; w < 8; ++w) {
-                const int k_in_sb = call * 16 + half * 8 + w;     // 0..31
+                // Per mma.cuh tile<16,8,int>::get_j on RDNA4:
+                //   j = 4*(tx/16) + l (in int32 units; l = 0..3 per call)
+                // The two WMMA calls split x[] into halves: call 0 uses
+                // x[0], x[1] (l=0,1 → int32 cols 4*half, 4*half+1), call
+                // 1 uses x[2], x[3] (l=2,3 → int32 cols 4*half+2, 4*half+3).
+                // So in int8 K-positions: base = 16*half + 8*call.
+                const int k_in_sb = 16 * half + 8 * call + w;      // 0..31
                 const int byte_idx = 16 * sb + (k_in_sb >> 1);
                 const uint8_t byte = a_row->qs[byte_idx];
                 const int nib = (k_in_sb & 1) ? (byte >> 4) : (byte & 0x0F);
@@ -118,15 +131,27 @@ __global__ void rf_v1_mmq_q4_k_minimal_kernel(
         // col-major — lane l holds col (l&15) rows (l>>4)*8..+7. Here
         // "col" is M and "row" is K. So lane l loads B[M=row16,
         // K=call*16 + half*8 + 0..7].
-        const block_q8_1_mmq_ds4* b_row = &B[row16];
+        //
+        // CRUCIAL: one block_q8_1_mmq has only 128 elements (4 sub-blocks).
+        // For Q4_K sub-blocks sb=0..3 use the first of row row16's two mmq
+        // blocks; for sb=4..7 use the second. Within the chosen mmq block
+        // the sub-block index is sb%4 and the qs offset is 32*(sb%4).
+        const block_q8_1_mmq_ds4* b_row = &B[2 * row16 + (sb >> 2)];
+        const int b_sb_local = sb & 3;
         int32x2_t b_frag_call[2];
         #pragma unroll
         for (int call = 0; call < 2; ++call) {
             int8_t v[8];
             #pragma unroll
             for (int w = 0; w < 8; ++w) {
-                const int k_in_sb = call * 16 + half * 8 + w;     // 0..31
-                const int byte_idx = 32 * sb + k_in_sb;           // sb's 32 int8 region
+                // Per mma.cuh tile<16,8,int>::get_j on RDNA4:
+                //   j = 4*(tx/16) + l (in int32 units; l = 0..3 per call)
+                // The two WMMA calls split x[] into halves: call 0 uses
+                // x[0], x[1] (l=0,1 → int32 cols 4*half, 4*half+1), call
+                // 1 uses x[2], x[3] (l=2,3 → int32 cols 4*half+2, 4*half+3).
+                // So in int8 K-positions: base = 16*half + 8*call.
+                const int k_in_sb = 16 * half + 8 * call + w;      // 0..31
+                const int byte_idx = 32 * b_sb_local + k_in_sb;   // within the mmq block
                 v[w] = b_row->qs[byte_idx];
             }
             b_frag_call[call][0] = (int)(uint8_t)v[0]       | ((int)(uint8_t)v[1] << 8)
@@ -176,11 +201,15 @@ __global__ void rf_v1_mmq_q4_k_minimal_kernel(
     }
 
     // B's ds4 = (d_B, sum_B) per sub-block, for this lane's m_col row.
+    // Same split as above: sb=0..3 → B[2*m_col].ds4[sb],
+    //                      sb=4..7 → B[2*m_col+1].ds4[sb-4].
     float d_B_arr[8];
     float sum_B_arr[8];
     #pragma unroll
     for (int sb = 0; sb < 8; ++sb) {
-        float2 ds = __half22float2(B[m_col].ds4[sb]);
+        const int b_idx       = 2 * m_col + (sb >> 2);
+        const int b_sb_local  = sb & 3;
+        float2 ds = __half22float2(B[b_idx].ds4[b_sb_local]);
         d_B_arr[sb]   = ds.x;
         sum_B_arr[sb] = ds.y;
     }
