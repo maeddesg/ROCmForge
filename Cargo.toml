@@ -482,6 +482,13 @@ name = "v1_llama31_token_probe"
 path = "tests_v1/llama31_token_probe.rs"
 required-features = ["v1", "gpu"]
 
+# Mistral chat-template token probe — checks whether our BPE encodes
+# [INST] and [/INST] as single token IDs or splits them.
+[[test]]
+name = "v1_mistral_token_probe"
+path = "tests_v1/mistral_token_probe.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

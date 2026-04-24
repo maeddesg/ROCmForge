@@ -208,6 +208,21 @@ impl BpeTokenizer {
 
     // ── Encode ──────────────────────────────────────────────────────────────────
 
+    /// Register extra token IDs as "special" so `encode()` matches
+    /// their literal vocab bytes whole instead of running them through
+    /// the BPE word-splitter. v0.x auto-detects `<...>` tokens (works
+    /// for Qwen ChatML and Llama-3 headers); models whose control
+    /// tokens use `[...]` brackets (Mistral `[INST]`, `[/INST]`,
+    /// `[TOOL_CALLS]`, …) need these registered explicitly by the
+    /// v1 tokenizer using `tokenizer.ggml.token_type` from the GGUF.
+    pub fn register_special_token_ids(&mut self, ids: &[u32]) {
+        for &id in ids {
+            if (id as usize) < self.vocab.len() {
+                self.special_tokens.insert(id);
+            }
+        }
+    }
+
     /// Encode text to token IDs.
     ///
     /// If `add_special` is true, adds BOS/EOS tokens as configured.
