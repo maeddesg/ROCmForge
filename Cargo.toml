@@ -513,6 +513,14 @@ name = "v1_mmq_q4_k_minimal_test"
 path = "tests_v1/mmq_q4_k_minimal_test.rs"
 required-features = ["v1", "gpu"]
 
+# P0.2 MMQ-Port Step 3 — scaled MMQ-Q4_K kernel (variable M,N,K).
+# Parity vs CPU FP32 reference across small shapes + one Qwen3 QKV
+# shape (M=64, N=K=4096) to verify the grid/outer-K paths.
+[[test]]
+name = "v1_mmq_q4_k_scaleup_test"
+path = "tests_v1/mmq_q4_k_scaleup_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"

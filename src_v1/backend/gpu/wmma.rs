@@ -65,6 +65,22 @@ extern "C" {
     ) -> hipError_t;
 }
 
+#[link(name = "v1_mmq_q4_k", kind = "static")]
+extern "C" {
+    /// MMQ-Q4_K scaled kernel. Variable (M, N, K), one 16×16 output
+    /// tile per grid block. M and N must be multiples of 16, K a
+    /// multiple of 256. Output layout: [N × M] row-major.
+    pub fn rocmforge_launch_mmq_q4_k(
+        weights_q4_k: *const core::ffi::c_void,
+        activations_q8_1_mmq: *const core::ffi::c_void,
+        output: *mut f32,
+        M: core::ffi::c_int,
+        N: core::ffi::c_int,
+        K: core::ffi::c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
 #[link(name = "v1_wmma_q4_0_fp16", kind = "static")]
 extern "C" {
     /// Launch the Q4_0 FP16 WMMA GEMM. `M`/`N`/`K` multiples of
