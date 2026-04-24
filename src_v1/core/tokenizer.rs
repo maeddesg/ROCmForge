@@ -229,6 +229,40 @@ impl Tokenizer {
         }
     }
 
+    /// Phase 2.4 — continuation template for a follow-up turn in a
+    /// multi-turn conversation. The system prompt and the first user
+    /// turn are already in the KV cache; this returns only the text
+    /// that needs to be prefilled to add a new user message: an
+    /// `<|im_end|>` to close the previous (unfinished — no EOS was
+    /// committed to the cache) assistant turn, followed by a fresh
+    /// user-turn wrapper and the opener for the next assistant turn.
+    ///
+    /// For Llama-family models this is the `<|eot_id|>` + new
+    /// user/assistant header block without a fresh system prompt.
+    ///
+    /// `apply_chat_template(prompt, None)` is still the right call
+    /// for the **first** turn of a conversation; this method is only
+    /// for turns 2+.
+    pub fn apply_chat_template_continuation(&self, user_prompt: &str) -> String {
+        match self.architecture.as_str() {
+            "llama" => format!(
+                "<|eot_id|>\
+                 <|start_header_id|>user<|end_header_id|>\n\n{user_prompt}<|eot_id|>\
+                 <|start_header_id|>assistant<|end_header_id|>\n\n"
+            ),
+            "qwen3" => format!(
+                "<|im_end|>\n\
+                 <|im_start|>user\n{user_prompt} /no_think<|im_end|>\n\
+                 <|im_start|>assistant\n"
+            ),
+            _ => format!(
+                "<|im_end|>\n\
+                 <|im_start|>user\n{user_prompt}<|im_end|>\n\
+                 <|im_start|>assistant\n"
+            ),
+        }
+    }
+
     /// Strip any `<think>…</think>` block from a decoded assistant
     /// reply. Qwen3's reasoning output lives inside those tags; the
     /// validation suite wants only the final answer. Also trims the

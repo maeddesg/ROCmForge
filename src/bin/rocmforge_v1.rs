@@ -21,6 +21,7 @@ fn main() {
     let mut show_introspection = false;
     let mut show_quality = false;
     let mut show_tuning = false;
+    let mut show_think = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -74,6 +75,7 @@ fn main() {
             "--show-introspection" => show_introspection = true,
             "--show-quality" => show_quality = true,
             "--show-tuning" => show_tuning = true,
+            "--show-think" => show_think = true,
             "--show-all" => {
                 show_introspection = true;
                 show_quality = true;
@@ -124,6 +126,7 @@ fn main() {
             introspection: show_introspection,
             quality: show_quality,
             tuning: show_tuning,
+            show_think,
         };
         if let Some(p) = prompt {
             if let Err(e) =

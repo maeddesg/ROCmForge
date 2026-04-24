@@ -10,6 +10,7 @@ pub mod inference;
 pub mod model_config;
 pub mod model_loader;
 pub mod sampling;
+pub mod streaming;
 pub mod telemetry;
 pub mod tensor_info;
 pub mod tokenizer;

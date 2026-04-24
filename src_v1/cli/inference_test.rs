@@ -323,6 +323,10 @@ pub struct ShowFlags {
     /// the end. Roughly doubles decode throughput vs. the
     /// fixed-kernel fallback.
     pub tuning: bool,
+    /// Phase 2.4 — pass `<think>…</think>` tags through to the user
+    /// (default: filter them out live). Only meaningful for Qwen3;
+    /// other architectures never emit those tags.
+    pub show_think: bool,
 }
 
 /// Startup banner — one line per model load so the user can see
@@ -404,16 +408,35 @@ pub fn run_single_prompt(
             .map_err(|e| format!("calibrate: {e}"))?;
     }
 
-    pipe.reset().map_err(|e| format!("reset: {e}"))?;
+    pipe.reset_conversation()
+        .map_err(|e| format!("reset: {e}"))?;
 
     let sampling = SamplingConfig::greedy();
-    let result = pipe
-        .generate(prompt, max_tokens, &sampling, true)
-        .map_err(|e| format!("generate: {e}"))?;
 
-    println!("{}", result.output);
+    // Phase 2.4 — stream tokens live to stdout. Users see text as it
+    // generates instead of waiting for the full output at the end.
+    // `<think>…</think>` blocks are filtered by the StreamingEmitter
+    // (default; `--show-think` turns filtering off — TODO wire when
+    // the flag lands in the top-level CLI parser).
+    use std::io::Write;
+    let mut stdout = std::io::stdout();
+    let result = pipe
+        .generate_turn_streaming(
+            prompt,
+            max_tokens,
+            &sampling,
+            /*apply_chat_template=*/ true,
+            /*filter_think=*/ !show.show_think,
+            |piece| {
+                print!("{piece}");
+                let _ = stdout.flush();
+            },
+        )
+        .map_err(|e| format!("generate: {e}"))?;
+    // Terminate the streaming line before the metrics summary.
+    println!();
     eprintln!(
-        "\n--- {} prompt tok, {} decode tok, {:.1} tok/s decode, {:.0} ms total ---",
+        "--- {} prompt tok, {} decode tok, {:.1} tok/s decode, {:.0} ms total ---",
         result.prompt_tokens,
         result.generated_tokens,
         result.decode_tok_s,
@@ -441,16 +464,21 @@ pub fn run_single_prompt(
 }
 
 /// REPL loop for the `--interactive` CLI path. **Builds the
-/// pipeline exactly once** at session start; each turn only
-/// resets the KV cache and re-enters `generate`. Without this
-/// single-build design every turn would re-load the model
-/// (~5 GB upload), re-scan introspection (~1.4 s) and
-/// re-calibrate (~1 s) — i.e. several seconds of latency per
-/// turn for no reason.
+/// pipeline exactly once** at session start; turns share the
+/// KV cache so the model remembers previous exchanges.
 ///
-/// Phase-1 scope: each turn is still an independent generation;
-/// there's no multi-turn history replay. Extending this to carry
-/// KV state between turns is a Phase-2 follow-up.
+/// Phase 2.4 upgrade:
+///   * KV-cache persistence across turns (multi-turn chat works —
+///     the Alice-test is the standing regression gate).
+///   * Live streaming output: tokens appear as they generate.
+///   * `<think>…</think>` blocks are filtered from the stream by
+///     default (Qwen3 only; `--show-think` disables filtering).
+///   * Commands: `/reset` starts a fresh conversation,
+///     `/quit` or `/exit` leaves.
+///
+/// Max sequence length is bumped up for interactive use so a
+/// handful of turns fit — Phase-1 sized the cache tightly for
+/// single-shot runs.
 pub fn run_interactive(
     model_path: impl AsRef<Path>,
     max_tokens: usize,
@@ -485,7 +513,12 @@ pub fn run_interactive(
     let graph = GraphBuilder::build(&ctx).map_err(|e| format!("graph build: {e}"))?;
     let plan = BufferPlan::plan_phase1(&graph);
 
-    let max_seq = (max_tokens + 512).max(1024);
+    // Phase 2.4 — size the KV cache for a real conversation. Default
+    // aims for ~10 typical turns (each ≈ 256 tokens); the ceiling is
+    // bounded by the attention kernel's LDS budget (48 KiB of scores
+    // → seq_len ≤ 12 288). If a user hits the cap mid-chat they get
+    // a clean error and a prompt to `/reset`.
+    let max_seq = ((max_tokens.saturating_mul(10)).max(4096)).min(8192);
     let mut pipe = InferencePipeline::new(graph, plan, &model, &gguf, max_seq)
         .map_err(|e| format!("pipeline: {e}"))?;
 
@@ -503,9 +536,12 @@ pub fn run_interactive(
             .map_err(|e| format!("calibrate: {e}"))?;
     }
 
-    println!("rocmforge-v1 interactive mode. Type 'quit', 'exit', or empty line to leave.");
     println!(
-        "(Phase 1: each turn runs independently — KV cache resets between turns.)\n"
+        "rocmforge-v1 chat mode. Commands: /reset (fresh chat), /quit or /exit (leave)."
+    );
+    println!(
+        "Multi-turn: model remembers previous turns. KV cache size: {} tokens.\n",
+        max_seq
     );
 
     let stdin = std::io::stdin();
@@ -525,20 +561,45 @@ pub fn run_interactive(
             break;
         }
         let line = line.trim();
-        if line.is_empty() || line == "quit" || line == "exit" {
+        if line.is_empty() {
+            continue;
+        }
+        if line == "/quit" || line == "/exit" || line == "quit" || line == "exit" {
             break;
         }
+        if line == "/reset" {
+            match pipe.reset_conversation() {
+                Ok(_) => println!("(fresh chat started)"),
+                Err(e) => eprintln!("reset failed: {e}"),
+            }
+            continue;
+        }
 
-        pipe.reset().map_err(|e| format!("reset: {e}"))?;
-        match pipe.generate(line, max_tokens, &sampling, true) {
+        // Multi-turn generation: DO NOT reset between turns. The KV
+        // cache retains the prior conversation; `generate_turn_streaming`
+        // uses the continuation template starting with turn 2.
+        match pipe.generate_turn_streaming(
+            line,
+            max_tokens,
+            &sampling,
+            /*apply_chat_template=*/ true,
+            /*filter_think=*/ !show.show_think,
+            |piece| {
+                print!("{piece}");
+                let _ = std::io::stdout().flush();
+            },
+        ) {
             Ok(result) => {
-                println!("{}", result.output);
+                println!();
                 eprintln!(
-                    "--- {} prompt tok, {} decode tok, {:.1} tok/s decode, {:.0} ms ---",
+                    "--- turn {} | {} prompt tok, {} decode tok, {:.1} tok/s decode, {:.0} ms | kv_pos={}/{} ---",
+                    pipe.turn_count,
                     result.prompt_tokens,
                     result.generated_tokens,
                     result.decode_tok_s,
-                    result.total_ms
+                    result.total_ms,
+                    pipe.kv_pos,
+                    pipe.max_seq,
                 );
             }
             Err(e) => eprintln!("error: {e}"),
