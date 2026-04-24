@@ -111,6 +111,10 @@ fn gen_input(k: usize, seed: u64) -> Vec<f32> {
 // showed 8 640 q4_k_standard exploration pulls with 3 arms vs. 90
 // with 2). The KernelId stays in the enum and the kernel is still
 // callable — the bandit just does not see it anymore.
+//
+// 2026-04-24: q4_k_q8_inline itself was replaced by q4_k_mmvq (the
+// llama.cpp MMVQ port). Registry now has exactly 2 Q4_K variants:
+// standard + mmvq.
 #[test]
 fn test_sudot4_variant_is_deregistered() {
     let mut reg = VariantRegistry::new();
@@ -124,15 +128,22 @@ fn test_sudot4_variant_is_deregistered() {
     let variants = reg.variants.get(&shape).expect("Q4_K registered");
     let kernels: Vec<_> = variants.iter().map(|v| v.kernel).collect();
     assert!(kernels.contains(&KernelId::GemvQ4KStandard));
-    assert!(kernels.contains(&KernelId::GemvQ4KQ8Inline));
+    assert!(
+        kernels.contains(&KernelId::GemvQ4KMmvq),
+        "MMVQ variant should replace q8_inline as the non-standard Q4_K arm"
+    );
     assert!(
         !kernels.contains(&KernelId::GemvQ4KQ8InlineSudot4),
         "sudot4 must stay deregistered (slower + blocks bandit convergence)"
     );
+    assert!(
+        !kernels.contains(&KernelId::GemvQ4KQ8Inline),
+        "q8_inline deregistered 2026-04-24 — replaced by MMVQ (1.26-1.53× faster)"
+    );
     assert_eq!(
         variants.len(),
         2,
-        "expected exactly 2 Q4_K variants, got {variants:?}"
+        "expected exactly 2 Q4_K variants (standard + mmvq), got {variants:?}"
     );
 }
 
@@ -247,7 +258,10 @@ fn test_e2e_decode_with_sudot4_variant() {
     }
 
     let mut pipe = load_pipeline_with_bandit();
-    // Confirm the Bandit now sees 3 variants on Q4_K shapes.
+    // 2026-04-24: Q4_K has 2 Bandit variants after the MMVQ port —
+    // {standard, mmvq}. Previously {standard, q8_inline, sudot4} and
+    // then briefly {standard, q8_inline}. See
+    // `results/phase2_mmvq_kernel_port.md`.
     let runtime = pipe.executor.runtime().expect("runtime attached");
     let q4k_shapes: Vec<_> = runtime
         .registry
@@ -258,11 +272,11 @@ fn test_e2e_decode_with_sudot4_variant() {
     println!("  Q4_K shapes: {}", q4k_shapes.len());
     for (shape, vs) in &q4k_shapes {
         println!("    {:?}: {} variants", shape, vs.len());
-        assert_eq!(vs.len(), 3, "Q4_K shape {:?} should have 3 variants", shape);
+        assert_eq!(vs.len(), 2, "Q4_K shape {:?} should have 2 variants", shape);
     }
 
-    // Warmup + timed run — the Bandit should explore all three
-    // Q4_K variants and eventually commit on the fastest.
+    // Warmup + timed run — the Bandit should explore standard + mmvq
+    // and commit on the fastest (mmvq, per isolated benchmark).
     pipe.reset().expect("reset");
     let _warm = pipe
         .generate(MUTEX_PROMPT, 100, &SamplingConfig::greedy(), true)

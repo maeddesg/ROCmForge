@@ -75,6 +75,26 @@ extern "C" {
     ) -> hipError_t;
 }
 
+#[link(name = "v1_gemv_q6_k_mmvq", kind = "static")]
+extern "C" {
+    /// llama.cpp-style MMVQ port for Q6_K × Q8_1 GEMV (Phase 2 Schritt 4).
+    /// Specialised for `ncols_dst=1` (decode), RDNA4 (nwarps=8), VDR=1.
+    /// Same 16-thread-per-super-block cooperative tiling family as the
+    /// Q4_K MMVQ kernel; differs in the ql/qh 6-bit reconstruction and
+    /// the `-32` offset handled via `__vsubss4`.
+    ///
+    /// Caller must pre-quantize the activation vector via
+    /// `rocmforge_launch_quantize_q8_1`. `ncols` must be a multiple of 256.
+    pub fn rocmforge_launch_gemv_q6_k_mmvq(
+        weights: *const std::ffi::c_void,
+        q8_1_input: *const std::ffi::c_void,
+        output: *mut std::ffi::c_void,
+        nrows: i32,
+        ncols: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
 #[link(name = "v1_gemv_q6_k_q8_inline", kind = "static")]
 extern "C" {
     /// Phase-2 Schritt 2.1.4 — Q6_K GEMV with Q8-inline activation.
@@ -136,6 +156,68 @@ extern "C" {
         output: *mut f32,
         n_rows: i32,
         ncols_dst: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_gemv_q4_k_mmvq", kind = "static")]
+extern "C" {
+    /// llama.cpp-style `mul_mat_vec_q` port for Q4_K × Q8_1 GEMV
+    /// (Phase 2 Schritt 2/3). Specialised for `ncols_dst=1` (decode),
+    /// `has_fusion=false`, nwarps=8, VDR=2. 16 threads cooperate on
+    /// each super-block via int32-aligned loads → this is the path
+    /// where the cooperative tiling (hypothesis H1 in the kernel-
+    /// analysis report) is expected to lift BW from 51 % → ~70 %.
+    ///
+    /// Caller must pre-quantize the activation vector to Q8_1 via
+    /// `rocmforge_launch_quantize_q8_1` before invoking this kernel.
+    /// `ncols` must be a multiple of 256 (Q4_K super-block size).
+    pub fn rocmforge_launch_gemv_q4_k_mmvq(
+        weights: *const std::ffi::c_void,
+        q8_1_input: *const std::ffi::c_void,
+        output: *mut std::ffi::c_void,
+        nrows: i32,
+        ncols: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_gemv_q4_k_mmvq_residual", kind = "static")]
+extern "C" {
+    /// MMVQ with fused residual-add epilog (Phase 2 Schritt 2b). Same
+    /// kernel structure as `rocmforge_launch_gemv_q4_k_mmvq` but the
+    /// final store writes `dst[row] = dot + residual[row]`. Caller
+    /// typically passes the same buffer as `residual` and `output`
+    /// for in-place accumulation (matches the executor's decode
+    /// residual-stream pattern).
+    pub fn rocmforge_launch_gemv_q4_k_mmvq_residual(
+        weights: *const std::ffi::c_void,
+        q8_1_input: *const std::ffi::c_void,
+        residual: *const std::ffi::c_void,
+        output: *mut std::ffi::c_void,
+        nrows: i32,
+        ncols: i32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_gemv_q4_k_mmvq_fused", kind = "static")]
+extern "C" {
+    /// MMVQ with fused Gate + Up + SwiGLU (Phase 2 Schritt 3). Two
+    /// parallel Q4_K × Q8_1 dot products over the SAME pre-quantized
+    /// activation buffer, with `silu(gate_dot) * up_dot` applied at
+    /// lane 0 before the single global store. Replaces the 5-kernel
+    /// unfused sequence (quantize + mmvq_gate + quantize + mmvq_up +
+    /// swiglu) with 2 kernels (quantize + mmvq_fused).
+    ///
+    /// `ncols` (K) must be a multiple of 256.
+    pub fn rocmforge_launch_gemv_q4_k_mmvq_fused(
+        weights_gate: *const std::ffi::c_void,
+        weights_up: *const std::ffi::c_void,
+        q8_1_input: *const std::ffi::c_void,
+        output: *mut std::ffi::c_void,
+        nrows: i32,
+        ncols: i32,
         stream: hipStream_t,
     ) -> hipError_t;
 }

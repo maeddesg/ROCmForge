@@ -38,8 +38,10 @@ use super::super::backend::gpu::elementwise::{
 use super::super::backend::gpu::error::{check, HipError, HipResult};
 use super::super::backend::gpu::gemv::{
     rocmforge_launch_gemv_q4_0_standard, rocmforge_launch_gemv_q4_k_gate_up_swiglu,
-    rocmforge_launch_gemv_q4_k_q8_inline, rocmforge_launch_gemv_q4_k_q8_inline_residual,
-    rocmforge_launch_gemv_q4_k_q8_inline_sudot4, rocmforge_launch_gemv_q4_k_standard,
+    rocmforge_launch_gemv_q4_k_mmvq, rocmforge_launch_gemv_q4_k_mmvq_fused,
+    rocmforge_launch_gemv_q4_k_mmvq_residual, rocmforge_launch_gemv_q4_k_q8_inline,
+    rocmforge_launch_gemv_q4_k_q8_inline_residual, rocmforge_launch_gemv_q4_k_q8_inline_sudot4,
+    rocmforge_launch_gemv_q4_k_standard, rocmforge_launch_gemv_q6_k_mmvq,
     rocmforge_launch_gemv_q6_k_q8_inline, rocmforge_launch_gemv_q6_k_standard,
     rocmforge_launch_gemv_q8_0_standard,
 };
@@ -50,6 +52,7 @@ use super::super::backend::gpu::hip_ffi::{
     hipMemcpyDeviceToHost, hipStreamBeginCapture, hipStreamCaptureModeGlobal, hipStreamEndCapture,
     HIP_SUCCESS,
 };
+use super::super::backend::gpu::quantize::{rocmforge_launch_quantize_q8_1, BlockQ81, QK8_1};
 use super::super::backend::gpu::wmma::{
     rocmforge_launch_wmma_gemm_q4_0_fp16, rocmforge_launch_wmma_gemm_q4_0_fp8,
     rocmforge_launch_wmma_gemm_q4_k_fp16, rocmforge_launch_wmma_gemm_q4_k_fp8,
@@ -170,6 +173,32 @@ pub struct GraphExecutor<'m> {
     /// Invalidated (set to `None`) by the same triggers as
     /// `node_fast_cache`, plus on monitor-detected drift.
     hip_graph: Option<HipGraphDecodeCache>,
+
+    /// Phase-2 Schritt 1/3 — llama.cpp MMVQ port pre-work. When enabled
+    /// (via `ROCMFORGE_Q8_1_PREQUANT=1` or `set_q8_1_prequant(true)`),
+    /// the executor pre-quantizes the per-token embedding row to Q8_1
+    /// once per decode step, outside any HIP-Graph capture. The buffer
+    /// is currently WRITE-ONLY — no kernel reads it. Consumer is the
+    /// upcoming MMVQ kernel (Schritt 2/3). Lazy-allocated on first use.
+    q8_1_buffer: Option<HipBuffer>,
+    q8_1_prequant_enabled: bool,
+
+    /// Phase 2 Schritt 5 — Q8_1 buffer sharing across consecutive MMVQ
+    /// dispatches with the same input BufferId. Reset to `None` at the
+    /// start of every decode pass and at every dispatch point that
+    /// invalidates the currently-quantized buffer (FusedGemmResidual
+    /// writes back in-place; non-MMVQ nodes implicitly reset by missing
+    /// the cache). When `Some(id)` and the next MMVQ dispatch's input
+    /// matches, the per-call `quantize_q8_1` is skipped and the
+    /// existing `q8_1_buffer` contents are reused. Matches the graph's
+    /// Q → K → V pattern (3 consecutive matmuls on the same RmsNorm
+    /// output) — saves 2 quantize launches per layer × 36 layers =
+    /// 72 calls per token.
+    last_q8_1_input_id: Option<BufferId>,
+    /// Env-controlled kill switch for the Q8_1-sharing optimisation.
+    /// `ROCMFORGE_DISABLE_Q8_1_SHARING=1` forces a quantize on every
+    /// MMVQ dispatch — used for A/B regression testing.
+    q8_1_sharing_enabled: bool,
 }
 
 /// Per-node cache entry for the fast dispatch path. All pointers
@@ -316,6 +345,16 @@ impl<'m> GraphExecutor<'m> {
                     buffer_ptrs,
                     node_fast_cache: None,
                     hip_graph: None,
+                    q8_1_buffer: None,
+                    q8_1_prequant_enabled: std::env::var("ROCMFORGE_Q8_1_PREQUANT")
+                        .ok()
+                        .as_deref()
+                        == Some("1"),
+                    last_q8_1_input_id: None,
+                    q8_1_sharing_enabled: std::env::var("ROCMFORGE_DISABLE_Q8_1_SHARING")
+                        .ok()
+                        .as_deref()
+                        != Some("1"),
                 });
             }
             other => {
@@ -394,6 +433,16 @@ impl<'m> GraphExecutor<'m> {
             buffer_ptrs,
             node_fast_cache: None,
             hip_graph: None,
+            q8_1_buffer: None,
+            q8_1_prequant_enabled: std::env::var("ROCMFORGE_Q8_1_PREQUANT")
+                .ok()
+                .as_deref()
+                == Some("1"),
+            last_q8_1_input_id: None,
+            q8_1_sharing_enabled: std::env::var("ROCMFORGE_DISABLE_Q8_1_SHARING")
+                .ok()
+                .as_deref()
+                != Some("1"),
         })
     }
 
@@ -407,6 +456,123 @@ impl<'m> GraphExecutor<'m> {
 
     pub fn fused_gate_up(&self) -> bool {
         self.fused_gate_up
+    }
+
+    /// Phase-2 Schritt 1/3 — enable or disable the per-token Q8_1
+    /// activation pre-quantizer. Off by default; the smoke test flips
+    /// it on to verify the code path runs without regressing decode
+    /// throughput. The buffer is WRITE-ONLY in this step (no consumer
+    /// kernel yet), so toggling only affects wall time, not logits.
+    pub fn set_q8_1_prequant(&mut self, enabled: bool) {
+        self.q8_1_prequant_enabled = enabled;
+    }
+
+    pub fn q8_1_prequant_enabled(&self) -> bool {
+        self.q8_1_prequant_enabled
+    }
+
+    /// Lazy-allocate / grow the Q8_1 activation scratch buffer so it
+    /// can hold at least `n_elements` quantized values. The MMVQ
+    /// dispatch arm calls this on every Q4_K GEMV — `n_elements` can
+    /// be either `hidden_dim` (QKV / O / gate / up) or `ffn_dim` (down),
+    /// so we size up to the largest seen so far.
+    fn ensure_q8_1_buffer(&mut self, n_elements: usize) -> HipResult<()> {
+        if n_elements % QK8_1 != 0 {
+            return Err(HipError {
+                code: -1,
+                message: format!("n_elements {n_elements} not divisible by QK8_1={QK8_1}"),
+                context: "ensure_q8_1_buffer".into(),
+            });
+        }
+        let needed = (n_elements / QK8_1) * std::mem::size_of::<BlockQ81>();
+        let grow = match &self.q8_1_buffer {
+            Some(buf) => buf.size() < needed,
+            None => true,
+        };
+        if grow {
+            self.q8_1_buffer = Some(HipBuffer::new(needed)?);
+        }
+        Ok(())
+    }
+
+    /// Phase 2 Schritt 5 — ensure the Q8_1 buffer holds a current
+    /// quantization of `input_id`'s contents. Returns the Q8_1 buffer
+    /// pointer. If the last dispatch already quantized the same
+    /// `input_id` (Q → K → V pattern), skips the quantize launch.
+    ///
+    /// Cache invariant: between two successful calls with the same
+    /// `input_id`, no intervening dispatch may write to that buffer.
+    /// Enforced by:
+    ///   * Any non-MMVQ `dispatch_node` arm (RmsNorm, RoPE, ...) does
+    ///     not call this helper, so the cache sits with the stale id
+    ///     but will miss on the NEXT MMVQ dispatch (whose input will
+    ///     be something else — the graph doesn't re-enter old buffers).
+    ///   * `dispatch_fused_gemm_residual` explicitly invalidates the
+    ///     cache after the kernel returns, because the residual buffer
+    ///     it just wrote into could be the cached input of a later
+    ///     MMVQ dispatch in a pathological graph layout.
+    fn ensure_q8_1_quantized(
+        &mut self,
+        input_id: BufferId,
+        in_ptr: *const c_void,
+        in_dim: usize,
+    ) -> HipResult<*mut c_void> {
+        self.ensure_q8_1_buffer(in_dim)?;
+        let q8_1_ptr = self
+            .q8_1_buffer
+            .as_mut()
+            .expect("ensure_q8_1_buffer just ran")
+            .as_mut_ptr();
+
+        let skip = self.q8_1_sharing_enabled && self.last_q8_1_input_id == Some(input_id);
+        if !skip {
+            let rc = unsafe {
+                rocmforge_launch_quantize_q8_1(
+                    in_ptr as *const f32,
+                    q8_1_ptr,
+                    in_dim as i32,
+                    self.stream.raw(),
+                )
+            };
+            check(rc, "quantize_q8_1 (ensure_q8_1_quantized)")?;
+            self.last_q8_1_input_id = Some(input_id);
+        }
+        Ok(q8_1_ptr)
+    }
+
+    /// Explicitly invalidate the Q8_1 cache. Called after any dispatch
+    /// that writes in-place to a buffer which might be the currently-
+    /// cached MMVQ input — notably `FusedGemmResidual`, which reads and
+    /// writes the same `residual` BufferId.
+    fn invalidate_q8_1_cache(&mut self) {
+        self.last_q8_1_input_id = None;
+    }
+
+    /// Pre-quantize the FP32 embedding row of `token_id` into the
+    /// Q8_1 buffer. Side-effect only — no kernel consumes this since
+    /// MMVQ runs its own per-GEMV quantize. Kept behind the
+    /// `ROCMFORGE_Q8_1_PREQUANT` env var for historical smoke testing.
+    fn prequantize_embedding_row_q8_1(&mut self, token_id: u32) -> HipResult<()> {
+        let hidden = self.graph.config.hidden_dim;
+        self.ensure_q8_1_buffer(hidden)?;
+        let row_offset_bytes = (token_id as usize) * hidden * std::mem::size_of::<f32>();
+        let input_ptr = unsafe {
+            (self.embedding_fp32.as_ptr() as *const u8).add(row_offset_bytes) as *const f32
+        };
+        let out_ptr = self
+            .q8_1_buffer
+            .as_mut()
+            .expect("ensure_q8_1_buffer just ran")
+            .as_mut_ptr();
+        let rc = unsafe {
+            rocmforge_launch_quantize_q8_1(
+                input_ptr,
+                out_ptr,
+                hidden as i32,
+                self.stream.raw(),
+            )
+        };
+        check(rc, "rocmforge_launch_quantize_q8_1")
     }
 
     /// Drop the per-node fast-dispatch cache. Called whenever a
@@ -582,6 +748,21 @@ impl<'m> GraphExecutor<'m> {
     /// Run one forward pass for a single token. Returns the full logits
     /// vector (length = vocab_size).
     pub fn execute_decode(&mut self, token_id: u32, pos: usize) -> HipResult<Vec<f32>> {
+        // Phase 2 Schritt 5 — reset the Q8_1 sharing cache. Each decode
+        // step starts with no quantized buffer; the first MMVQ dispatch
+        // this step will quantize and cache, and consecutive MMVQ
+        // dispatches with the same input (Q → K → V) skip quantize.
+        self.last_q8_1_input_id = None;
+
+        // Phase-2 Schritt 1/3 — optional Q8_1 activation pre-quantize.
+        // Runs OUTSIDE any HIP-Graph capture (the input pointer is
+        // token-dependent, so it must not be baked into a replay).
+        // Write-only until the MMVQ kernel lands in Schritt 2/3; pure
+        // side-effect on `self.q8_1_buffer`, no influence on logits.
+        if self.q8_1_prequant_enabled {
+            self.prequantize_embedding_row_q8_1(token_id)?;
+        }
+
         // HIP-Graph fast path (Option C, 2026-04-23).
         //   * If we already have a captured graph, replay it.
         //   * Otherwise, if the Bandit has converged and graph capture
@@ -932,6 +1113,12 @@ impl<'m> GraphExecutor<'m> {
                     )
                 };
                 check(rc, "residual_add")?;
+                // Schritt 5: in-place write on `a` — if a MMVQ quantized
+                // that buffer and its contents just changed, the cache
+                // would serve stale data. Invalidate defensively.
+                if self.last_q8_1_input_id == Some(*a) {
+                    self.invalidate_q8_1_cache();
+                }
             }
             GraphNode::GateUpSwiGLU {
                 gate_weight,
@@ -1202,6 +1389,21 @@ impl<'m> GraphExecutor<'m> {
                     out_dim as i32,
                     stream_raw,
                 ),
+                KernelId::GemvQ4KMmvq => {
+                    // Phase-2 Schritt 2/3: per-GEMV Q8_1 pre-quantize +
+                    // llama.cpp-style MMVQ. Schritt 5: `ensure_q8_1_quantized`
+                    // skips the quantize call when the input BufferId
+                    // matches the last cached one (Q → K → V chain).
+                    let q8_1_ptr = self.ensure_q8_1_quantized(input, in_ptr, in_dim)?;
+                    rocmforge_launch_gemv_q4_k_mmvq(
+                        w_ptr,
+                        q8_1_ptr as *const std::ffi::c_void,
+                        out_ptr,
+                        out_dim as i32,
+                        in_dim as i32,
+                        stream_raw,
+                    )
+                }
                 KernelId::GemvQ4KQ8InlineSudot4 => rocmforge_launch_gemv_q4_k_q8_inline_sudot4(
                     w_ptr as *const u8,
                     in_ptr as *const f32,
@@ -1226,6 +1428,19 @@ impl<'m> GraphExecutor<'m> {
                     out_dim as i32,
                     stream_raw,
                 ),
+                KernelId::GemvQ6KMmvq => {
+                    // Same dispatch shape as GemvQ4KMmvq with Schritt 5
+                    // Q8_1 sharing.
+                    let q8_1_ptr = self.ensure_q8_1_quantized(input, in_ptr, in_dim)?;
+                    rocmforge_launch_gemv_q6_k_mmvq(
+                        w_ptr,
+                        q8_1_ptr as *const std::ffi::c_void,
+                        out_ptr,
+                        out_dim as i32,
+                        in_dim as i32,
+                        stream_raw,
+                    )
+                }
                 KernelId::GemvQ80Standard => rocmforge_launch_gemv_q8_0_standard(
                     w_ptr as *const u8,
                     in_ptr as *const f32,
@@ -1275,20 +1490,53 @@ impl<'m> GraphExecutor<'m> {
         let w_ptr = self.weight_ptr(weight);
         let in_ptr = self.buf_ptr(input);
         let residual_ptr = self.buf_mut_ptr(residual);
-        let rc = unsafe {
-            rocmforge_launch_gemv_q4_k_q8_inline_residual(
-                w_ptr as *const u8,
-                in_ptr as *const f32,
-                // The fused kernel reads the old residual then
-                // writes `residual + gemv` back to the same buffer.
-                residual_ptr as *const f32,
-                residual_ptr as *mut f32,
-                in_dim as i32,
-                out_dim as i32,
-                self.stream.raw(),
-            )
+
+        // Phase 2 Schritt 2b (2026-04-24): route Q4_K FusedGemmResidual
+        // through the MMVQ-residual kernel. Path: pre-quantize activation
+        // to Q8_1, then MMVQ with residual-add epilog in the same launch.
+        // Fallback env var `ROCMFORGE_DISABLE_MMVQ_RESIDUAL=1` reverts
+        // to the old q8_inline_residual kernel for A/B / regression.
+        let use_mmvq = std::env::var("ROCMFORGE_DISABLE_MMVQ_RESIDUAL")
+            .ok()
+            .as_deref()
+            != Some("1");
+        let rc = if use_mmvq {
+            // Schritt 5: Q8_1 sharing — skip quantize when `input`
+            // BufferId matches the last cached MMVQ input.
+            let q8_1_ptr = self.ensure_q8_1_quantized(input, in_ptr, in_dim)?;
+            let result = unsafe {
+                rocmforge_launch_gemv_q4_k_mmvq_residual(
+                    w_ptr,
+                    q8_1_ptr as *const std::ffi::c_void,
+                    residual_ptr as *const std::ffi::c_void,
+                    residual_ptr,
+                    out_dim as i32,
+                    in_dim as i32,
+                    self.stream.raw(),
+                )
+            };
+            // After the residual-add epilog the `residual` buffer is
+            // written in-place. If a later MMVQ dispatch happens to
+            // read that same BufferId, the cached Q8_1 data would be
+            // stale — invalidate defensively. (The cache also naturally
+            // misses when the next MMVQ reads a different BufferId,
+            // which is the common case.)
+            self.invalidate_q8_1_cache();
+            result
+        } else {
+            unsafe {
+                rocmforge_launch_gemv_q4_k_q8_inline_residual(
+                    w_ptr as *const u8,
+                    in_ptr as *const f32,
+                    residual_ptr as *const f32,
+                    residual_ptr as *mut f32,
+                    in_dim as i32,
+                    out_dim as i32,
+                    self.stream.raw(),
+                )
+            }
         };
-        check(rc, "gemv_q4_k_q8_inline_residual")?;
+        check(rc, if use_mmvq { "gemv_q4_k_mmvq_residual" } else { "gemv_q4_k_q8_inline_residual" })?;
         Ok(())
     }
 
@@ -1366,10 +1614,47 @@ impl<'m> GraphExecutor<'m> {
                 return Ok(());
             }
 
-            // ── Fused path (legacy) ──────────────────────────────
+            // ── MMVQ-fused path (Phase 2 Schritt 3, default) ─────
+            // Two parallel Q4_K dots over the same pre-quantized Q8_1
+            // activation + silu(gate)×up epilog in register. 1.40×
+            // faster than the unfused 5-kernel sequence (measured:
+            // unfused 109.87 µs, fused 78.55 µs on N=12288, K=4096 —
+            // see `results/phase2_mmvq_gate_fusion.md`). Bit-exact vs
+            // composite on parity tests. Opt-out via
+            // `ROCMFORGE_DISABLE_MMVQ_FUSION=1` to force the unfused
+            // path below for A/B measurement.
+            let use_mmvq_fusion = std::env::var("ROCMFORGE_DISABLE_MMVQ_FUSION")
+                .ok()
+                .as_deref()
+                != Some("1");
+            if use_mmvq_fusion {
+                let gate_ptr = self.weight_ptr(gate_weight);
+                let up_ptr = self.weight_ptr(up_weight);
+                let in_ptr = self.buf_ptr(input);
+                let out_ptr = self.buf_mut_ptr(output);
+                let stream_raw = self.stream.raw();
+                // Schritt 5: Q8_1 sharing — skip quantize when `input`
+                // BufferId matches the last cached MMVQ input.
+                let q8_1_ptr = self.ensure_q8_1_quantized(input, in_ptr, hidden_dim)?;
+                let rc = unsafe {
+                    rocmforge_launch_gemv_q4_k_mmvq_fused(
+                        gate_ptr,
+                        up_ptr,
+                        q8_1_ptr as *const std::ffi::c_void,
+                        out_ptr,
+                        ffn_dim as i32,
+                        hidden_dim as i32,
+                        stream_raw,
+                    )
+                };
+                check(rc, "gemv_q4_k_mmvq_fused")?;
+                return Ok(());
+            }
+
+            // ── Fused path (legacy, pre-MMVQ) ────────────────────
             // The fused `gemv_q4_k_gate_up_swiglu` kernel hits only
             // 20 % of the 640 GB/s peak BW on gfx1201 (rocprof
-            // deep-dive 2026-04-23, 65 % of decode time sits here).
+            // deep-dive 2026-04-23, 65 % of decode time sat here).
             // Ship as opt-in via ROCMFORGE_FUSED_GATE_UP=1 for A/B.
             if self.fused_gate_up {
                 let gate_ptr = self.weight_ptr(gate_weight);
@@ -2342,11 +2627,46 @@ impl<'m> GraphExecutor<'m> {
     fn launch_index_spans(&self) -> LaunchSpans {
         let mut spans = LaunchSpans::default();
         let mut idx = 0usize;
-        for node in &self.graph.nodes {
+
+        // Schritt 5: simulate the Q8_1 sharing cache during the walk.
+        // Every MMVQ dispatch checks `last_q8_1_input_id == Some(input)`;
+        // a hit skips the quantize_q8_1 launch (1 launch instead of 2).
+        // `capture_decode_graph` resets this cache before calling
+        // `launch_index_spans` so both simulations start in the same
+        // state. Disabled when `ROCMFORGE_DISABLE_Q8_1_SHARING=1`.
+        let sharing_on = self.q8_1_sharing_enabled;
+        let mut sim_q8_1_input: Option<BufferId> = None;
+
+        for (node_idx, node) in self.graph.nodes.iter().enumerate() {
             match node {
                 GraphNode::Embedding { .. } => idx += 1,
                 GraphNode::RmsNorm { .. } => idx += 1,
-                GraphNode::Gemm { .. } => idx += 1,
+                GraphNode::Gemm { input, .. } => {
+                    // MMVQ variants emit `quantize_q8_1 + mmvq` = 2
+                    // launches on a cache miss, but only `mmvq` = 1 on a
+                    // cache hit (Q → K → V pattern). Non-MMVQ kernels
+                    // always emit 1 launch and don't touch the cache.
+                    let committed = self
+                        .node_fast_cache
+                        .as_ref()
+                        .and_then(|cache| cache.get(node_idx).copied())
+                        .and_then(|e| e.committed_kernel);
+                    let is_mmvq = matches!(
+                        committed,
+                        Some(KernelId::GemvQ4KMmvq) | Some(KernelId::GemvQ6KMmvq)
+                    );
+                    if is_mmvq {
+                        let cache_hit = sharing_on && sim_q8_1_input == Some(*input);
+                        if cache_hit {
+                            idx += 1; // mmvq only, quantize skipped
+                        } else {
+                            idx += 2; // quantize + mmvq
+                            sim_q8_1_input = Some(*input);
+                        }
+                    } else {
+                        idx += 1;
+                    }
+                }
                 GraphNode::Rope { .. } => {
                     // Two launches: Q then K.
                     spans.rope.push(idx);
@@ -2361,24 +2681,82 @@ impl<'m> GraphExecutor<'m> {
                     spans.attention.push(idx);
                     idx += 1;
                 }
-                GraphNode::ResidualAdd { .. } => idx += 1,
-                GraphNode::GateUpSwiGLU { .. } => {
-                    // Un-fused path (default): 2 × q4_k_q8_inline +
-                    // 1 × swiglu = 3 launches. Fused path: 1 launch.
-                    // Dynamic hook: 1 launch.
+                GraphNode::ResidualAdd { a, .. } => {
+                    idx += 1;
+                    // In-place write on `a`; if it was the currently
+                    // cached Q8_1 input, invalidate to stay consistent
+                    // with the dispatch-time invalidation above.
+                    if sim_q8_1_input == Some(*a) {
+                        sim_q8_1_input = None;
+                    }
+                }
+                GraphNode::GateUpSwiGLU { gate_weight, up_weight, input, .. } => {
+                    // Launch count depends on which dispatch path runs
+                    // (see `dispatch_gate_up_swiglu`):
+                    //   * Dynamic GA hook (shape-match):       1 launch
+                    //   * Legacy `fused_gate_up_swiglu`:       1 launch
+                    //   * MMVQ-fused (Phase 2 Schritt 3):      2 launches
+                    //     (quantize_q8_1 + mmvq_fused); with Schritt 5
+                    //     Q8_1 sharing, drops to 1 launch when the
+                    //     previous MMVQ already quantized this input.
+                    //   * Unfused (pre-MMVQ / disable env):    3 launches
+                    //   * Non-Q4_K fallback:                   3 launches
                     let has_dyn = self
                         .gate_up_dynamic
                         .as_ref()
                         .map(|h| h.hidden_dim > 0 && h.ffn_dim > 0)
                         .unwrap_or(false);
+                    let q4k_both = gate_weight.format == GgmlType::Q4_K
+                        && up_weight.format == GgmlType::Q4_K;
+                    let mmvq_fusion_active = q4k_both
+                        && !has_dyn
+                        && !self.fused_gate_up
+                        && std::env::var("ROCMFORGE_DISABLE_MMVQ_FUSION")
+                            .ok()
+                            .as_deref()
+                            != Some("1");
                     if has_dyn || self.fused_gate_up {
                         idx += 1;
+                    } else if mmvq_fusion_active {
+                        let cache_hit = sharing_on && sim_q8_1_input == Some(*input);
+                        if cache_hit {
+                            idx += 1;
+                        } else {
+                            idx += 2;
+                            sim_q8_1_input = Some(*input);
+                        }
                     } else {
                         idx += 3;
                     }
                 }
                 GraphNode::SwiGLU { .. } => idx += 1,
-                GraphNode::FusedGemmResidual { .. } => idx += 1,
+                GraphNode::FusedGemmResidual { weight, input, .. } => {
+                    // 2026-04-24: Q4_K FusedGemmResidual routes through
+                    // the MMVQ-residual kernel (quantize_q8_1 + mmvq_res
+                    // = 2 launches) unless the env override flips back
+                    // to the 1-launch q8_inline_residual. With Schritt 5
+                    // Q8_1 sharing, drops to 1 launch on a cache hit.
+                    // After dispatch the cache is invalidated because
+                    // the kernel writes the residual buffer in-place.
+                    let mmvq_path = weight.format == GgmlType::Q4_K
+                        && std::env::var("ROCMFORGE_DISABLE_MMVQ_RESIDUAL")
+                            .ok()
+                            .as_deref()
+                            != Some("1");
+                    if mmvq_path {
+                        let cache_hit = sharing_on && sim_q8_1_input == Some(*input);
+                        if cache_hit {
+                            idx += 1;
+                        } else {
+                            idx += 2;
+                            sim_q8_1_input = Some(*input);
+                        }
+                        // In-place residual write invalidates cache.
+                        sim_q8_1_input = None;
+                    } else {
+                        idx += 1;
+                    }
+                }
             }
         }
         spans.total_launches = idx;
@@ -2403,6 +2781,14 @@ impl<'m> GraphExecutor<'m> {
             .get_mut(&self.graph.token_ids_buffer)
             .expect("token-ids buffer missing")
             .copy_from_host(&tok_bytes)?;
+
+        // 1a) Reset the Q8_1 sharing cache so the capture-walk sees
+        //     the same initial state as `launch_index_spans`'s
+        //     simulation. If we enter capture with the cache set from
+        //     a prior execute_decode call, the simulated count and the
+        //     actual captured count would disagree and the validation
+        //     check below fires, bailing to legacy dispatch.
+        self.last_q8_1_input_id = None;
 
         // 2) Start capture.
         let stream = self.stream.raw();

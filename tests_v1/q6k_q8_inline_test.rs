@@ -139,14 +139,47 @@ fn test_q6k_q8_inline_is_deregistered() {
         !names.contains(&"q6_k_q8_inline"),
         "q6_k_q8_inline must stay deregistered (slower + blocks bandit convergence)"
     );
+    // 2026-04-24: Q6_K gained the MMVQ variant in Phase 2 Schritt 4.
+    // Registry has 2 arms (standard + mmvq) for "small" N, 1 arm
+    // (standard only) for LM-head-scale N ≥ 100 000. Per-shape
+    // registration avoids the UCB1 stall on tied arms — see
+    // `results/phase2_q6k_mmvq_port.md` for the 7.8 % regression
+    // we hit before this heuristic landed.
+    //
+    // This shape (N=4096) is in the "small" range, so mmvq registers.
+    assert!(
+        names.contains(&"q6_k_mmvq"),
+        "q6_k_mmvq should register for N=4096 (< 100 000 threshold)"
+    );
     assert_eq!(
         variants.len(),
-        1,
-        "expected exactly 1 Q6_K variant, got {variants:?}"
+        2,
+        "expected 2 Q6_K variants at N=4096 (standard + mmvq), got {variants:?}"
     );
     let kernels: Vec<_> = variants.iter().map(|v| v.kernel).collect();
     assert!(kernels.contains(&KernelId::GemvQ6KStandard));
+    assert!(kernels.contains(&KernelId::GemvQ6KMmvq));
     assert!(!kernels.contains(&KernelId::GemvQ6KQ8Inline));
+
+    // LM-head shape (N=151936) should register only q6_k_standard —
+    // MMVQ ties to within 1 % and the Bandit can't commit on a tie,
+    // which blocks HIP-Graph capture. The heuristic in
+    // `register_gemv_shape` skips the second variant above 100 000.
+    let mut reg_big = VariantRegistry::new();
+    reg_big.register_gemv_shape(GgmlType::Q6_K, 151936, 4096);
+    let big_shape = ShapeKey {
+        op_type: rocmforge::v1::runtime::OpType::Gemv,
+        format: GgmlType::Q6_K,
+        n: 151936,
+        k: 4096,
+    };
+    let big_variants = reg_big.variants.get(&big_shape).expect("q6_k lm-head");
+    assert_eq!(
+        big_variants.len(),
+        1,
+        "LM-head (N=151936) should have only q6_k_standard to avoid Bandit stall"
+    );
+    assert_eq!(big_variants[0].kernel, KernelId::GemvQ6KStandard);
 }
 
 // ── GPU: kernel-level parity + perf ──────────────────────────────────

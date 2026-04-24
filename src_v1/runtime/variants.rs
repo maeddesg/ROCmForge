@@ -54,6 +54,20 @@ pub enum KernelId {
     /// Q6_K Q8-inline GEMV (Phase 2 step 2.1.4). Second variant for
     /// Q6_K shapes so the Bandit can pick it over the standard kernel.
     GemvQ6KQ8Inline,
+    /// llama.cpp-style MMVQ kernel port (Phase 2 Schritt 2/3). Q4_K ×
+    /// Q8_1 dot product with 16-thread cooperative tiling and native
+    /// `__builtin_amdgcn_sudot4` on gfx1201. Consumes a pre-quantized
+    /// Q8_1 activation buffer (see `backend::gpu::quantize`). Measured
+    /// 1.26-1.53× faster than `GemvQ4KQ8Inline` on all four Qwen3-8B
+    /// Q4_K shapes (2026-04-24 bench); wins on every shape.
+    GemvQ4KMmvq,
+    /// Q6_K MMVQ port (Phase 2 Schritt 4). Same cooperative tiling as
+    /// `GemvQ4KMmvq` but with VDR=1 (one Q6_K block per lane per iter),
+    /// ql/qh 6-bit reconstruction, and `__vsubss4` for the per-byte
+    /// `-32` offset. Measured 1.03-1.76× faster than `GemvQ6KStandard`
+    /// on small/mid Q6_K layer shapes; the LM-head (N=151936) is
+    /// within 1 % noise, so the Bandit picks per-shape.
+    GemvQ6KMmvq,
     // WMMA GEMM variants (registered for Phase-1 completeness; wired
     // into batched prefill in Phase-2).
     WmmaQ40Fp16,
@@ -119,19 +133,22 @@ impl VariantRegistry {
     /// the Runtime then builds a Bandit per shape with ≥2 entries.
     ///
     /// For GEMV shapes we register:
-    ///   * Q4_K: `standard` + `q8_inline`       (2 variants → Bandit)
+    ///   * Q4_K: `standard` + `mmvq`            (2 variants → Bandit)
     ///   * Q6_K: `standard` only                (1 variant → no Bandit)
     ///   * Q4_0 / Q8_0: `standard` only         (1 variant → no Bandit)
     ///
-    /// Two variants were deregistered on 2026-04-23 because both are
-    /// measurably slower than the baselines and their presence as extra
-    /// bandit arms delays UCB1 convergence (rocprof showed 8 640
-    /// q4_k_standard exploration pulls with 3 arms vs. 90 with 2).
-    /// The kernels and their KernelId discriminants stay in the code
-    /// for future experiments:
-    ///   * `GemvQ4KQ8InlineSudot4` — 1.41× slower than q8_inline (bit-
-    ///     exact parity, sudot4 intrinsic not a win on gfx1201).
+    /// Variants deregistered on 2026-04-23 because both are measurably
+    /// slower than the baselines and their presence as extra bandit arms
+    /// delays UCB1 convergence (rocprof showed 8 640 q4_k_standard
+    /// exploration pulls with 3 arms vs. 90 with 2):
+    ///   * `GemvQ4KQ8InlineSudot4` — 1.41× slower than q8_inline.
     ///   * `GemvQ6KQ8Inline` — 1.5-1.9× slower than q6_k_standard.
+    ///
+    /// On 2026-04-24 `GemvQ4KQ8Inline` was itself replaced by
+    /// `GemvQ4KMmvq` (1.26-1.53× faster on every Qwen3-8B Q4_K shape,
+    /// 2× more accurate vs CPU FP32 reference — see
+    /// `results/phase2_mmvq_kernel_port.md`). The q8_inline kernel stays
+    /// in the KernelId enum (consumed by the residual-fused code path).
     ///
     /// WMMA variants are registered globally by `register_wmma_shape`
     /// once the graph exposes the prefill shapes (Phase 2).
@@ -148,10 +165,30 @@ impl VariantRegistry {
             }
             GgmlType::Q4_K => {
                 self.register(shape, "q4_k_standard", KernelId::GemvQ4KStandard);
-                self.register(shape, "q4_k_q8_inline", KernelId::GemvQ4KQ8Inline);
+                self.register(shape, "q4_k_mmvq", KernelId::GemvQ4KMmvq);
+                // q4_k_q8_inline deregistered 2026-04-24 in favour of
+                // q4_k_mmvq — same algorithm family but with llama.cpp's
+                // 16-thread cooperative tiling and native v_dot4_i32_iu8,
+                // 1.26-1.53× faster on every Qwen3-8B Q4_K shape.
             }
             GgmlType::Q6_K => {
                 self.register(shape, "q6_k_standard", KernelId::GemvQ6KStandard);
+                // Q6_K MMVQ (Phase 2 Schritt 4): register only on "small"
+                // shapes where MMVQ clearly wins. On the LM-head shape
+                // (Qwen3-8B: N=151936) the standard kernel already hits
+                // ~95 % BW via L2 amortisation and MMVQ ties to within
+                // ~1 %. UCB1 can't commit on such a tight race — it
+                // explores forever, which blocks `all_exploiting()` and
+                // therefore HIP-Graph capture. That cost is measured at
+                // −7.8 % decode E2E (see phase2_q6k_mmvq_port.md), far
+                // more than the ~5 % potential win on large shapes.
+                // Threshold 100 000 covers real-world LM-heads for
+                // Qwen / Llama family vocab sizes.
+                const Q6K_MMVQ_N_MAX: u32 = 100_000;
+                if n < Q6K_MMVQ_N_MAX {
+                    self.register(shape, "q6_k_mmvq", KernelId::GemvQ6KMmvq);
+                }
+                // q6_k_q8_inline deregistered 2026-04-23 (1.5-1.9× slower).
             }
             GgmlType::Q8_0 => {
                 self.register(shape, "q8_0_standard", KernelId::GemvQ80Standard);
