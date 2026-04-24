@@ -55,6 +55,7 @@ use super::super::backend::gpu::hip_ffi::{
 };
 use super::super::backend::gpu::quantize::{rocmforge_launch_quantize_q8_1, BlockQ81, QK8_1};
 use super::super::backend::gpu::wmma::{
+    rocmforge_launch_mmq_q4_k, rocmforge_launch_quantize_q8_1_mmq,
     rocmforge_launch_wmma_gemm_q4_0_fp16, rocmforge_launch_wmma_gemm_q4_0_fp8,
     rocmforge_launch_wmma_gemm_q4_k_fp16, rocmforge_launch_wmma_gemm_q4_k_fp8,
     rocmforge_launch_wmma_gemm_q6_k_fp16, rocmforge_launch_wmma_gemm_q6_k_fp8,
@@ -200,6 +201,18 @@ pub struct GraphExecutor<'m> {
     /// `ROCMFORGE_DISABLE_Q8_1_SHARING=1` forces a quantize on every
     /// MMVQ dispatch — used for A/B regression testing.
     q8_1_sharing_enabled: bool,
+
+    // P0.2 Schritt 4 — Integer-WMMA MMQ prefill path.
+    /// Pre-quantise buffer for activations on the MMQ path. Re-used
+    /// across every Q4_K prefill GEMM in a forward pass. Lazy-allocated
+    /// on first use at the observed `(M, K)`, grown if a later call
+    /// sees a bigger shape. Only accessed when `prefill_mmq_enabled`.
+    mmq_activation_buffer: Option<HipBuffer>,
+    /// Env-gated opt-in (`ROCMFORGE_PREFILL_MMQ=1`). When true, the
+    /// Q4_K prefill path quantises activations into `block_q8_1_mmq`
+    /// and calls the integer-WMMA MMQ kernel; when false (default),
+    /// the FP16-WMMA kernel runs as before.
+    prefill_mmq_enabled: bool,
 }
 
 /// Per-node cache entry for the fast dispatch path. All pointers
@@ -363,6 +376,11 @@ impl<'m> GraphExecutor<'m> {
                         .ok()
                         .as_deref()
                         != Some("1"),
+                    mmq_activation_buffer: None,
+                    prefill_mmq_enabled: std::env::var("ROCMFORGE_PREFILL_MMQ")
+                        .ok()
+                        .as_deref()
+                        == Some("1"),
                 });
             }
             other => {
@@ -451,6 +469,11 @@ impl<'m> GraphExecutor<'m> {
                 .ok()
                 .as_deref()
                 != Some("1"),
+            mmq_activation_buffer: None,
+            prefill_mmq_enabled: std::env::var("ROCMFORGE_PREFILL_MMQ")
+                .ok()
+                .as_deref()
+                == Some("1"),
         })
     }
 
@@ -2516,7 +2539,7 @@ impl<'m> GraphExecutor<'m> {
     /// format. All four Phase-1 kernels share the same argument
     /// order `(input, weights, output, M, N, K, stream)`.
     fn dispatch_prefill_wmma_gemm(
-        &self,
+        &mut self,
         weight: &WeightRef,
         input: *const f32,
         output: *mut f32,
@@ -2529,6 +2552,48 @@ impl<'m> GraphExecutor<'m> {
         let n_i = n as i32;
         let k_i = k as i32;
         let stream = self.stream.raw();
+
+        // Integer-WMMA MMQ opt-in path (Q4_K + FP16 precision only).
+        // Pre-quantises the FP32 activation tile into block_q8_1_mmq and
+        // dispatches the integer-WMMA kernel. Alignment requirements
+        // (M % 16, N % 16, K % 256) are already satisfied by the prefill
+        // padding (M to 64, N/K Qwen3 shapes) so no extra guards needed.
+        if self.prefill_mmq_enabled
+            && weight.format == GgmlType::Q4_K
+            && self.prefill_precision == PrefillPrecision::Fp16
+            && (m % 16) == 0 && (n % 16) == 0 && (k % 256) == 0
+        {
+            let mmq_bytes = ((m * k) / 128) * 144;
+            let need_grow = self
+                .mmq_activation_buffer
+                .as_ref()
+                .map(|b| b.size() < mmq_bytes)
+                .unwrap_or(true);
+            if need_grow {
+                self.mmq_activation_buffer = Some(HipBuffer::new(mmq_bytes)?);
+            }
+            let mmq_buf = self.mmq_activation_buffer.as_mut().expect("mmq buf");
+            let rc = unsafe {
+                rocmforge_launch_quantize_q8_1_mmq(
+                    input,
+                    mmq_buf.as_mut_ptr(),
+                    (m * k) as i32,
+                    stream,
+                )
+            };
+            check(rc, "prefill quantize_q8_1_mmq")?;
+            let rc = unsafe {
+                rocmforge_launch_mmq_q4_k(
+                    weights as *const core::ffi::c_void,
+                    mmq_buf.as_ptr(),
+                    output,
+                    m_i, n_i, k_i,
+                    stream,
+                )
+            };
+            return check(rc, "prefill mmq_q4_k");
+        }
+
         let rc = unsafe {
             match (weight.format, self.prefill_precision) {
                 (GgmlType::Q4_K, PrefillPrecision::Fp16) => rocmforge_launch_wmma_gemm_q4_k_fp16(

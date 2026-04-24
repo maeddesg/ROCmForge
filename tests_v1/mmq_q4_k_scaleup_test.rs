@@ -47,15 +47,16 @@ fn cpu_reference(weights: &[u8], acts_f32: &[f32], m: usize, n: usize, k: usize)
             w_f32[dst..dst + 256].copy_from_slice(&elems);
         }
     }
-    // [N × M] row-major: out[n * M + m] = Σ_k w[n,k] * act[m,k].
-    let mut out = vec![0.0f32; n * m];
-    for row_n in 0..n {
-        for col_m in 0..m {
+    // [M × N] row-major (same layout as the FP16-WMMA kernel):
+    // out[m * N + n] = Σ_k w[n,k] * act[m,k].
+    let mut out = vec![0.0f32; m * n];
+    for row_m in 0..m {
+        for col_n in 0..n {
             let mut acc = 0.0f32;
             for kk in 0..k {
-                acc += w_f32[row_n * k + kk] * acts_f32[col_m * k + kk];
+                acc += w_f32[col_n * k + kk] * acts_f32[row_m * k + kk];
             }
-            out[row_n * m + col_m] = acc;
+            out[row_m * n + col_n] = acc;
         }
     }
     out

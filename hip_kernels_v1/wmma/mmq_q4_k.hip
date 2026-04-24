@@ -183,8 +183,10 @@ __global__ void rf_v1_mmq_q4_k_kernel(
     }
 
     // ─── Write-back ─────────────────────────────────────────────────
-    // Output layout: [N rows × M cols] row-major (matches minimal-kernel
-    // convention: `C[n * M + m]` — N-index is the outer/slow one).
+    // Output layout: [M rows × N cols] row-major (matches the existing
+    // FP16 WMMA kernel — `C[m * N + n]`, M-index outer). This is the
+    // convention the prefill executor expects, so the MMQ kernel can
+    // drop-in-replace `rocmforge_launch_wmma_gemm_q4_k_fp16`.
     const int n_row_start = (lane >> 4) * 8;
     const int m_out = m_col;   // this lane's M-col = B-row
     if (m_out >= M) return;
@@ -192,7 +194,7 @@ __global__ void rf_v1_mmq_q4_k_kernel(
     for (int slot = 0; slot < 8; ++slot) {
         const int n_out = n_row_base + n_row_start + slot;
         if (n_out >= N) continue;
-        C[n_out * M + m_out] = c_acc[slot];
+        C[m_out * N + n_out] = c_acc[slot];
     }
 }
 
