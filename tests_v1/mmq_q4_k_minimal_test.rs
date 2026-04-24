@@ -120,26 +120,22 @@ fn mmq_q4_k_minimal_matches_cpu_reference() {
     let cpu = cpu_reference(&weights, &acts);
 
     let mut max_abs = 0.0f32;
-    let mut max_rel = 0.0f32;
     let mut max_mag = 0.0f32;
     for (g, c) in gpu.iter().zip(cpu.iter()) {
         let d = (g - c).abs();
         if d > max_abs { max_abs = d; }
         let mag = c.abs().max(g.abs());
         if mag > max_mag { max_mag = mag; }
-        if mag > 1e-6 {
-            let r = d / mag;
-            if r > max_rel { max_rel = r; }
-        }
     }
-    println!("MMQ-Q4_K minimal @ 16×16×256: max_abs={max_abs:.4e}, max_rel={max_rel:.4e}, max_mag={max_mag:.4e}");
+    // Magnitude-aware tolerance (same formula as tests_v1/wmma_test.rs):
+    // FP16 accumulation noise grows like sqrt(K) * max_magnitude * 1e-3.
+    // Q8_1 integer quantisation of activations adds another ~1/127 ≈ 0.8%.
+    // Budget: max_abs ≤ (max_mag + 1e-3) * sqrt(K) * 5e-3 × small safety fac.
+    let tol = (max_mag + 1e-3) * (256.0_f32).sqrt() * 5e-3;
+    println!("MMQ-Q4_K minimal @ 16×16×256: max_abs={max_abs:.4e}, max_mag={max_mag:.4e}, tol={tol:.4e}");
 
-    // Activations ∈ [-1, 1], weights dequantise to ~[-7.5, 7.5]. Output
-    // magnitudes can reach ~60-120. Tolerance: integer quantisation of
-    // activations (±1/127 ≈ 0.8%) combined with FP16 scales contributes
-    // a relative error of a few percent. Allow up to 5%.
-    assert!(max_rel < 0.05,
-        "MMQ-Q4_K minimal parity failed: max_rel={max_rel:.4e} (tol 5%). \
+    assert!(max_abs < tol,
+        "MMQ-Q4_K minimal parity failed: max_abs={max_abs:.4e} tol={tol:.4e}. \
          First 8 GPU/CPU pairs: {:?}",
         gpu.iter().zip(cpu.iter()).take(8).collect::<Vec<_>>());
 }

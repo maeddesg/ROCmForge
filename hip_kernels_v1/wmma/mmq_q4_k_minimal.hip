@@ -105,6 +105,19 @@ __global__ void rf_v1_mmq_q4_k_minimal_kernel(
         // of qs hold this sub-block. The K-element at position k within the
         // sub-block is the (k>>1)-th byte, low/high nibble for k even/odd.
         const block_q4_K_raw* a_row = &A[row16];
+        // Q4_K sub-block layout (from the existing FP16-WMMA kernel,
+        // hip_kernels_v1/wmma/wmma_gemm_q4_k_fp16.hip:107-117):
+        //   pair_base = (sb >> 1) * 32     — 32-byte pair region
+        //   is_upper  = sb & 1             — low nibbles = even sb,
+        //                                     high nibbles = odd sb
+        //   byte_idx  = pair_base + k_in_sb (0..31 within the pair)
+        //   nib       = byte >> 4 if is_upper else byte & 0x0F
+        // Each sub-block draws its 32 nibbles from one 32-byte pair,
+        // either all-low (even) or all-high (odd). My earlier flat
+        // formula `16*sb + k/2` mixed low+high inside one sub-block,
+        // scrambling sb 0+1 together and sb 2+3 together etc.
+        const int pair_base = (sb >> 1) * 32;
+        const bool is_upper = (sb & 1) != 0;
         int32x2_t a_frag_call[2];
         #pragma unroll
         for (int call = 0; call < 2; ++call) {
@@ -114,13 +127,12 @@ __global__ void rf_v1_mmq_q4_k_minimal_kernel(
                 // Per mma.cuh tile<16,8,int>::get_j on RDNA4:
                 //   j = 4*(tx/16) + l (in int32 units; l = 0..3 per call)
                 // The two WMMA calls split x[] into halves: call 0 uses
-                // x[0], x[1] (l=0,1 → int32 cols 4*half, 4*half+1), call
-                // 1 uses x[2], x[3] (l=2,3 → int32 cols 4*half+2, 4*half+3).
+                // x[0], x[1], call 1 uses x[2], x[3].
                 // So in int8 K-positions: base = 16*half + 8*call.
                 const int k_in_sb = 16 * half + 8 * call + w;      // 0..31
-                const int byte_idx = 16 * sb + (k_in_sb >> 1);
+                const int byte_idx = pair_base + k_in_sb;          // 0..31 within pair
                 const uint8_t byte = a_row->qs[byte_idx];
-                const int nib = (k_in_sb & 1) ? (byte >> 4) : (byte & 0x0F);
+                const int nib = is_upper ? (byte >> 4) : (byte & 0x0F);
                 v[w] = (int8_t)nib;
             }
             a_frag_call[call][0] = pack_nibbles_to_int(v[0], v[1], v[2], v[3]);
