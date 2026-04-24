@@ -397,6 +397,51 @@ name = "v1_hip_graph_integration_test"
 path = "tests_v1/hip_graph_integration_test.rs"
 required-features = ["v1", "gpu"]
 
+# Phase 2 Schritt 1/3 — llama.cpp MMVQ port: Q8_1 activation pre-quantizer.
+# Standalone kernel that writes 36-byte blocks (`half2 ds` + `int8[32] qs`)
+# bit-identical to llama.cpp's `block_q8_1`. Consumer kernel lands in 2/3.
+[[test]]
+name = "v1_quantize_q8_1_test"
+path = "tests_v1/quantize_q8_1_test.rs"
+required-features = ["v1", "gpu"]
+
+# Phase 2 Schritt 2/3 — llama.cpp MMVQ kernel port for Q4_K × Q8_1 GEMV.
+# 1:1 port of mmvq.cu specialised for ncols_dst=1, has_fusion=false, RDNA4.
+# Parity + isolated kernel benchmark across all 4 Qwen3-8B Q4_K shapes.
+# Bandit registration is a follow-up driven by the benchmark outcome.
+[[test]]
+name = "v1_mmvq_kernel_test"
+path = "tests_v1/mmvq_kernel_test.rs"
+required-features = ["v1", "gpu"]
+
+[[test]]
+name = "v1_mmvq_debug_test"
+path = "tests_v1/mmvq_debug_test.rs"
+required-features = ["v1", "gpu"]
+
+# Phase 2 Schritt 2b — MMVQ-residual kernel (fused GEMV + residual-add
+# epilog). Tests parity vs CPU + MMVQ-composite, benchmarks vs the
+# predecessor q4_k_q8_inline_residual.
+[[test]]
+name = "v1_mmvq_residual_test"
+path = "tests_v1/mmvq_residual_test.rs"
+required-features = ["v1", "gpu"]
+
+# Phase 2 Schritt 3 — MMVQ Gate + Up + SwiGLU fused.
+# Two parallel Q4_K dots over the same Q8_1 activation + silu(gate)×up
+# epilog in register. Replaces the 5-kernel unfused gate/up sequence.
+[[test]]
+name = "v1_mmvq_fused_test"
+path = "tests_v1/mmvq_fused_test.rs"
+required-features = ["v1", "gpu"]
+
+# Phase 2 Schritt 4 — Q6_K × Q8_1 MMVQ kernel (ql/qh 6-bit recon +
+# -32 offset via __vsubss4, same cooperative tiling as Q4_K MMVQ).
+[[test]]
+name = "v1_q6k_mmvq_test"
+path = "tests_v1/q6k_mmvq_test.rs"
+required-features = ["v1", "gpu"]
+
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).
 [[bin]]
 name = "rocmforge-v1"
