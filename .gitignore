@@ -34,3 +34,27 @@ CLAUDE.md
 .roo/
 *.mirage.md
 .worktrees/
+
+# rocprof / bench temporaries (leftover at repo root after profiling runs)
+/baseline_*.csv
+/tiled_perf_*.csv
+/benchmark_rocmforge.json
+
+# Standalone test binaries / compile artifacts left at repo root
+/graph_ptr_test
+/graph_ptr_test.hip
+/test_gfx1100-*
+/test_gfx1100.*
+*.hipfb
+/swabe/
+
+# wmma_poc test binaries
+profiling/wmma_poc/test_wmma_*
+!profiling/wmma_poc/test_wmma_*.hip
+!profiling/wmma_poc/test_wmma_*.cpp
+
+# generic test-output dump
+/tests/out/
+
+# private design notes
+/design.md

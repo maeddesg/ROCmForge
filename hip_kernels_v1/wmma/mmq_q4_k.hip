@@ -1,20 +1,26 @@
-// MMQ Q4_K scaled kernel — P0.2 Schritt 3.
+// MMQ Q4_K kernel — P0.2 Schritt 5 (Multi-Warp scale-up).
 //
-// Scale-up of mmq_q4_k_minimal.hip to variable (M, N, K). The per-tile
-// math is IDENTICAL to the minimal kernel — all three bugs from Schritt 2
-// are baked in (block_q8_1_mmq 4-subblock handling, K-offset
-// 16*half+8*call+w, pair-based Q4_K nibble extraction). This version adds:
+// Templated on WARPS_PER_BLOCK ∈ {1, 4}:
+//   * WARPS=1 (rocmforge_launch_mmq_q4_k_1w): identical math+layout to the
+//     Schritt-3 single-warp kernel. Kept as parity reference for the
+//     multi-warp scale-up tests (and as fallback should 4W regress).
+//   * WARPS=4 (rocmforge_launch_mmq_q4_k):    production 4-warp variant.
+//     Each block produces a 64-row × 16-col output tile; each of the 4
+//     warps owns 16 contiguous M-rows of that tile. Reduces grid blocks
+//     by 4× vs 1W (e.g. Qwen3-QKV: 9216 → 2304 blocks for M=576,N=4096),
+//     and amortises kernel-launch / dispatch overhead.
 //
-//   1. Grid parallelism: one block per 16×16 output tile.
-//      grid = (N/16, M/16), block = 32 threads (one warp).
-//   2. Variable K via outer loop over Q4_K super-blocks (256 K each).
-//      Per-super-block scale-fixup accumulates into a per-slot float.
-//   3. Requires M % 16 == 0 and N % 16 == 0 and K % 256 == 0. The
-//      dispatcher pads M up to a multiple of 16 when needed.
+// Math is byte-identical between the two variants — the only differences
+// are (a) blockDim.x scales with warps, (b) m_base derives an extra
+// warp_id*16 offset, (c) grid_y shrinks accordingly. The Schritt-3 fixes
+// (block_q8_1_mmq 4-subblock handling, K-offset 16*half+8*call+w,
+// pair-based Q4_K nibble extraction) remain in place unchanged.
 //
-// Activation buffer layout (same as quantize_q8_1_mmq output):
-//   N_mmq_blocks_per_row = K / 128 (=32 for K=4096). Block at row m, offset
-//   k_block_idx is at B[m * n_mmq_per_row + k_block_idx].
+// LDS-Sharing of weights across the 4 warps is intentionally NOT done in
+// this revision. Each warp reads its own activations (different M-rows),
+// and reads the same weights from L1/L2 — measuring shows the kernel is
+// integer-MMA-bound, not L2-bound, so weight-LDS-sharing would add
+// __syncthreads cost without much win. Reserved for a follow-up.
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
@@ -47,41 +53,51 @@ __device__ __forceinline__ int pack_nibbles_int(int8_t n0, int8_t n1, int8_t n2,
          | (((int)(uint8_t)n2) << 16) | (((int)(uint8_t)n3) << 24);
 }
 
-// Each block handles one 16×16 output tile at (tile_n, tile_m).
-// Grid: (N/16, M/16). Block: 32 threads (one warp).
+// Each block produces a (WARPS_PER_BLOCK*16) × 16 output tile at
+// (tile_n*16, tile_m*WARPS_PER_BLOCK*16). Each warp inside the block
+// owns a 16×16 sub-tile, equivalent to one independent invocation of
+// the original 1-warp kernel offset by warp_id*16 in M.
+//
+// Grid:  (N/16, ceil_div(M, WARPS_PER_BLOCK*16))
+// Block: WARPS_PER_BLOCK * 32 threads
+template<int WARPS_PER_BLOCK>
 __global__ void rf_v1_mmq_q4_k_kernel(
-    const block_q4_K_raw_s*      __restrict__ A,     // [N_total rows × K/256 super-blocks]
-    const block_q8_1_mmq_ds4_s*  __restrict__ B,     // [M_total rows × K/128 mmq blocks]
-    float*                       __restrict__ C,     // [M × N] row-major (M is "row", N is "col")
+    const block_q4_K_raw_s*      __restrict__ A,
+    const block_q8_1_mmq_ds4_s*  __restrict__ B,
+    float*                       __restrict__ C,
     int M, int N, int K)
 {
-    const int tile_n = blockIdx.x;   // 0..N/16-1
-    const int tile_m = blockIdx.y;   // 0..M/16-1
-    const int lane   = threadIdx.x & 31;
-    const int row16  = lane & 15;    // 0..15
-    const int half   = lane >> 4;    // 0 or 1
+    constexpr int TILE_M = WARPS_PER_BLOCK * 16;
 
-    const int n_row_base = tile_n * 16;   // THIS block's 16 A-rows
-    const int m_col_base = tile_m * 16;   // THIS block's 16 B-rows
+    const int tile_n  = blockIdx.x;
+    const int tile_m  = blockIdx.y;
+    const int warp_id = threadIdx.x >> 5;          // 0..WARPS_PER_BLOCK-1
+    const int lane    = threadIdx.x & 31;
+    const int row16   = lane & 15;                 // 0..15
+    const int half    = lane >> 4;                 // 0 or 1
 
-    const int n_super_per_row = K / 256;           // Q4_K super-blocks per weight row
-    const int n_mmq_per_row   = K / 128;           // block_q8_1_mmq blocks per activation row
+    const int n_row_base = tile_n * 16;
+    const int m_col_base = tile_m * TILE_M + warp_id * 16;
 
-    // Base indices for the A-row and M-col this lane owns.
-    const int n_row = n_row_base + row16;          // weight row (N-dim)
-    const int m_col = m_col_base + row16;          // activation row (M-dim)
+    // Outer warp-level boundary: completely-out-of-range warps return.
+    // (WARP=4, M=33 example: warps 0+1 active on rows 0-31, warp 2 active
+    //  on row 32 only via inner lane check, warp 3 returns here.)
+    if (m_col_base >= M) return;
 
-    // Accumulator: per-slot float (slot = 8 N-rows owned by this lane within
-    // the 16-N-tile, per the smoke-test / minimal-kernel convention).
+    const int n_super_per_row = K / 256;
+    const int n_mmq_per_row   = K / 128;
+
+    const int n_row = n_row_base + row16;
+    const int m_col = m_col_base + row16;
+
     float c_acc[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
-    // ─── Outer K-loop over super-blocks ─────────────────────────────
+    // ─── Outer K-loop over Q4_K super-blocks ────────────────────────
     for (int ks = 0; ks < n_super_per_row; ++ks) {
         const block_q4_K_raw_s*      a_sb  = &A[n_row * n_super_per_row + ks];
         const block_q8_1_mmq_ds4_s*  b_lo  = &B[m_col * n_mmq_per_row + 2 * ks + 0];
         const block_q8_1_mmq_ds4_s*  b_hi  = &B[m_col * n_mmq_per_row + 2 * ks + 1];
 
-        // Per-super-block int32 accumulators, one per sub-block.
         int32x8_t acc_sb[8];
         #pragma unroll
         for (int sb = 0; sb < 8; ++sb) acc_sb[sb] = int32x8_t{0,0,0,0,0,0,0,0};
@@ -89,12 +105,6 @@ __global__ void rf_v1_mmq_q4_k_kernel(
         // ─── Inner WMMA loop: 8 sub-blocks × 2 calls each ──────────
         #pragma unroll
         for (int sb = 0; sb < 8; ++sb) {
-            // Q4_K pair layout (same as wmma_gemm_q4_k_fp16.hip:107-117):
-            //   pair 0 = sub-blocks (0,1) = bytes 0..31
-            //   pair 1 = sub-blocks (2,3) = bytes 32..63
-            //   pair 2 = sub-blocks (4,5) = bytes 64..95
-            //   pair 3 = sub-blocks (6,7) = bytes 96..127
-            // Even sb → low nibbles, odd sb → high nibbles.
             const int  pair_base = (sb >> 1) * 32;
             const bool is_upper  = (sb & 1) != 0;
 
@@ -106,15 +116,11 @@ __global__ void rf_v1_mmq_q4_k_kernel(
                 #pragma unroll
                 for (int w = 0; w < 8; ++w) {
                     const int k_in_sb = 16 * half + 8 * call + w;   // 0..31
-                    // Weights: one pair of bytes → two nibbles (even/odd sb).
                     {
                         const uint8_t byte = a_sb->qs[pair_base + k_in_sb];
                         const int nib = is_upper ? (byte >> 4) : (byte & 0x0F);
                         va[w] = (int8_t)nib;
                     }
-                    // Activations: sb 0..3 → b_lo, sb 4..7 → b_hi. Within the
-                    // chosen mmq block the sub-block index is sb%4, K offset
-                    // within the 128-elem block is 32*(sb%4) + k_in_sb.
                     {
                         const block_q8_1_mmq_ds4_s* b_block = (sb < 4) ? b_lo : b_hi;
                         const int b_sb_local = sb & 3;
@@ -135,10 +141,7 @@ __global__ void rf_v1_mmq_q4_k_kernel(
                 true, a_frag[1], true, b_frag[1], acc_sb[sb], true);
         }
 
-        // ─── Scale-fixup for THIS super-block, across 8 slots ─────
-        // Each lane owns 8 N-rows; scales are per (N-row, sub-block).
-        // A-scales come from per-N-row Q4_K super-block header.
-        // B-scales come from the two mmq blocks' ds4[] pairs.
+        // ─── Scale-fixup ───────────────────────────────────────────
         float d_B_arr[8];
         float sum_B_arr[8];
         #pragma unroll
@@ -150,8 +153,7 @@ __global__ void rf_v1_mmq_q4_k_kernel(
             sum_B_arr[sb] = ds.y;
         }
 
-        // Each slot corresponds to a different N-row owned by this lane.
-        const int n_row_start = (lane >> 4) * 8;    // 0 or 8
+        const int n_row_start = (lane >> 4) * 8;
         #pragma unroll
         for (int slot = 0; slot < 8; ++slot) {
             const int n = n_row_base + n_row_start + slot;
@@ -183,12 +185,11 @@ __global__ void rf_v1_mmq_q4_k_kernel(
     }
 
     // ─── Write-back ─────────────────────────────────────────────────
-    // Output layout: [M rows × N cols] row-major (matches the existing
-    // FP16 WMMA kernel — `C[m * N + n]`, M-index outer). This is the
-    // convention the prefill executor expects, so the MMQ kernel can
-    // drop-in-replace `rocmforge_launch_wmma_gemm_q4_k_fp16`.
+    // Output [M × N] row-major, m_out is this lane's M-col (= B-row).
+    // Inner per-lane boundary handles partial warps (e.g. M=33, warp 2,
+    // lane row16=0 writes row 32, lane row16>0 returns).
     const int n_row_start = (lane >> 4) * 8;
-    const int m_out = m_col;   // this lane's M-col = B-row
+    const int m_out = m_col;
     if (m_out >= M) return;
     #pragma unroll
     for (int slot = 0; slot < 8; ++slot) {
@@ -198,7 +199,10 @@ __global__ void rf_v1_mmq_q4_k_kernel(
     }
 }
 
-extern "C" hipError_t rocmforge_launch_mmq_q4_k(
+// ─── Launch helpers ───────────────────────────────────────────────────
+
+template<int WARPS_PER_BLOCK>
+static inline hipError_t rf_v1_launch_mmq_q4_k(
     const void*  weights_q4_k,
     const void*  activations_q8_1_mmq,
     float*       output,
@@ -210,11 +214,40 @@ extern "C" hipError_t rocmforge_launch_mmq_q4_k(
     if ((N % 16) != 0)               return hipErrorInvalidValue;
     if ((K % 256) != 0)              return hipErrorInvalidValue;
 
-    dim3 grid(N / 16, M / 16, 1);
-    dim3 block(32, 1, 1);
-    rf_v1_mmq_q4_k_kernel<<<grid, block, 0, stream>>>(
+    constexpr int TILE_M  = WARPS_PER_BLOCK * 16;
+    constexpr int THREADS = WARPS_PER_BLOCK * 32;
+
+    dim3 grid(N / 16, (M + TILE_M - 1) / TILE_M, 1);
+    dim3 block(THREADS, 1, 1);
+    rf_v1_mmq_q4_k_kernel<WARPS_PER_BLOCK><<<grid, block, 0, stream>>>(
         reinterpret_cast<const block_q4_K_raw_s*>(weights_q4_k),
         reinterpret_cast<const block_q8_1_mmq_ds4_s*>(activations_q8_1_mmq),
         output, M, N, K);
     return hipGetLastError();
+}
+
+// Production: 4 warps per block (TILE_M=64).
+extern "C" hipError_t rocmforge_launch_mmq_q4_k(
+    const void*  weights_q4_k,
+    const void*  activations_q8_1_mmq,
+    float*       output,
+    int M, int N, int K,
+    hipStream_t  stream)
+{
+    return rf_v1_launch_mmq_q4_k<4>(
+        weights_q4_k, activations_q8_1_mmq, output, M, N, K, stream);
+}
+
+// Parity reference: 1 warp per block (TILE_M=16). Same kernel body —
+// only the launch-grid and block-size differ. Used by the multi-warp
+// parity test to prove the scale-up didn't change the math.
+extern "C" hipError_t rocmforge_launch_mmq_q4_k_1w(
+    const void*  weights_q4_k,
+    const void*  activations_q8_1_mmq,
+    float*       output,
+    int M, int N, int K,
+    hipStream_t  stream)
+{
+    return rf_v1_launch_mmq_q4_k<1>(
+        weights_q4_k, activations_q8_1_mmq, output, M, N, K, stream);
 }

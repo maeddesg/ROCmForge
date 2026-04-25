@@ -67,11 +67,54 @@ extern "C" {
 
 #[link(name = "v1_mmq_q4_k", kind = "static")]
 extern "C" {
-    /// MMQ-Q4_K scaled kernel. Variable (M, N, K), one 16×16 output
-    /// tile per grid block. M and N must be multiples of 16, K a
-    /// multiple of 256. Output layout: [N × M] row-major.
+    /// MMQ-Q4_K production kernel. 4 warps per block, 64×16 output tile.
+    /// Variable (M, N, K); M and N must be multiples of 16, K a multiple
+    /// of 256. Output layout: [M × N] row-major.
     pub fn rocmforge_launch_mmq_q4_k(
         weights_q4_k: *const core::ffi::c_void,
+        activations_q8_1_mmq: *const core::ffi::c_void,
+        output: *mut f32,
+        M: core::ffi::c_int,
+        N: core::ffi::c_int,
+        K: core::ffi::c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    /// MMQ-Q4_K parity reference: same kernel template instantiated with
+    /// 1 warp per block (16×16 output tile). Used by the multi-warp
+    /// scale-up test to prove the 4W variant produces identical output.
+    /// Same alignment requirements as the production launcher.
+    pub fn rocmforge_launch_mmq_q4_k_1w(
+        weights_q4_k: *const core::ffi::c_void,
+        activations_q8_1_mmq: *const core::ffi::c_void,
+        output: *mut f32,
+        M: core::ffi::c_int,
+        N: core::ffi::c_int,
+        K: core::ffi::c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+}
+
+#[link(name = "v1_mmq_q6_k", kind = "static")]
+extern "C" {
+    /// MMQ-Q6_K production kernel. 4 warps per block, 64×16 output tile.
+    /// Variable (M, N, K); M and N must be multiples of 16, K a multiple
+    /// of 256 (Q6_K elements-per-block). Output layout: [M × N] row-major.
+    /// Activation buffer is the same `block_q8_1_mmq` DS4 layout used
+    /// for Q4_K — the quantize kernel is shared.
+    pub fn rocmforge_launch_mmq_q6_k(
+        weights_q6_k: *const core::ffi::c_void,
+        activations_q8_1_mmq: *const core::ffi::c_void,
+        output: *mut f32,
+        M: core::ffi::c_int,
+        N: core::ffi::c_int,
+        K: core::ffi::c_int,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    /// MMQ-Q6_K parity reference (1 warp per block).
+    pub fn rocmforge_launch_mmq_q6_k_1w(
+        weights_q6_k: *const core::ffi::c_void,
         activations_q8_1_mmq: *const core::ffi::c_void,
         output: *mut f32,
         M: core::ffi::c_int,

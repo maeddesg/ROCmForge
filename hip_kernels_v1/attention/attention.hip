@@ -293,3 +293,362 @@ extern "C" hipError_t rocmforge_launch_kv_cache_append(
         k_cache, v_cache, k_new, v_new, num_kv_heads, head_dim, pos, head_stride);
     return hipGetLastError();
 }
+
+// ── Attention prefill v2 (P0.3) ────────────────────────────────────────────
+//
+// Two new kernels addressing the v1 pessimisations identified in
+// results/phase3_p0.3_prefill_attention.md:
+//
+//   Fix 1 — multi-thread softmax. v1's Phase 2/3 ran `if (tid == 0)` over
+//   ~visible ops, idling 127 threads. v2 uses warp-reduction via
+//   __shfl_xor + 4-element LDS scratch for the block-reduce. Same grid
+//   as v1 (one block per (q_head, query_pos)) so the rest of the
+//   block stays bit-equivalent.
+//
+//   Fix 2 (combined) — GQA-LDS-sharing with K/V tiling. Grid becomes
+//   dim3(num_kv_heads, seq_len), one block per (kv_head, query_pos).
+//   gqa_ratio warps cooperate in each block, each warp processing
+//   one of the gqa_ratio q_heads that map to this kv_head. K and V
+//   tiles of TILE_KV rows are co-loaded into LDS by all threads, then
+//   each warp consumes the shared tile to compute its q_head's
+//   scores/output. Cuts the K/V global-memory traffic by gqa_ratio
+//   (4× for Qwen3-8B). Caller is responsible for picking gqa_ratio in
+//   {2..8} and falling back to v1 outside that range.
+
+#define ATTN_V2_WARP_SIZE  32
+#define ATTN_V2_WARPS_V1   4              // = blockDim.x / WARP_SIZE for Fix-1 only
+// Tile size matches WARP_SIZE so each lane in a warp owns one j-position
+// during score and output computation — avoids the per-j warp-reduce that
+// killed an earlier 16-row tile variant.
+#define ATTN_V2_TILE_KV    32
+
+__device__ __forceinline__ float rf_v1_warp_reduce_max(float x) {
+    #pragma unroll
+    for (int off = ATTN_V2_WARP_SIZE / 2; off > 0; off >>= 1) {
+        x = fmaxf(x, __shfl_xor(x, off));
+    }
+    return x;
+}
+
+__device__ __forceinline__ float rf_v1_warp_reduce_sum(float x) {
+    #pragma unroll
+    for (int off = ATTN_V2_WARP_SIZE / 2; off > 0; off >>= 1) {
+        x += __shfl_xor(x, off);
+    }
+    return x;
+}
+
+// ── v2_softmax: Fix 1 only (parallel softmax, same grid as v1). ────────────
+// Used as A/B isolation point — measures the parallel-softmax gain
+// without conflating with GQA-tiling. Production path is v2_combined.
+
+__global__ void rf_v1_attention_prefill_v2_softmax_kernel(
+    const float* __restrict__ q,
+    const float* __restrict__ k,
+    const float* __restrict__ v,
+    float*       __restrict__ output,
+    int seq_len,
+    int num_heads,
+    int num_kv_heads,
+    int head_dim,
+    float scale)
+{
+    rf_v1_attn_set_ieee_denormal_mode();
+
+    const int query_pos = blockIdx.y;
+    const int q_head    = blockIdx.x;
+    if (query_pos >= seq_len || q_head >= num_heads) return;
+
+    const int kv_head = q_head / (num_heads / num_kv_heads);
+    const int tid = threadIdx.x;
+    const int lane    = tid & 31;
+    const int warp_id = tid >> 5;
+    const int kv_stride = num_kv_heads * head_dim;
+    const int q_stride  = num_heads    * head_dim;
+
+    extern __shared__ float s_dyn[];
+    float* s_scores = s_dyn;
+    float* s_red    = s_dyn + seq_len;            // 4 floats reduce scratch
+
+    const float* q_vec = q + (size_t)query_pos * q_stride + q_head * head_dim;
+    const int visible = query_pos + 1;
+
+    // Phase 1 — same as v1: parallel score compute.
+    for (int j = tid; j < visible; j += blockDim.x) {
+        const float* k_vec = k + (size_t)j * kv_stride + kv_head * head_dim;
+        float acc = 0.0f;
+        #pragma unroll 4
+        for (int d = 0; d < head_dim; ++d) {
+            acc += q_vec[d] * k_vec[d];
+        }
+        s_scores[j] = acc * scale;
+    }
+    __syncthreads();
+
+    // Phase 2 — parallel max-reduce (was if (tid==0) in v1).
+    float local_max = -INFINITY;
+    for (int j = tid; j < visible; j += blockDim.x) {
+        local_max = fmaxf(local_max, s_scores[j]);
+    }
+    local_max = rf_v1_warp_reduce_max(local_max);
+    if (lane == 0) s_red[warp_id] = local_max;
+    __syncthreads();
+    if (tid == 0) {
+        float m = s_red[0];
+        #pragma unroll
+        for (int w = 1; w < ATTN_V2_WARPS_V1; ++w) m = fmaxf(m, s_red[w]);
+        s_red[0] = m;
+    }
+    __syncthreads();
+    const float block_max = s_red[0];
+
+    // Phase 3 — parallel exp + sum-reduce.
+    float local_sum = 0.0f;
+    for (int j = tid; j < visible; j += blockDim.x) {
+        float val = expf(s_scores[j] - block_max);
+        s_scores[j] = val;
+        local_sum += val;
+    }
+    local_sum = rf_v1_warp_reduce_sum(local_sum);
+    if (lane == 0) s_red[warp_id] = local_sum;
+    __syncthreads();
+    if (tid == 0) {
+        float s = 0.0f;
+        #pragma unroll
+        for (int w = 0; w < ATTN_V2_WARPS_V1; ++w) s += s_red[w];
+        s_red[0] = s;
+    }
+    __syncthreads();
+    const float inv_sum = 1.0f / s_red[0];
+
+    // Phase 4 — same as v1: parallel weighted V-sum.
+    float* out_vec = output + (size_t)query_pos * q_stride + q_head * head_dim;
+    for (int d = tid; d < head_dim; d += blockDim.x) {
+        float acc = 0.0f;
+        for (int j = 0; j < visible; ++j) {
+            const float* v_vec = v + (size_t)j * kv_stride + kv_head * head_dim;
+            acc += s_scores[j] * v_vec[d];
+        }
+        out_vec[d] = acc * inv_sum;
+    }
+}
+
+extern "C" hipError_t rocmforge_launch_attention_prefill_v2_softmax(
+    const float* q,
+    const float* k,
+    const float* v,
+    float*       output,
+    int seq_len,
+    int num_heads,
+    int num_kv_heads,
+    int head_dim,
+    float scale,
+    hipStream_t stream)
+{
+    if (num_heads <= 0 || num_kv_heads <= 0 || head_dim <= 0 || seq_len <= 0)
+        return hipErrorInvalidValue;
+    if ((num_heads % num_kv_heads) != 0) return hipErrorInvalidValue;
+    const size_t smem = ((size_t)seq_len + ATTN_V2_WARPS_V1) * sizeof(float);
+    if (smem > 48 * 1024) return hipErrorInvalidValue;
+    const int threads = ATTN_V2_WARPS_V1 * ATTN_V2_WARP_SIZE;
+    dim3 grid(num_heads, seq_len, 1);
+    rf_v1_attention_prefill_v2_softmax_kernel<<<grid, threads, smem, stream>>>(
+        q, k, v, output, seq_len, num_heads, num_kv_heads, head_dim, scale);
+    return hipGetLastError();
+}
+
+// ── v2_combined: Fix 1 + Fix 2 (GQA-shared LDS, K/V tiling). ───────────────
+//
+// Grid:   dim3(num_kv_heads, seq_len)
+// Block:  gqa_ratio warps × 32 lanes — caller passes gqa_ratio dynamically.
+//
+// LDS layout (computed at launch time):
+//   s_scores  [gqa_ratio × seq_len]    — per-warp score buffer
+//   s_k_tile  [TILE_KV × head_dim]     — shared K rows for current tile
+//   s_v_tile  [TILE_KV × head_dim]     — shared V rows for current tile
+//   s_red     [gqa_ratio]              — warp reduction scratch
+//
+// Warp w (w in [0, gqa_ratio)) processes q_head = kv_head*gqa_ratio + w.
+// All warps share K/V via the LDS tiles; per-warp softmax over its own
+// score row.
+
+__global__ void rf_v1_attention_prefill_v2_kernel(
+    const float* __restrict__ q,
+    const float* __restrict__ k,
+    const float* __restrict__ v,
+    float*       __restrict__ output,
+    int seq_len,
+    int num_heads,
+    int num_kv_heads,
+    int head_dim,
+    int gqa_ratio,
+    float scale)
+{
+    rf_v1_attn_set_ieee_denormal_mode();
+
+    const int kv_head   = blockIdx.x;
+    const int query_pos = blockIdx.y;
+    if (query_pos >= seq_len || kv_head >= num_kv_heads) return;
+
+    const int tid     = threadIdx.x;
+    const int lane    = tid & 31;
+    const int warp_id = tid >> 5;
+    const int q_head  = kv_head * gqa_ratio + warp_id;
+
+    const int kv_stride = num_kv_heads * head_dim;
+    const int q_stride  = num_heads    * head_dim;
+    const int visible   = query_pos + 1;
+
+    // LDS partition (in floats):
+    //   s_scores: gqa_ratio * seq_len
+    //   s_k_tile: TILE_KV  * head_dim
+    //   s_v_tile: TILE_KV  * head_dim
+    //   s_red   : gqa_ratio
+    extern __shared__ float s_dyn[];
+    float* s_scores = s_dyn;
+    float* s_k_tile = s_scores + (size_t)gqa_ratio * seq_len;
+    float* s_v_tile = s_k_tile + (size_t)ATTN_V2_TILE_KV * head_dim;
+    float* s_red    = s_v_tile + (size_t)ATTN_V2_TILE_KV * head_dim;
+
+    const float* q_vec = q + (size_t)query_pos * q_stride + q_head * head_dim;
+
+    // ─── Phase 1 — per-tile cooperative K-load + lane-parallel scoring ──
+    // TILE_KV=32 = WARP_SIZE: each lane in each warp owns one j-position
+    // and computes a full head_dim-deep dot product locally (no per-j
+    // warp reduction). This mirrors v1's "thread per j" pattern but
+    // reads K from LDS instead of global memory.
+    const int n_tiles = (visible + ATTN_V2_TILE_KV - 1) / ATTN_V2_TILE_KV;
+    for (int tile = 0; tile < n_tiles; ++tile) {
+        const int j_start = tile * ATTN_V2_TILE_KV;
+        const int tile_len = min(ATTN_V2_TILE_KV, visible - j_start);
+
+        // Cooperatively load tile_len K-rows. blockDim.x = gqa_ratio*32
+        // threads → 4..8 warps load 32×128 = 4096 floats per tile.
+        for (int idx = tid; idx < tile_len * head_dim; idx += blockDim.x) {
+            const int row = idx / head_dim;
+            const int d   = idx - row * head_dim;
+            s_k_tile[row * head_dim + d] =
+                k[(size_t)(j_start + row) * kv_stride + kv_head * head_dim + d];
+        }
+        __syncthreads();
+
+        // Each warp computes scores for its q_head: lane = j_local.
+        if (lane < tile_len) {
+            const int j = j_start + lane;
+            float acc = 0.0f;
+            #pragma unroll 4
+            for (int d = 0; d < head_dim; ++d) {
+                acc += q_vec[d] * s_k_tile[lane * head_dim + d];
+            }
+            s_scores[(size_t)warp_id * seq_len + j] = acc * scale;
+        }
+        __syncthreads();
+    }
+
+    // ─── Phase 2/3 — per-warp parallel max + exp + sum (each warp owns its q_head) ──
+    float* my_scores = s_scores + (size_t)warp_id * seq_len;
+
+    float local_max = -INFINITY;
+    for (int j = lane; j < visible; j += ATTN_V2_WARP_SIZE) {
+        local_max = fmaxf(local_max, my_scores[j]);
+    }
+    const float warp_max = rf_v1_warp_reduce_max(local_max);
+
+    float local_sum = 0.0f;
+    for (int j = lane; j < visible; j += ATTN_V2_WARP_SIZE) {
+        const float e = expf(my_scores[j] - warp_max);
+        my_scores[j] = e;
+        local_sum += e;
+    }
+    const float warp_sum = rf_v1_warp_reduce_sum(local_sum);
+    const float inv_sum = 1.0f / warp_sum;
+
+    // ─── Phase 4 — per-tile cooperative V-load + per-warp accumulate ──
+    // Output accumulator: each lane holds head_dim/32 elements (head_dim=128 → 4).
+    constexpr int OUT_PER_LANE_MAX = 8;        // covers head_dim up to 256
+    float out_acc[OUT_PER_LANE_MAX];
+    #pragma unroll
+    for (int i = 0; i < OUT_PER_LANE_MAX; ++i) out_acc[i] = 0.0f;
+    const int out_per_lane = (head_dim + ATTN_V2_WARP_SIZE - 1) / ATTN_V2_WARP_SIZE;
+
+    // Need to sync after Phase 2/3 wrote to s_scores AND before reusing s_v_tile.
+    __syncthreads();
+
+    for (int tile = 0; tile < n_tiles; ++tile) {
+        const int j_start = tile * ATTN_V2_TILE_KV;
+        const int tile_len = min(ATTN_V2_TILE_KV, visible - j_start);
+
+        // Cooperatively load V-rows for this tile.
+        for (int idx = tid; idx < tile_len * head_dim; idx += blockDim.x) {
+            const int row = idx / head_dim;
+            const int d   = idx - row * head_dim;
+            s_v_tile[row * head_dim + d] =
+                v[(size_t)(j_start + row) * kv_stride + kv_head * head_dim + d];
+        }
+        __syncthreads();
+
+        // Each warp accumulates score × V into its lane-strided output buffer.
+        for (int j_local = 0; j_local < tile_len; ++j_local) {
+            const float w_score = my_scores[j_start + j_local] * inv_sum;
+            #pragma unroll
+            for (int oi = 0; oi < OUT_PER_LANE_MAX; ++oi) {
+                const int d = lane + oi * ATTN_V2_WARP_SIZE;
+                if (d < head_dim) {
+                    out_acc[oi] += w_score * s_v_tile[j_local * head_dim + d];
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    // Write-back. Each lane writes its own head_dim/32 outputs.
+    float* out_vec = output + (size_t)query_pos * q_stride + q_head * head_dim;
+    #pragma unroll
+    for (int oi = 0; oi < OUT_PER_LANE_MAX; ++oi) {
+        const int d = lane + oi * ATTN_V2_WARP_SIZE;
+        if (d < head_dim) {
+            out_vec[d] = out_acc[oi];
+        }
+    }
+
+    (void)s_red;  // currently unused — reserved for future cross-warp reductions.
+}
+
+extern "C" hipError_t rocmforge_launch_attention_prefill_v2(
+    const float* q,
+    const float* k,
+    const float* v,
+    float*       output,
+    int seq_len,
+    int num_heads,
+    int num_kv_heads,
+    int head_dim,
+    float scale,
+    hipStream_t stream)
+{
+    if (num_heads <= 0 || num_kv_heads <= 0 || head_dim <= 0 || seq_len <= 0)
+        return hipErrorInvalidValue;
+    if ((num_heads % num_kv_heads) != 0) return hipErrorInvalidValue;
+
+    const int gqa_ratio = num_heads / num_kv_heads;
+    // Caller is expected to have filtered already, but a defensive
+    // bound here keeps the kernel within its LDS budget.
+    if (gqa_ratio < 2 || gqa_ratio > 8) return hipErrorInvalidValue;
+    if (head_dim > 256) return hipErrorInvalidValue; // OUT_PER_LANE_MAX cap
+
+    const size_t scores_floats = (size_t)gqa_ratio * (size_t)seq_len;
+    const size_t kv_tile_floats = (size_t)ATTN_V2_TILE_KV * (size_t)head_dim;
+    const size_t reduce_floats  = (size_t)gqa_ratio;
+    const size_t smem = (scores_floats + 2 * kv_tile_floats + reduce_floats)
+                        * sizeof(float);
+    // 64 KiB hardware budget; leave headroom under 60 KiB to avoid
+    // edge-case occupancy = 0.
+    if (smem > 60 * 1024) return hipErrorInvalidValue;
+
+    const int threads = gqa_ratio * ATTN_V2_WARP_SIZE;
+    dim3 grid(num_kv_heads, seq_len, 1);
+    rf_v1_attention_prefill_v2_kernel<<<grid, threads, smem, stream>>>(
+        q, k, v, output, seq_len, num_heads, num_kv_heads, head_dim,
+        gqa_ratio, scale);
+    return hipGetLastError();
+}

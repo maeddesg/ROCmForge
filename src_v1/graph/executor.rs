@@ -55,7 +55,9 @@ use super::super::backend::gpu::hip_ffi::{
 };
 use super::super::backend::gpu::quantize::{rocmforge_launch_quantize_q8_1, BlockQ81, QK8_1};
 use super::super::backend::gpu::wmma::{
-    rocmforge_launch_mmq_q4_k, rocmforge_launch_quantize_q8_1_mmq,
+    rocmforge_launch_mmq_q4_k, rocmforge_launch_mmq_q4_k_1w,
+    rocmforge_launch_mmq_q6_k, rocmforge_launch_mmq_q6_k_1w,
+    rocmforge_launch_quantize_q8_1_mmq,
     rocmforge_launch_wmma_gemm_q4_0_fp16, rocmforge_launch_wmma_gemm_q4_0_fp8,
     rocmforge_launch_wmma_gemm_q4_k_fp16, rocmforge_launch_wmma_gemm_q4_k_fp8,
     rocmforge_launch_wmma_gemm_q6_k_fp16, rocmforge_launch_wmma_gemm_q6_k_fp8,
@@ -2553,13 +2555,22 @@ impl<'m> GraphExecutor<'m> {
         let k_i = k as i32;
         let stream = self.stream.raw();
 
-        // Integer-WMMA MMQ opt-in path (Q4_K + FP16 precision only).
-        // Pre-quantises the FP32 activation tile into block_q8_1_mmq and
-        // dispatches the integer-WMMA kernel. Alignment requirements
-        // (M % 16, N % 16, K % 256) are already satisfied by the prefill
-        // padding (M to 64, N/K Qwen3 shapes) so no extra guards needed.
+        // Integer-WMMA MMQ opt-in path. Q4_K is unconditionally
+        // eligible when the flag is on; Q6_K is opt-out via
+        // `ROCMFORGE_DISABLE_PREFILL_MMQ_Q6K=1` because Schritt 6
+        // measured Q6_K-MMQ at ~8 % slower than the FP16-WMMA path
+        // (kernel-level) and ~+12 ms E2E. Default is Q6_K via FP16
+        // until further optimisation; the env flag exists for A/B.
+        let mmq_q6k_enabled = std::env::var("ROCMFORGE_PREFILL_MMQ_Q6K")
+            .ok()
+            .as_deref() == Some("1");
+        let mmq_eligible = match weight.format {
+            GgmlType::Q4_K => true,
+            GgmlType::Q6_K => mmq_q6k_enabled,
+            _ => false,
+        };
         if self.prefill_mmq_enabled
-            && weight.format == GgmlType::Q4_K
+            && mmq_eligible
             && self.prefill_precision == PrefillPrecision::Fp16
             && (m % 16) == 0 && (n % 16) == 0 && (k % 256) == 0
         {
@@ -2582,16 +2593,38 @@ impl<'m> GraphExecutor<'m> {
                 )
             };
             check(rc, "prefill quantize_q8_1_mmq")?;
+            // Diagnostic: ROCMFORGE_PREFILL_MMQ_1W=1 selects the
+            // 1-warp parity reference instead of the 4-warp production
+            // kernel. Used for honest A/B perf comparison.
+            let use_1w =
+                std::env::var("ROCMFORGE_PREFILL_MMQ_1W").ok().as_deref() == Some("1");
             let rc = unsafe {
-                rocmforge_launch_mmq_q4_k(
-                    weights as *const core::ffi::c_void,
-                    mmq_buf.as_ptr(),
-                    output,
-                    m_i, n_i, k_i,
-                    stream,
-                )
+                match (weight.format, use_1w) {
+                    (GgmlType::Q4_K, false) => rocmforge_launch_mmq_q4_k(
+                        weights as *const core::ffi::c_void,
+                        mmq_buf.as_ptr(), output, m_i, n_i, k_i, stream,
+                    ),
+                    (GgmlType::Q4_K, true) => rocmforge_launch_mmq_q4_k_1w(
+                        weights as *const core::ffi::c_void,
+                        mmq_buf.as_ptr(), output, m_i, n_i, k_i, stream,
+                    ),
+                    (GgmlType::Q6_K, false) => rocmforge_launch_mmq_q6_k(
+                        weights as *const core::ffi::c_void,
+                        mmq_buf.as_ptr(), output, m_i, n_i, k_i, stream,
+                    ),
+                    (GgmlType::Q6_K, true) => rocmforge_launch_mmq_q6_k_1w(
+                        weights as *const core::ffi::c_void,
+                        mmq_buf.as_ptr(), output, m_i, n_i, k_i, stream,
+                    ),
+                    _ => unreachable!("mmq_eligible already filtered"),
+                }
             };
-            return check(rc, "prefill mmq_q4_k");
+            let label = match weight.format {
+                GgmlType::Q4_K => "prefill mmq_q4_k",
+                GgmlType::Q6_K => "prefill mmq_q6_k",
+                _ => "prefill mmq_unknown",
+            };
+            return check(rc, label);
         }
 
         let rc = unsafe {

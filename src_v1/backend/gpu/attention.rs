@@ -50,6 +50,44 @@ extern "C" {
         stream: hipStream_t,
     ) -> hipError_t;
 
+    /// P0.3 Fix-1-only — same grid as `_prefill`, but Phase 2/3 of the
+    /// softmax run as warp-strided parallel reduce instead of single-
+    /// thread loops. Used for A/B isolation.
+    pub fn rocmforge_launch_attention_prefill_v2_softmax(
+        q: *const f32,
+        k: *const f32,
+        v: *const f32,
+        output: *mut f32,
+        seq_len: i32,
+        num_heads: i32,
+        num_kv_heads: i32,
+        head_dim: i32,
+        scale: f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
+    /// P0.3 combined v2 — Fix 1 + Fix 2. Grid is
+    /// `dim3(num_kv_heads, seq_len)` with `gqa_ratio` warps per block;
+    /// each warp owns one of the gqa-sharing q_heads. K/V are tiled
+    /// into LDS (TILE_KV=16 rows) so the gqa_ratio q_heads share a
+    /// single global-memory read per K/V row. Caller must pass
+    /// `num_heads % num_kv_heads == 0` AND
+    /// `2 ≤ gqa_ratio ≤ 8`; outside that range the launcher returns
+    /// `hipErrorInvalidValue` and the caller should fall back to
+    /// `_prefill` or `_prefill_v2_softmax`.
+    pub fn rocmforge_launch_attention_prefill_v2(
+        q: *const f32,
+        k: *const f32,
+        v: *const f32,
+        output: *mut f32,
+        seq_len: i32,
+        num_heads: i32,
+        num_kv_heads: i32,
+        head_dim: i32,
+        scale: f32,
+        stream: hipStream_t,
+    ) -> hipError_t;
+
     /// Append one token's K and V vectors into the cache at `pos`.
     /// Both source buffers are `[num_kv_heads × head_dim]`.
     pub fn rocmforge_launch_kv_cache_append(
