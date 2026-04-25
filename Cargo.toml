@@ -8,9 +8,9 @@ members = [
 
 [package]
 name = "rocmforge"
-version = "0.3.0"
+version = "1.0.0"
 edition = "2021"
-description = "AMD-first LLM inference engine for Qwen2.5, Qwen3, and Llama-3.1 on RDNA 4"
+description = "AMD-first LLM inference engine for Qwen3 and related GGUF Q4_K_M models on RDNA 4"
 
 [dependencies]
 # GGUF loading
@@ -519,6 +519,30 @@ required-features = ["v1", "gpu"]
 [[test]]
 name = "v1_mmq_q4_k_scaleup_test"
 path = "tests_v1/mmq_q4_k_scaleup_test.rs"
+required-features = ["v1", "gpu"]
+
+# P0.2 MMQ-Port Step 5 — multi-warp scale-up.
+# Parity 4W vs 1W on identical inputs (proves the warp-id offset is the
+# only change), 4W vs CPU on Qwen3 shapes, M-boundary correctness for
+# non-multiple-of-64 M, and isolated-kernel perf comparison.
+[[test]]
+name = "v1_mmq_multiwarp_test"
+path = "tests_v1/mmq_multiwarp_test.rs"
+required-features = ["v1", "gpu"]
+
+# P0.2 MMQ-Port Step 6 — Q6_K integer-WMMA port.
+# Q6_K dequant correctness (ql+qh→signed int8), 4W vs 1W bit-parity,
+# parity vs FP32 CPU reference and the existing FP16-WMMA Q6_K kernel.
+[[test]]
+name = "v1_mmq_q6_k_test"
+path = "tests_v1/mmq_q6_k_test.rs"
+required-features = ["v1", "gpu"]
+
+# P0.3 Attention v2 — multi-thread softmax + GQA-LDS-sharing.
+# Parity v2 vs v1, causal mask, GQA equivalence, dynamic gqa_ratio, perf.
+[[test]]
+name = "v1_attention_v2_test"
+path = "tests_v1/attention_v2_test.rs"
 required-features = ["v1", "gpu"]
 
 # v1.0 inference CLI entry point (Phase 1: --list-tensors only).

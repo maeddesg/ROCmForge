@@ -1,248 +1,183 @@
-# ROCmForge
+# ROCmForge v1.0
 
-GPU-accelerated LLM inference engine for AMD GPUs, written in Rust
-with hand-tuned HIP/C++ WMMA (Wave Matrix Multiply-Accumulate) kernels
-for RDNA 4.
+GPU-accelerated LLM inference engine for AMD RDNA 4 (RX 9070 XT, gfx1201). Written in Rust with hand-tuned HIP/C++ matrix-core kernels for GGUF Q4_K_M models, optimised for single-batch decode throughput on consumer GPUs.
 
 ## Acknowledgement
 
-This project builds on the foundational work of
-[oldnordic](https://github.com/oldnordic/ROCmForge). Without his
-original ROCmForge implementation — the model loader, the CPU
-inference path, the GGUF parser, and the overall architecture — none
-of the WMMA matrix-core optimisations, the multi-model support, or
-the interactive chat CLI would have been possible. Thank you for
-making this project a reality.
+This project builds on the foundational work of [oldnordic](https://github.com/oldnordic/ROCmForge). Without his original ROCmForge implementation — model loader, CPU inference path, GGUF parser, and overall architecture — none of the v1.0 work (matrix-core optimisations, multi-model chat, integer-WMMA prefill) would have been possible. Thank you for making this project a reality.
 
 ---
 
-First open-source project to bypass hipBLAS/Tensile on gfx1201 with
-direct matrix-core utilisation. Supports Qwen2.5 (Q4_0), Qwen3, and
-Llama-3.1 (Q4_K_M) GGUFs with interactive chat, streaming output, and
-speculative decoding (opt-in).
+## Performance (v1.0.0)
 
-- [Install](INSTALL.md)
-- [CLI guide](docs/cli-guide.md)
-- [Changelog](CHANGELOG.md)
+Qwen3-8B Q4_K_M on AMD Radeon RX 9070 XT (gfx1201, RDNA 4), ROCm 7.2:
+
+| Engine | Decode tok/s | Prefill tok/s (real prompt 542 tok) | Long-prompt stability (pp ≥ 2048) |
+|---|---:|---:|:---|
+| **ROCmForge v1.0** | **96.2** | ~1260 | limited by 1024-token max_seq plan |
+| llama.cpp ROCm (build `23b8cc4`) | 87.5 | ~3700 | regression at pp=2048, no data pp=4096+ |
+| llama.cpp Vulkan (build `23b8cc4`) | 114.2 | ~4300 | stable through pp=16384 |
+
+ROCmForge **leads ROCm-backend** for decode (+10 %) on this hardware. **Vulkan is the fastest backend overall** today and remains the recommended choice if absolute throughput is the only criterion. ROCmForge's purpose is research and learning around RDNA 4 LLM inference, with measured competitive decode against the ROCm reference path.
+
+Detailed triple-benchmark: [`results/phase3_vulkan_vs_rocm_benchmark.md`](results/phase3_vulkan_vs_rocm_benchmark.md).
+
+## Quick-Start
+
+### Prerequisites
+
+- Rust 1.75+ (`rustup` recommended)
+- ROCm 7.2+ with `hipcc` and `rocm-smi`
+- AMD GPU: RDNA 4 (RX 9070 XT validated, gfx1201). Other RDNA generations are not actively tested in this release.
+- Linux, ≥16 GB RAM, ≥16 GB VRAM for 8B models
+- See [`INSTALL.md`](INSTALL.md) for distribution-specific notes (Arch / Ubuntu / Fedora).
+
+### Build
+
+```bash
+git clone https://github.com/maeddesg/ROCmForge.git
+cd ROCmForge
+cargo build --release --features "v1 gpu" --bin rocmforge-v1
+```
+
+### Download a model
+
+Recommended: Qwen3-8B Q4_K_M (~4.7 GB, fully validated):
+
+```bash
+mkdir -p ~/models
+hf download Qwen/Qwen3-8B-GGUF Qwen3-8B-Q4_K_M.gguf --local-dir ~/models
+```
+
+### Run
+
+```bash
+# Single prompt with greedy decode + Integer-WMMA prefill:
+ROCMFORGE_PREFILL_MMQ=1 ./target/release/rocmforge-v1 \
+  --model ~/models/Qwen3-8B-Q4_K_M.gguf \
+  --prompt "Explain what a mutex is."
+
+# Interactive chat REPL (KV-cache resets between turns in v1):
+ROCMFORGE_PREFILL_MMQ=1 ./target/release/rocmforge-v1 \
+  --model ~/models/Qwen3-8B-Q4_K_M.gguf \
+  --interactive
+
+# 15-prompt benchmark suite + Markdown report:
+ROCMFORGE_PREFILL_MMQ=1 ./target/release/rocmforge-v1 \
+  --model ~/models/Qwen3-8B-Q4_K_M.gguf \
+  --inference-test
+```
 
 ## Features
 
-- **WMMA matrix-core acceleration** — hand-written RDNA 4 WMMA kernels
-  for prefill GEMM (Q4_0, Q4_1, Q4_K) and FlashAttention (online softmax,
-  GQA, causal masking). Bypasses hipBLAS/Tensile which lacks gfx1201
-  matrix-core support in ROCm 7.2.
-- **Q4_K_M quantisation support** — industry-standard K-quant format
-  with hierarchical scale/min unpacking, super-block-aware nibble
-  layout, and a fused Q4_K gate+up+SwiGLU decode kernel.
-- **Multi-model, multi-architecture** — Qwen2.5, Qwen3, and Llama-3.1
-  load from the same binary. GQA ratio, RoPE base, rope_freqs scaling,
-  per-head Q/K RMSNorm, norm epsilon, and chat templates are all
-  auto-configured from GGUF metadata.
-- **Llama-3 tokeniser** — GPT-4-style BPE pre-tokeniser with 7/7 token
-  parity against llama.cpp on Meta-Llama-3.1-8B-Instruct.
-- **Interactive chat CLI** — multi-turn conversations with streaming
-  output, per-architecture chat templates, session statistics, slash
-  commands, Ctrl+C to interrupt generation.
-- **Speculative decoding** (opt-in) — 0.5B draft + 7B target with
-  configurable depth. Currently slower than greedy on most prompt
-  types (acceptance rate ~54 % median, break-even needs ~80 %).
-- **Arbitrary prompt lengths** — WMMA kernels handle any `seq_len ≥ 1`
-  via automatic padding to 64-token boundaries.
-- **Structured logging** — `RUST_LOG=debug` shows kernel dispatch
-  decisions, `RUST_LOG=trace` shows per-layer timing.
-- **ROCm upgrade validation** — built-in benchmark harness with an
-  automatic diff tool for safe ROCm version upgrades.
-- **CPU fallback path** — pure-Rust CPU backend with AVX-512 VNNI for
-  debugging and zero-GPU environments. Not intended for production.
+- **Token-by-token streaming** in single-prompt and interactive modes.
+- **`<think>`-tag filtering** for Qwen3 reasoning models (on by default; `--show-think` displays them inline).
+- **FP8 KV-cache** (`ROCMFORGE_KV_FP8=1`) — 4× context length at the same VRAM, speed-neutral.
+- **Integer-WMMA Q4_K prefill** on gfx1201 — `wmma_i32_16x16x16_iu8_w32_gfx12` intrinsic instead of FP16-WMMA. Ports llama.cpp's MMQ path; **+28.7 % E2E prefill** on the 15-prompt suite (583 → 751 tok/s aggregate). Opt-in via `ROCMFORGE_PREFILL_MMQ=1`.
+- **HIP-Graph capture+replay** for the decode loop, dispatched automatically by the self-tuning runtime.
+- **Self-tuning runtime** — UCB1 multi-armed bandit chooses between MMVQ and standard GEMV per layer position; converges within ~15 prompts.
+- **Quality monitor** — z-score drift detection on decode-logit statistics, calibrated against a reference run.
+- **Model introspection** — SNR-risk score over embedding-quantisation noise, critical-token enumeration, automatic sampling override (`repeat_penalty=1.1`) when SNR < 2.0 to avoid repetition loops on low-SNR models.
+- **Chat-template disambiguation** for 7 variants (Qwen2/Qwen3/Llama-2/Llama-3/MistralV3/Gemma/Generic) resolved at load time via `(vocab_size, bos_id)`. The GGUF `general.architecture = "llama"` field alone is ambiguous (shared by Llama-2, Llama-3, Mistral, DeepSeek-distill).
 
-## Performance (v0.3.0)
+## CLI reference
 
-Measured on AMD Radeon RX 9070 XT (gfx1201, RDNA 4), ROCm 7.2.2. All
-numbers are median of 3 runs at greedy decode (temperature = 0.0).
+```
+Usage: rocmforge-v1 --model <path.gguf> [command]
 
-### Qwen2.5-7B Q4_0 (reference model, unchanged)
+Commands:
+  --list-tensors                     GGUF tensor inventory (CPU only)
+  --prompt <text>                    Single-prompt generation
+  --inference-test                   Run 15-prompt validation suite
+  --interactive                      REPL chat loop
 
-| Prompt length (pp) | ROCmForge | llama.cpp ROCm | Ratio |
-|-------------------:|----------:|---------------:|------:|
-| pp64               |       799 |          2,912 | 0.27× |
-| pp128              |     1,132 |          3,966 | 0.29× |
-| pp256              | **1,482** |          4,951 | 0.30× |
-| pp512              |     1,689 |          5,158 | 0.33× |
-| Decode 128 (tok/s) |       102 |            121 | 0.84× |
+Options:
+  --max-tokens <N>                   Generation cap (default 256)
+  --suite <path>                     Suite JSON for --inference-test
+  --output <path>                    Report file for --inference-test
+  --show-introspection               Print ModelProfile summary
+  --show-quality                     Calibrate + print Quality-Monitor report
+  --show-tuning                      Attach self-tuning runtime + print Bandit
+  --show-think                       Show <think> tags instead of filtering
+  --show-all                         Equivalent to --show-introspection
+                                     --show-quality --show-tuning
+```
 
-### Qwen3-8B Q4_K_M (+194 % prefill, +52 % decode vs v0.2.0)
+Full CLI guide: [`docs/cli-guide.md`](docs/cli-guide.md).
 
-| Prompt length (pp) | v0.2.0 | **v0.3.0** | llama.cpp | Ratio |
-|-------------------:|-------:|-----------:|----------:|------:|
-| pp64               |    388 |        744 |     2,000 | 0.37× |
-| pp128              |    447 |      1,068 |     2,657 | 0.40× |
-| pp256              |    470 |  **1,381** |     3,661 | 0.38× |
-| pp512              |    472 |      1,579 |     3,756 | 0.42× |
-| Decode 128 (tok/s) |   29.9 |   **43.3** |        87 | 0.50× |
+## Environment flags
 
-### Llama-3.1-8B-Instruct Q4_K_M (+199 % prefill, +49 % decode vs v0.2.0)
+| Flag | Effect |
+|---|---|
+| `ROCMFORGE_PREFILL_MMQ=1` | Integer-WMMA Q4_K prefill (**recommended**, +28.7 % E2E) |
+| `ROCMFORGE_PREFILL_MMQ_Q6K=1` | Use integer-MMQ for Q6_K too. Currently ~9 % slower than the FP16-WMMA Q6_K path on RDNA 4; opt-in for future LDS-staging optimisation work |
+| `ROCMFORGE_PREFILL_MMQ_1W=1` | Diagnostic: 1-warp variant of the MMQ kernel instead of the 4-warp default (for A/B comparison) |
+| `ROCMFORGE_KV_FP8=1` | FP8 KV-cache (4× context length, speed-neutral) |
 
-| Prompt length (pp) | v0.2.0 | **v0.3.0** | llama.cpp | Ratio |
-|-------------------:|-------:|-----------:|----------:|------:|
-| pp64               |    400 |        784 |     2,198 | 0.36× |
-| pp128              |    457 |      1,117 |     2,975 | 0.38× |
-| pp256              |    475 |  **1,420** |     3,925 | 0.36× |
-| pp512              |    471 |      1,619 |     3,922 | 0.41× |
-| Decode 128 (tok/s) |   30.5 |   **44.3** |        93 | 0.48× |
+## Supported models
 
-**What changed in v0.3.0.** Phase 8b closed two bottlenecks that dominated
-Q4_K_M performance. A new **Q6_K WMMA prefill kernel** replaces the
-257-dispatch GEMV loop that used to eat 82 % of the pp256 budget on
-Qwen3/Llama-3.1 (their `attn_v` and `ffn_down` projections are stored
-as Q6_K inside the Q4_K_M mixture). A new **Q4_K Q8-inline GEMV family**
-quantises the activation vector to Q8_0 once per token and runs the
-dot-product as integer MAC — 3.3× faster QKV, 3.8× faster O-projection,
-with the correct dual accumulator needed for Q4_K's affine `dmin` term.
-The Q4_0 path is untouched. Full per-op profiling in
-[`profiling/results/phase8_q4_k_m_analysis.md`](profiling/results/phase8_q4_k_m_analysis.md).
+| Model | Status | Decode tok/s | Notes |
+|---|---|---:|---|
+| Qwen3-8B Q4_K_M | ✅ Full | 96.2 | 15/15 coherent, recommended |
+| Qwen3-8B Q4_K_M (FP8 KV) | ✅ Full | ~96 | with `ROCMFORGE_KV_FP8=1` |
+| Llama-3.1-8B-Instruct Q4_K_M | ⚠ Partial | ~60 | Loads + decodes, instruction-following degraded (see Limitations §2) |
+| DeepSeek-R1-Distill-Llama-8B Q4_K_M | ⚠ Partial | ~60 | Same SNR class as Llama-3.1 |
+| Mistral-7B-Instruct-v0.3 Q4_K_M | ⚠ Tokenizer | ~60 | Loads with chat-template fix; semantically wrong without SentencePiece tokenizer |
+| Gemma-3 / "Gemma-4-E4B" Q4_K_M | ❌ Architecture | — | Zone-A arena overflow + unsupported tensor roles (PLE, hybrid attention) |
+| Qwen2.5 (any size) | ❌ Quant format | — | Embedding table in Q5_0 (not supported); Attention-bias tensors not yet wired into the graph builder |
 
-### Real-world prompts — Qwen2.5-7B Q4_0 (15 prompts, 19–41 tokens, 128 generated)
+Compatibility matrix details: [`results/phase3_multi_model_compatibility.md`](results/phase3_multi_model_compatibility.md).
 
-| Metric                | ROCmForge | llama.cpp | Ratio |
-|-----------------------|----------:|----------:|------:|
-| Prefill (tok/s)       |     493.5 |     525.4 | 0.94× |
-| Time-to-first-token   |     49 ms |     46 ms | 1.07× |
-| Decode (tok/s)        |       102 |       121 | 0.84× |
-| Total wall-clock (ms) |     1,303 |     1,103 | 1.18× |
+## Supported quantisation formats
 
-### Optimisation history
+| Format | Decode GEMV | Prefill GEMM | Status |
+|---|:---:|:---:|---|
+| Q4_K | ✅ MMVQ + standard | ✅ FP16-WMMA + Integer-MMQ | recommended |
+| Q6_K | ✅ MMVQ | ✅ FP16-WMMA (MMQ opt-in, ~9 % slower) | good |
+| Q8_0 | ✅ standard | ✅ FP16-WMMA | supported |
+| Q4_0 | ✅ standard | ✅ FP16-WMMA | supported |
+| Q5_0 | ❌ | ❌ | **not supported** |
 
-| Milestone                                    | Q4_0 prefill pp256 | Q4_0 decode | Q4_K_M prefill pp256 | Q4_K_M decode | Models |
-|----------------------------------------------|-------------------:|------------:|---------------------:|--------------:|:-------|
-| Project start                                |             64    |       82    |          —           |        —      | Qwen2.5 Q4_0 |
-| + WMMA GEMM (Phase 2)                        |             92    |      102    |          —           |        —      | Qwen2.5 Q4_0 |
-| + WMMA Attention (Phase 3)                   |            623    |      102    |          —           |        —      | Qwen2.5 Q4_0 |
-| + Dispatch fixes (Phase 4, v0.1.0)           |        **1,484**  |      102    |          —           |        —      | Qwen2.5 Q4_0 |
-| + Q4_K_M + multi-model (Phase 7, v0.2.0)     |          1,482    |      102    |         470          |      30       | Qwen2.5, Qwen3, Llama-3.1 |
-| **+ Q6_K WMMA + Q4_K Q8-inline (Phase 8b, v0.3.0)** | **1,482**  |  **102**    |      **1,381**       |     **43**    | Qwen2.5, Qwen3, Llama-3.1 |
+## Hardware requirements
 
-Full analyses:
-[`benches/results/phase4_final_analysis.md`](benches/results/phase4_final_analysis.md),
-[`benches/results/phase7_final_analysis.md`](benches/results/phase7_final_analysis.md),
-[`profiling/results/phase8_q4_k_m_analysis.md`](profiling/results/phase8_q4_k_m_analysis.md).
+- **GPU:** AMD RDNA 4 (RX 9070 XT validated, gfx1201). RDNA 3 (gfx1100) referenced in code but not actively tested in v1.0.
+- **VRAM:** ≥16 GB for 8B models (4.7 GB model + KV cache + workspace).
+- **CPU:** x86_64 with AVX2.
+- **RAM:** ≥16 GB.
+- **OS:** Linux (Arch Linux, CachyOS validated).
+- **ROCm:** 7.2+.
 
-### Speculative decoding
+## Known limitations
 
-Implemented but opt-in. Measured honestly on the 15-prompt benchmark it
-is a loss at every prompt in greedy mode: median 72 tok/s at depth=1
-vs. 102 tok/s baseline. Break-even needs α ≈ 80 % on the current verify
-path; best observed is 78 % (`code_03`). Useful only for workloads with
-very high acceptance rates (tightly constrained code, templated output).
+1. **Max context: 1024 tokens** in the default pipeline plan. The attention score-LDS budget supports up to ~12 000 tokens (48 KiB cap, `seq_len × 4 B`), but the Phase-1 buffer planner is conservatively capped at `max_seq = 1024`. Longer prompts must extend that plan; >12 k tokens would require Flash-Attention (v1.1 scope).
+2. **Llama-3.1-8B Q4_K_M instruction-following is degraded.** The model decodes fluent English but does not follow single-turn instructions reliably. Seven root-cause hypotheses were ruled out (embedding SNR, RoPE freq, GQA heads, tied weights, BOS injection, chat-template token splitting, RoPE-NTK ramp). True cause is open. Qwen3-8B Q4_K_M on the same infrastructure works fully — the bug is Llama-3.1-specific. Details: [`results/phase3_llama31_validation.md`](results/phase3_llama31_validation.md).
+3. **Dense models only** — no MoE (Mixtral, DeepSeek-V3, Qwen3-MoE). Routing logic is not implemented.
+4. **No SentencePiece tokenizer.** Mistral and Llama-2 families use the `▁` whitespace marker; ROCmForge implements only GPT-2 / Llama-3 BPE (`Ġ` marker). Mistral loads and decodes but is semantically wrong on real content.
+5. **No sliding-window attention.** Mistral and Gemma-3 local layers need it; not implemented.
+6. **First ~15 prompts have higher latency** while the self-tuning UCB1 bandit explores kernel variants. Subsequent prompts use the converged selection.
+7. **Multi-turn REPL resets the KV-cache between turns** — each turn is treated as a new session. This is a Phase-1 design choice; v1.1 may persist the cache.
+8. **Q5_0 not supported** (neither dequant nor GEMM/GEMV). Affects most small models including the Qwen2.5 family.
+9. **Full-decode HIP graph disabled on RDNA 4** due to a device-pointer stale-read bug in complex graphs ([`hip_graph_device_pointer_bug.md`](hip_graph_device_pointer_bug.md)). Tail-only graph (lm_head + argmax) remains active.
 
-**Note:** speculative decoding is currently wired into the one-shot
-`rocmforge` entry point via `--draft-model`, but `rocmforge chat`
-accepts the flag and ignores it (banner shows standard path). See
-[`docs/cli-guide.md`](docs/cli-guide.md) for details.
+## Architecture
 
-### CPU backend
+ROCmForge is organised around six pillars (see [`docs/v1.0/architecture_v1.2.0-draft.md`](docs/v1.0/architecture_v1.2.0-draft.md) for details):
 
-Pure-Rust with AVX-512 VNNI Q4_0 GEMV on Zen 4. Functional but not
-performance-competitive: Qwen2.5-0.5B ~12 tok/s, Qwen2.5-7B ~0.7 tok/s.
-For production inference, use `--gpu`.
-
-## Compatibility
-
-### Tested ✅
-
-| Component     | Version                            | Notes |
-|---------------|------------------------------------|-------|
-| GPU           | AMD Radeon RX 9070 XT              | gfx1201, RDNA 4, 16 GB VRAM |
-| CPU           | AMD Ryzen 9 7945HX                 | Zen 4, AVX-512 (CPU fallback) |
-| OS            | CachyOS (Arch Linux-based)         | Kernel 7.x |
-| ROCm          | 7.2.1 and 7.2.2                    | Both validated via upgrade diff tool |
-| Model         | Qwen2.5-7B-Instruct Q4_0           | GGUF, mixed 25×Q4_0 + 3×Q4_1 for `ffn_down`; 102 tok/s decode |
-| Model         | **Qwen3-8B Q4_K_M**                | **Q4_K + Q6_K mixed-precision, per-head Q/K RMSNorm, 43 tok/s decode (v0.3.0)** |
-| Model         | **Meta-Llama-3.1-8B-Instruct Q4_K_M** | **Q4_K + Q6_K, rope_freqs 128 k-context scaling, 44 tok/s decode (v0.3.0)** |
-| Draft model   | Qwen2.5-0.5B-Instruct Q4_0         | For speculative decoding (opt-in) |
-| RAM           | 64 GB DDR5                         | |
-
-### Expected to work (untested) ⚠️
-
-| Component             | Notes |
-|-----------------------|-------|
-| Other RDNA 4 GPUs     | RX 9070, RX 9060 XT — same gfx1201 arch, should work |
-| Arch Linux (vanilla)  | Same ROCm packages as CachyOS |
-| Ubuntu 24.04          | ROCm 7.2 officially supported; see [INSTALL.md](INSTALL.md) for notes |
-| Fedora 41+ / RHEL 10  | ROCm 7.2 officially supported; see [INSTALL.md](INSTALL.md) for notes |
-| Other Qwen / LLaMA sizes | Loader is metadata-driven. 14B hits VRAM on 16 GB. 0.5B tested as draft. |
-| Mistral / GLM / Phi / Gemma | Trait table covers these architectures; only Qwen and Llama have been end-to-end validated. |
-
-### Not expected to work ❌
-
-| Component                          | Reason |
-|------------------------------------|--------|
-| RDNA 3 (gfx1100, RX 7900 XTX, etc.)| Kernels use `__builtin_amdgcn_wmma_f32_16x16x16_f16_w32_gfx12`. RDNA 3 uses a different intrinsic format, a different A/B register layout (8 VGPRs instead of 4), and needs lane duplication (lanes 0–15 → 16–31) that gfx12 does not. Porting is feasible but not attempted. |
-| RDNA 2 (gfx1030) and older         | No matrix cores. |
-| CDNA (MI100/MI200/MI300)           | Uses MFMA, not WMMA. Different instruction set. |
-| Intel / NVIDIA GPUs                | HIP/ROCm backend only. |
-| Windows                            | ROCm is Linux-only for consumer GPUs. |
-| Q5_K / Q8_0 prefill                | WMMA kernels implemented for Q4_0, Q4_1, and Q4_K only. Q5_K / Q8_0 fall back to scalar / GEMV kernels. |
-
-## Known issues
-
-- **Q4_K_M decode gap:** Qwen3-8B decode at ~43 tok/s, Llama-3.1-8B at
-  ~44 tok/s vs. llama.cpp's 87 / 93 tok/s (~0.48–0.50×). Post-v0.3.0 the
-  dominant kernel is the fused Q4_K gate+up+SwiGLU with Q8-inline
-  activation (~15 ms / token, ~42 % of budget). It is now LDS-bound
-  rather than ALU-bound; an interleaved/tile variant modelled on the
-  Q4_0 `q8_inline_interleaved_tile4` fastpath is the next lever.
-- **Q4_K_M prefill gap:** pp256 at ~1,381 tok/s (Qwen3) / ~1,420 tok/s
-  (Llama-3.1) vs. llama.cpp 3,661 / 3,925 (~0.36–0.38×). The Q6_K WMMA
-  kernel added in v0.3.0 removed the GEMV-loop fallback; the remaining
-  gap is mostly unfused norm/RoPE orchestration and FP32↔FP16 activation
-  shuttling, same issue as the Q4_0 synthetic-prefill gap below.
-- **Q4_0 decode gap:** 102 tok/s vs. llama.cpp 117–121 tok/s (~0.84×),
-  unchanged since project start. **Fully profiled in Phase 6.** The
-  9.76 ms per-token budget splits: GEMV 77 % (memory-bandwidth-bound
-  and CU-saturated), launch overhead 8–13 % (255 kernel launches per
-  token — exactly the size of the gap to llama.cpp), attention 6 %,
-  everything else 9 %. A fused RMSNorm + Gate + Up + SwiGLU kernel
-  exists but has a latent state-corruption bug that appears from
-  token 2+ when routed into the active decode path — see
-  [`docs/known_issues/fused_norm_gate_up_bug.md`](docs/known_issues/fused_norm_gate_up_bug.md).
-  Full analysis: [`profiling/results/decode_profiling_analysis.md`](profiling/results/decode_profiling_analysis.md).
-- **Synthetic prefill gap at long sequences:** at pp256+ ROCmForge is
-  ~3× slower than llama.cpp. The GEMM path is fully WMMA after Phase 4;
-  the gap is unfused norm/RoPE/embedding orchestration and FP32↔FP16
-  activation shuttling that llama.cpp packs into fewer launches.
-- **Speculative decoding is slower than greedy** on most prompt types.
-  Acceptance rate ~54 % median, below the ~80 % break-even threshold.
-  Works via `--draft-model` in the one-shot CLI; accepted-but-ignored
-  in `rocmforge chat`.
-- **Chat CLI does not persist KV cache between turns:** each turn
-  re-prefills the entire conversation history. Multi-turn TTFT grows
-  with history length (roughly linear in total tokens so far).
-- **Llama-3.1 multi-turn chat produces degraded output.** Single-turn
-  works correctly. Root cause is a position/content-dependent prefill
-  divergence for longer prompts (~50+ tokens). Qwen3 multi-turn works
-  perfectly. Workaround: use Qwen3 for interactive chat, or use
-  Llama-3.1 in single-turn mode with `--no-template`.
-  Tracked in [`docs/known_issues/llama3_multiturn_prefill_bug.md`](docs/known_issues/llama3_multiturn_prefill_bug.md).
-- **Full-decode HIP graph disabled on RDNA 4:** graph replay of
-  device-pointer reads in large graphs (~200+ nodes) returns stale
-  values — see [`hip_graph_device_pointer_bug.md`](hip_graph_device_pointer_bug.md).
-  Tail-only graph (lm_head + argmax) is still active.
-- **rocprofv3 PMC counters hang on gfx1201:** hardware perf-counter
-  capture via `rocprofv3 --pmc` is unstable on gfx1201. Use
-  `RUST_LOG=trace` + `ROCMFORGE_PROFILE_PREFILL_OPS=1` for profiling.
-- **WMMA attention `head_dim == 128` only:** Qwen2.5, LLaMA-2,
-  Mistral are covered. Other head dimensions fall back to the scalar
-  attention kernel.
+1. **Model Introspection** — at load time: SNR-risk over embedding quantisation noise, critical-token identification, architecture detection.
+2. **Computation Graph + Fusion** — IR-based forward pass with Gate+Up+SwiGLU fusion and residual folding.
+3. **Dequant IR** — codegen path for Q4_K/Q6_K kernels specific to gfx1201.
+4. **Self-Tuning Runtime** — UCB1 bandit between MMVQ and standard GEMV per layer position; HIP-graph capture for stabilised decode loop.
+5. **Quality Monitor** — z-score drift detection on logit statistics, calibrated against a reference run.
+6. **Safety & Debug** — VALU-only parity path without WMMA for numerical correctness validation.
 
 ## Documentation
 
-- [`INSTALL.md`](INSTALL.md) — installation (Arch tested, Ubuntu / Fedora notes)
-- [`docs/cli-guide.md`](docs/cli-guide.md) — CLI reference (chat + one-shot, slash commands, env flags)
-- [`CHANGELOG.md`](CHANGELOG.md) — release notes and optimisation history
-- [`benches/results/phase4_final_analysis.md`](benches/results/phase4_final_analysis.md) — Phase 4 final benchmark analysis
-- [`docs/architecture_notes.md`](docs/architecture_notes.md) — RDNA 4 memory pipelining and WMMA details
-- [`docs/spec_decode_milestone_summary.md`](docs/spec_decode_milestone_summary.md) — speculative decoding investigation
+- [`INSTALL.md`](INSTALL.md) — installation notes per distribution
+- [`docs/cli-guide.md`](docs/cli-guide.md) — full CLI reference
+- [`docs/v1.0/architecture_v1.2.0-draft.md`](docs/v1.0/architecture_v1.2.0-draft.md) — architecture overview
+- [`CHANGELOG.md`](CHANGELOG.md) — release notes
+- [`results/`](results/) — per-phase performance reports
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+MIT.

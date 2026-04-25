@@ -1,5 +1,54 @@
 # Changelog
 
+## [1.0.0] — 2026-04-25
+
+Phase 3 — v1.0 release. Integer-WMMA prefill port, Multi-model compatibility scan, Triple-engine benchmark, P0.3 attention investigation. ROCmForge now leads llama.cpp ROCm at decode (96.2 vs 87.5 tok/s on Qwen3-8B Q4_K_M) and trails llama.cpp Vulkan (114.2 tok/s).
+
+### Performance
+
+- **Decode 96.2 tok/s** on Qwen3-8B Q4_K_M (RX 9070 XT). 8 of 15 benchmark prompts now beat llama.cpp ROCm (87.5 tok/s) on the 15-prompt suite.
+- **Prefill +28.7 % E2E** via the Integer-WMMA MMQ port (P0.2 Schritt 4). Q4_K-GEMM kernel time drops from 244.7 ms to 151.5 ms (-37 %) over the 15-prompt benchmark; the Q8_1-MMQ activation quantize adds only 2.86 ms (0.8 %). Aggregate prefill: 583.7 → 751.2 tok/s. Opt-in via `ROCMFORGE_PREFILL_MMQ=1`.
+- **FP8 KV-cache** ships speed-neutral and unlocks 4× the context length for the same VRAM (`ROCMFORGE_KV_FP8=1`).
+
+### Features
+
+- **Integer-WMMA Q4_K prefill kernel** (`hip_kernels_v1/wmma/mmq_q4_k.hip`). Template parameterised on `WARPS_PER_BLOCK ∈ {1, 4}`; the 4-warp variant is production, the 1-warp is kept as a parity reference for `ROCMFORGE_PREFILL_MMQ_1W=1` A/B testing. Uses `wmma_i32_16x16x16_iu8_w32_gfx12` intrinsic; ports llama.cpp's MMQ math (Q4_K nibble extraction with pair-based byte indexing, scale-fixup, K-offset `16*half + 8*call + w` per `mma.cuh:198-220`).
+- **Q6_K integer-WMMA kernel** (`hip_kernels_v1/wmma/mmq_q6_k.hip`) ships as opt-in (`ROCMFORGE_PREFILL_MMQ_Q6K=1`). Currently ~9 % slower than the FP16-WMMA Q6_K path (the latter uses LDS-staged dequant which amortises the more complex ql+qh combine across warps); opt-in is reserved for future LDS-staging work.
+- **Attention-prefill v2 kernels** (multi-thread softmax + GQA-LDS-sharing with K/V tiling) shipped as research code in `hip_kernels_v1/attention/attention.hip` alongside v1. Both are correct but slower than v1 on RDNA 4 — the analysis is in [`results/phase3_p0.3_attention_v2.md`](results/phase3_p0.3_attention_v2.md). v1 remains the default.
+- **Chat-template disambiguation** for 7 variants (Qwen2/Qwen3/Llama-2/Llama-3/MistralV3/Gemma/Generic) resolved at load time via `(vocab_size, bos_id)`. The GGUF `general.architecture = "llama"` field alone is ambiguous (shared by Llama-2, Llama-3, Mistral, DeepSeek-distill).
+- **Arch-aware sampling** — automatic `repeat_penalty=1.1` fallback when `ModelProfile.snr_risk_score < 2.0`. Stops repetition loops on low-SNR models like Llama-3.1 without breaking output on high-SNR Qwen3.
+- **Token-by-token streaming** with `<think>`-tag filtering for Qwen3 reasoning (`--show-think` to disable filtering).
+
+### Models tested
+
+| Model | Status | Notes |
+|---|---|---|
+| Qwen3-8B Q4_K_M | ✅ Full (15/15 coherent) | recommended |
+| Llama-3.1-8B-Instruct Q4_K_M | ⚠ Partial | loads + decodes; instruction-following degraded — 7 root-cause hypotheses ruled out, true cause open |
+| DeepSeek-R1-Distill-Llama-8B | ⚠ Partial | same SNR class as Llama-3.1 |
+| Mistral-7B-Instruct-v0.3 | ⚠ Tokenizer | loads with chat-template fix; SentencePiece tokenizer needed for full coherence |
+| Gemma-3 / "Gemma-4-E4B" | ❌ Architecture | unsupported tensor roles (PLE, hybrid attention) |
+| Qwen2.5 (any size) | ❌ Quant format | embedding table in Q5_0; attention-bias tensors not wired through graph builder |
+
+### Honest negatives — investigations that didn't ship
+
+Documented for future reference:
+
+- **P0.2 Schritt 5b — VGPR reduction.** Reduced Q4_K-MMQ kernel from 152 to 120 VGPR via accumulator scoping ("Strategy C"). Result: kernel was net 52 % slower despite hitting the VGPR target — the kernel is WMMA-issue-bound, not occupancy-latency-bound on RDNA 4. Reverted. [`results/phase3_p0.2_step5b_vgpr_reduction.md`](results/phase3_p0.2_step5b_vgpr_reduction.md).
+- **P0.2 Schritt 6 — Q6_K MMQ port.** Mathematically correct (4W vs 1W bit-identical) but 9 % slower than FP16-WMMA Q6_K because the FP16 path uses LDS-staged dequant that ROCmForge's MMQ does not yet replicate. Shipped as opt-in. [`results/phase3_p0.2_step6_q6k_mmq.md`](results/phase3_p0.2_step6_q6k_mmq.md).
+- **P0.3 — Attention-prefill v2.** Two new kernels (multi-thread softmax / GQA-LDS-sharing with K/V tiling) implemented and verified bit-correct, but measure neutral (softmax-only) and 65 % slower (combined) than v1 — v1's "single-thread Phase 2/3" was already hidden by wave-level occupancy across the 18 432-block grid, and the GQA L2-cache hit rate was already absorbing most of the redundant K/V reads. Default unchanged. [`results/phase3_p0.3_attention_v2.md`](results/phase3_p0.3_attention_v2.md).
+
+Common lesson: on RDNA 4, "obvious" restructurings (reducing single-thread bottlenecks, reducing VGPR pressure, adding LDS sharing) often regress when the original code was already saturating the WMMA pipeline / wave occupancy / L2 cache. Future optimisations should target structural bandwidth wins (Flash-Attention for M > 2048; Q6_K LDS-staging in the integer path) rather than micro-restructurings.
+
+### Known limitations (carried over and new)
+
+- Max context: 1024 tokens in the default plan (12 k hardware cap, but planner is conservative).
+- Llama-3.1 instruction-following degraded at Q4_K (root cause open after 7 hypotheses).
+- Dense models only (no MoE).
+- No SentencePiece tokenizer (Mistral, Llama-2).
+- No sliding-window attention.
+- Q5_0 not supported.
+
 ## [0.3.0] — 2026-04-19
 
 Phase 8b — Q4_K_M performance milestone. Both prefill and decode move
